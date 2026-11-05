@@ -1,0 +1,24 @@
+{
+  "name": "topsqill-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Topsqill.ai web app: Next.js, talking only to the Topsqill.ai API",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^16.4.3",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@types/react": "19.0.7",
+    "@types/react-dom": "19.0.3",
+    "typescript": "5.7.2"
+  }
+}

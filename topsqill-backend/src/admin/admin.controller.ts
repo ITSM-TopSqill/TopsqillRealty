@@ -1,0 +1,75 @@
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
+import { IsOptional, IsString, IsIn, IsBoolean, IsInt } from "class-validator";
+import { Type } from "class-transformer";
+import { AdminService } from "./admin.service";
+import { AdminGuard } from "../auth/jwt.guard";
+import { CurrentUser, AuthUser } from "../auth/public.decorator";
+
+class DecideDto {
+  @IsIn(["approved", "rejected", "info"]) decision: "approved" | "rejected" | "info";
+  @IsOptional() @IsString() note?: string;
+}
+class ModerateDto {
+  @IsIn(["post", "comment", "listing"]) targetType: string;
+  @IsString() targetId: string;
+  @IsBoolean() hide: boolean;
+  @IsOptional() @IsString() reason?: string;
+}
+class MembersDto {
+  @IsOptional() @IsString() search?: string;
+  @IsOptional() @IsString() type?: string;
+  @IsOptional() @IsString() status?: string;
+  @IsOptional() @Type(() => Number) @IsInt() limit?: number;
+  @IsOptional() @Type(() => Number) @IsInt() offset?: number;
+}
+class StatusDto {
+  @IsIn(["active", "suspended", "removed"]) status: "active" | "suspended" | "removed";
+  @IsOptional() @IsString() reason?: string;
+}
+
+@ApiTags("admin")
+@ApiBearerAuth()
+@UseGuards(AdminGuard)          // every route here is admin-only
+@Controller("v1/admin")
+export class AdminController {
+  constructor(private readonly svc: AdminService) {}
+
+  @Get("overview") @ApiOperation({ summary: "Numbers for the admin dashboard" })
+  overview() { return this.svc.overview(); }
+
+  @Get("verifications")
+  queue(@Query("status") status?: string) { return this.svc.verificationQueue(status ?? "pending"); }
+
+  @Post("verifications/:id/review") @ApiOperation({ summary: "Run the automatic risk checks" })
+  review(@Param("id") id: string) { return this.svc.riskCheck(id); }
+
+  @Post("verifications/:id/decide")
+  decide(@CurrentUser() admin: AuthUser, @Param("id") id: string, @Body() dto: DecideDto) {
+    return this.svc.decide(admin.id, id, dto.decision, dto.note);
+  }
+
+  @Get("reports")
+  reports(@Query("status") status?: "open" | "actioned" | "dismissed") { return this.svc.reportQueue(status ?? "open"); }
+
+  @Post("moderate")
+  moderate(@CurrentUser() admin: AuthUser, @Body() dto: ModerateDto) {
+    return this.svc.moderate(admin.id, dto.targetType, dto.targetId, dto.hide, dto.reason);
+  }
+
+  @Get("members")
+  members(@Query() q: MembersDto) { return this.svc.members(q); }
+
+  @Post("members/:id/status")
+  setStatus(@CurrentUser() admin: AuthUser, @Param("id") id: string, @Body() dto: StatusDto) {
+    return this.svc.setMemberStatus(admin.id, id, dto.status, dto.reason);
+  }
+
+  @Post("members/:id/verify/:field")
+  verify(@CurrentUser() admin: AuthUser, @Param("id") id: string, @Param("field") field: "kyc" | "rera", @Body() body: { value: boolean }) {
+    return this.svc.setVerified(admin.id, id, field, body?.value !== false);
+  }
+
+  @Get("audit")
+  audit() { return this.svc.auditTrail(); }
+}

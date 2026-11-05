@@ -1,0 +1,46 @@
+# Local development: Postgres, Redis, API and worker with one command.
+# Developers who prefer not to use Docker can run `npm run dev` against these two services.
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: topsqill
+      POSTGRES_PASSWORD: topsqill
+      POSTGRES_DB: topsqill
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U topsqill"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    ports: ["6379:6379"]
+    volumes: ["redisdata:/data"]
+
+  api:
+    build: { context: ., dockerfile: docker/Dockerfile.api }
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://topsqill:topsqill@db:5432/topsqill
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: local-development-secret-change-me
+    ports: ["8080:8080"]
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+
+  worker:
+    build: { context: ., dockerfile: docker/Dockerfile.worker }
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://topsqill:topsqill@db:5432/topsqill
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: local-development-secret-change-me
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+
+volumes: { pgdata: {}, redisdata: {} }

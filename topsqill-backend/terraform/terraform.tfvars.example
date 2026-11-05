@@ -1,0 +1,17 @@
+project_id  = "topsqill-prod"      # the Project ID from the GCP console, not the display name
+alert_email = "tech@topsqill.ai"
+
+# No domain yet? Set this to false. Cloud Run serves the API on its own
+# https://...run.app URL, and no load balancer or certificate is created.
+# Switch it to true later, add the DNS records, and run terraform apply again.
+use_custom_domain = false
+api_domain        = "api.topsqill.ai"
+cdn_domain        = "cdn.topsqill.ai"
+
+# Small and cheap to start with. Raise these when real traffic arrives.
+environment       = "staging"
+db_tier           = "db-custom-1-3840"   # 1 vCPU, 3.75 GB
+redis_gb          = 1
+api_min_instances = 0                    # scales to zero when nobody is using it
+api_max_instances = 8
+worker_max_instances = 2

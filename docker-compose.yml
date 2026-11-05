@@ -1,0 +1,65 @@
+# Everything Topsqill.ai needs, with one command:
+#   docker compose up
+# Then open http://localhost:3000
+#
+# To use your own PostgreSQL instead, delete the `db` service and point
+# DATABASE_URL at your server (use host.docker.internal rather than localhost).
+services:
+  db:
+    image: postgis/postgis:16-3.4          # PostGIS is needed for "listings near me"
+    environment:
+      POSTGRES_USER: topsqill
+      POSTGRES_PASSWORD: topsqill
+      POSTGRES_DB: topsqill
+    # No host port: the API reaches the database over Docker's own network.
+    # Add ports: ["55432:5432"] if you want to connect with psql or TablePlus.
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U topsqill"]
+      interval: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    ports: ["6379:6379"]
+    volumes: ["redisdata:/data"]
+
+  api:
+    build: { context: ./topsqill-backend, dockerfile: docker/Dockerfile.api }
+    environment:
+      NODE_ENV: development
+      PORT: 8080
+      DATABASE_URL: postgres://topsqill:topsqill@db:5432/topsqill
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: local-development-secret-change-me
+      # Optional: add your Claude key to turn on the AI features.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports: ["8080:8080"]
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+
+  worker:
+    build: { context: ./topsqill-backend, dockerfile: docker/Dockerfile.worker }
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://topsqill:topsqill@db:5432/topsqill
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: local-development-secret-change-me
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+
+  web:
+    build: { context: ./topsqill-web }
+    environment:
+      NODE_ENV: production
+      API_URL: http://api:8080
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+    ports: ["3000:3000"]
+    depends_on: [api]
+
+volumes: { pgdata: {}, redisdata: {} }

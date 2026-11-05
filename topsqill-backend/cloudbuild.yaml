@@ -1,0 +1,70 @@
+# Builds both images in parallel and rolls out the new revision.
+# Trigger on pushes to main: gcloud builds triggers create github ...
+substitutions:
+  _REGION: asia-south1
+  _ENV: prod
+  _TAG: manual
+
+steps:
+  - id: api
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "docker/Dockerfile.api",
+           "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/topsqill/api:${_TAG}",
+           "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/topsqill/api:latest",
+           "--cache-from", "${_REGION}-docker.pkg.dev/$PROJECT_ID/topsqill/api:latest", "."]
+
+  - id: worker
+    name: gcr.io/cloud-builders/docker
+    waitFor: ["-"]            # runs at the same time as the API build
+    args: ["build", "-f", "docker/Dockerfile.worker",
+           "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/topsqill/worker:${_TAG}",
+           "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/topsqill/worker:latest",
+           "--cache-from", "${_REGION}-docker.pkg.dev/$PROJECT_ID/topsqill/worker:latest", "."]
+
+  - id: test
+    name: node:22-slim
+    waitFor: ["-"]
+    entrypoint: bash
+    args: ["-c", "npm ci --ignore-scripts && npx tsc -p tsconfig.build.json --noEmit && npx vitest run"]
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    waitFor: ["api", "worker", "test"]
+    args: ["push", "--all-tags", "${_REGION}-docker.pkg.dev/$PROJECT_ID/topsqill/api"]
+  - id: push-worker
+    name: gcr.io/cloud-builders/docker
+    waitFor: ["push"]
+    args: ["push", "--all-tags", "${_REGION}-docker.pkg.dev/$PROJECT_ID/topsqill/worker"]
+
+  # Migrations run before the new code goes live, so the database is always ready for it.
+  - id: migrate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: ["push-worker"]
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud run jobs deploy topsqill-${_ENV}-migrate \
+          --image ${_REGION}-docker.pkg.dev/$PROJECT_ID/topsqill/api:${_TAG} \
+          --region ${_REGION} --vpc-connector topsqill-${_ENV}-vpc-con \
+          --service-account topsqill-${_ENV}-app@$PROJECT_ID.iam.gserviceaccount.com \
+          --set-secrets DATABASE_URL=topsqill-${_ENV}-database-url:latest \
+          --set-env-vars JWT_SECRET=migration-only-placeholder-value \
+          --command node --args dist/src/db/migrate.js --execute-now --wait
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: ["migrate"]
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud run services update topsqill-${_ENV}-api --region ${_REGION} \
+          --image ${_REGION}-docker.pkg.dev/$PROJECT_ID/topsqill/api:${_TAG}
+        gcloud run services update topsqill-${_ENV}-worker --region ${_REGION} \
+          --image ${_REGION}-docker.pkg.dev/$PROJECT_ID/topsqill/worker:${_TAG}
+
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1800s
