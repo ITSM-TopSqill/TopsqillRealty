@@ -11,6 +11,11 @@ export const DB_READ = Symbol("DB_READ");  // heavy reads; falls back to the pri
 function makePool(url: string) {
   return new Pool({
     connectionString: url,
+    // Cloud SQL accepts encrypted connections only. Its certificate is issued by
+    // Google's own authority rather than a public one, so the chain is not
+    // verified here; the connection is still encrypted, and it only ever travels
+    // inside the private VPC. Local development needs no TLS at all.
+    ssl: /localhost|127\.0\.0\.1/.test(url) ? undefined : { rejectUnauthorized: false },
     // Each container keeps a small pool. PgBouncer in front multiplexes these
     // onto far fewer real Postgres connections, so hundreds of containers are fine.
     max: env.DB_POOL_MAX,
@@ -48,9 +53,9 @@ function getPools() {
   exports: [DB, DB_READ, "PG_POOLS"],
 })
 export class DbModule implements OnModuleDestroy {
-  constructor(@Inject("PG_POOLS") private readonly pools: { writePool: Pool; readPool: Pool }) {}
+  constructor(@Inject("PG_POOLS") private readonly pools: { writePool: Pool; readPool: Pool }) { }
   async onModuleDestroy() {
-    await this.pools.writePool.end().catch(() => {});
-    if (this.pools.readPool !== this.pools.writePool) await this.pools.readPool.end().catch(() => {});
+    await this.pools.writePool.end().catch(() => { });
+    if (this.pools.readPool !== this.pools.writePool) await this.pools.readPool.end().catch(() => { });
   }
 }

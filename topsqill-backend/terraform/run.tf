@@ -173,7 +173,7 @@ resource "google_cloud_run_v2_service" "api" {
       }
 
       startup_probe {
-        http_get { path = "/ready" }
+        http_get { path = "/health" }
         initial_delay_seconds = 5
         period_seconds        = 3
         failure_threshold     = 10
@@ -195,70 +195,6 @@ resource "google_cloud_run_v2_service" "api" {
 }
 
 # ---------------------------------------------------------------- workers
-resource "google_cloud_run_v2_service" "worker" {
-  name     = "${local.name}-worker"
-  location = var.region
-  deletion_protection = false
-  ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
-  labels   = local.labels
-
-  template {
-    service_account = google_service_account.app.email
-    scaling {
-      min_instance_count = 1 # at least one worker always listening for jobs
-      max_instance_count = var.worker_max_instances
-    }
-    vpc_access {
-      connector = google_vpc_access_connector.connector.id
-      egress    = "PRIVATE_RANGES_ONLY"
-    }
-    containers {
-      image = "${var.region}-docker.pkg.dev/${var.project_id}/topsqill/worker:${var.image_tag}"
-      resources {
-        limits   = { cpu = "2", memory = "2Gi" } # video and image work needs headroom
-        cpu_idle = false
-      }
-      env {
-        name = "NODE_ENV"
-        value = "production"
-      }
-      env {
-        name = "GCP_PROJECT_ID"
-        value = var.project_id
-      }
-      env {
-        name = "GCS_BUCKET_UPLOADS"
-        value = google_storage_bucket.uploads.name
-      }
-      env {
-        name = "GCS_BUCKET_PUBLIC"
-        value = google_storage_bucket.media.name
-      }
-      env {
-        name = "REDIS_URL"
-        value = "redis://${google_redis_instance.cache.host}:${google_redis_instance.cache.port}"
-      }
-      env {
-        name = "DATABASE_URL"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.db_url.secret_id
-            version = "latest"
-          }
-        }
-      }
-      env {
-        name = "JWT_SECRET"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.jwt.secret_id
-            version = "latest"
-          }
-        }
-      }
-    }
-  }
-}
 
 # Without a load balancer, the API is reached on its own Cloud Run URL, so it
 # must accept public requests. Authentication is still enforced by the app.
