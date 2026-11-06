@@ -3,19 +3,14 @@ import { drizzle, NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "./schema";
 import { env } from "../common/env";
+import { poolConfig } from "./pool-config";
 
 export type Database = NodePgDatabase<typeof schema>;
 export const DB = Symbol("DB");            // writes and anything read-after-write
 export const DB_READ = Symbol("DB_READ");  // heavy reads; falls back to the primary
 
 function makePool(url: string) {
-  return new Pool({
-    connectionString: url,
-    // Cloud SQL accepts encrypted connections only. Its certificate is issued by
-    // Google's own authority rather than a public one, so the chain is not
-    // verified here; the connection is still encrypted, and it only ever travels
-    // inside the private VPC. Local development needs no TLS at all.
-    ssl: /localhost|127\.0\.0\.1/.test(url) ? undefined : { rejectUnauthorized: false },
+  return new Pool(poolConfig(url, {
     // Each container keeps a small pool. PgBouncer in front multiplexes these
     // onto far fewer real Postgres connections, so hundreds of containers are fine.
     max: env.DB_POOL_MAX,
@@ -25,7 +20,7 @@ function makePool(url: string) {
     statement_timeout: 10_000,
     query_timeout: 10_000,
     application_name: "topsqill-api",
-  });
+  }));
 }
 
 /**

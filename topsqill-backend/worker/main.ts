@@ -3,6 +3,7 @@ import { Worker, Job } from "bullmq";
 import Redis from "ioredis";
 import { Pool } from "pg";
 import { env } from "../src/common/env";
+import { poolConfig } from "../src/db/pool-config";
 import { QUEUES } from "../src/queue/queue.module";
 import { processMedia } from "./media.processor";
 import { fanoutPost } from "./fanout.processor";
@@ -16,7 +17,7 @@ import { runMatch } from "./match.processor";
  * Runs as its own Cloud Run service, scaled separately from the API.
  */
 const connection = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
-const pool = new Pool({ connectionString: env.DATABASE_URL, max: 5, application_name: "topsqill-worker" });
+const pool = new Pool(poolConfig(env.DATABASE_URL, { max: 5, application_name: "topsqill-worker" }));
 const log = (m: string, extra?: unknown) => console.log(JSON.stringify({ severity: "INFO", message: m, extra }));
 
 const workers = [
@@ -40,8 +41,8 @@ async function shutdown() {
   clearInterval(timer);
   clearInterval(statsTimer);
   await Promise.all(workers.map((w) => w.close()));
-  await pool.end().catch(() => {});
-  await connection.quit().catch(() => {});
+  await pool.end().catch(() => { });
+  await connection.quit().catch(() => { });
   process.exit(0);
 }
 process.on("SIGTERM", shutdown);

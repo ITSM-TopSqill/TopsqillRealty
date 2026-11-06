@@ -2,10 +2,11 @@ import { Pool } from "pg";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { env } from "../common/env";
+import { poolConfig } from "./pool-config";
 
 /** Applies the SQL files in ./drizzle in order, once each. */
 async function main() {
-  const pool = new Pool({ connectionString: env.DATABASE_URL });
+  const pool = new Pool(poolConfig(env.DATABASE_URL));
   await pool.query(`create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())`);
   const dir = join(process.cwd(), "drizzle");
   const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();

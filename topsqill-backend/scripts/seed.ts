@@ -5,6 +5,7 @@
 import { Pool } from "pg";
 import { v7 as uuidv7 } from "uuid";
 import { env } from "../src/common/env";
+import { poolConfig } from "../src/db/pool-config";
 
 const CITIES: Record<string, string[]> = {
   Gurgaon: ["Golf Course Road", "Sector 65", "Dwarka Expressway", "Sohna Road", "DLF Phase 5"],
@@ -22,7 +23,7 @@ const pick = <T,>(a: readonly T[]) => a[Math.floor(Math.random() * a.length)];
 const rint = (a: number, b: number) => a + Math.floor(Math.random() * (b - a + 1));
 
 async function main() {
-  const pool = new Pool({ connectionString: env.DATABASE_URL, max: 4 });
+  const pool = new Pool(poolConfig(env.DATABASE_URL, { max: 4 }));
   console.time("seed");
 
   const users: any[][] = [];
@@ -33,7 +34,7 @@ async function main() {
     const name = `${pick(FIRST)} ${pick(LAST)}`;
     users.push([uuidv7(), `+91${rint(6000000000, 9999999999)}`, name, type, "active",
       city, JSON.stringify(locs), `${type === "dealer" ? "Property consultant" : type === "builder" ? "Developer" : "Looking for a home"} in ${locs[0]}, ${city}`,
-      type === "dealer", rint(1, 20)]);
+    type === "dealer", rint(1, 20)]);
   }
   await batchInsert(pool, `insert into users (id, phone, name, type, status, city, localities, headline, rera_verified, years_experience) values %L on conflict do nothing`, users);
 
