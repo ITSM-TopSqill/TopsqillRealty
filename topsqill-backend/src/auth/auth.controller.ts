@@ -3,6 +3,8 @@ import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import { IsString, Length, IsOptional } from "class-validator";
 import { AuthService } from "./auth.service";
 import { Public } from "./public.decorator";
+import { clientIp } from "../common/client-ip";
+import { env } from "../common/env";
 
 class RequestOtpDto { @IsString() @Length(6, 20) phone: string; }
 class VerifyOtpDto {
@@ -19,8 +21,7 @@ export class AuthController {
 
   @Public() @Post("otp/request") @ApiOperation({ summary: "Send a one-time code to a mobile number" })
   request(@Body() dto: RequestOtpDto, @Req() req: any) {
-    const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.ip || "unknown";
-    return this.auth.requestOtp(dto.phone, ip);
+    return this.auth.requestOtp(dto.phone, clientIp(req, env.INTERNAL_PROXY_SECRET));
   }
 
   @Public() @Post("otp/verify") @ApiOperation({ summary: "Check the code and sign in" })

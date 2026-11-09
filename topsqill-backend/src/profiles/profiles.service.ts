@@ -73,13 +73,25 @@ export class ProfilesService {
     return { ok: true, status: "pending" };
   }
 
+  /**
+   * Accept or ignore a request. Only the person who received a still-pending
+   * request may answer it, and only once: the guarded update below is what
+   * stops someone accepting their own request, or inflating connection counts
+   * by accepting repeatedly or where no request exists.
+   */
   async respond(userId: string, peerId: string, accept: boolean) {
     const status = accept ? "accepted" : "ignored";
     await this.db.transaction(async (tx) => {
+      const pendingFromPeer = and(
+        eq(connections.status, "pending"),
+        eq(connections.requestedBy, peerId),
+      );
+      const answered = await tx.update(connections).set({ status })
+        .where(and(eq(connections.userId, userId), eq(connections.peerId, peerId), pendingFromPeer))
+        .returning({ userId: connections.userId });
+      if (!answered.length) throw new NotFoundException("There is no pending request from this member.");
       await tx.update(connections).set({ status })
-        .where(and(eq(connections.userId, userId), eq(connections.peerId, peerId)));
-      await tx.update(connections).set({ status })
-        .where(and(eq(connections.userId, peerId), eq(connections.peerId, userId)));
+        .where(and(eq(connections.userId, peerId), eq(connections.peerId, userId), pendingFromPeer));
       if (accept) {
         await tx.update(users).set({ connectionCount: sql`${users.connectionCount} + 1` }).where(inArray(users.id, [userId, peerId]));
       }

@@ -39,7 +39,11 @@ export class AuthService {
     }
 
     const code = makeOtp();
-    await this.redis.set(`otp:${phone}`, JSON.stringify({ hash: sha(code), tries: 0 }), "EX", OTP_TTL);
+    // A new code starts a fresh allowance of wrong guesses.
+    await this.redis.multi()
+      .set(`otp:${phone}`, sha(code), "EX", OTP_TTL)
+      .del(`otp:tries:${phone}`)
+      .exec();
     await this.send(phone, code);
     // In development the code is returned so the team can test without SMS.
     return { sent: true, expiresIn: OTP_TTL, devCode: env.NODE_ENV === "production" ? undefined : code };
@@ -50,16 +54,24 @@ export class AuthService {
     const phone = normalisePhone(rawPhone);
     if (!phone) throw new BadRequestException("Enter a valid mobile number.");
     const key = `otp:${phone}`;
-    const raw = await this.redis.get(key);
-    if (!raw) throw new BadRequestException("That code has expired. Please request a new one.");
-    const state = JSON.parse(raw) as { hash: string; tries: number };
-    if (state.tries >= OTP_MAX_TRIES) { await this.redis.del(key); throw new TooManyRequests("Too many wrong codes. Please request a new one."); }
-    if (sha(String(code)) !== state.hash) {
-      state.tries += 1;
-      await this.redis.set(key, JSON.stringify(state), "KEEPTTL");
-      throw new BadRequestException("That code isn’t right. Please check and try again.");
+    const triesKey = `otp:tries:${phone}`;
+    const hash = await this.redis.get(key);
+    if (!hash) throw new BadRequestException("That code has expired. Please request a new one.");
+
+    // Every attempt is counted with an atomic INCR *before* the code is
+    // compared, so parallel guesses cannot all slip in under the limit.
+    const tries = await this.redis.incr(triesKey);
+    if (tries === 1) await this.redis.expire(triesKey, OTP_TTL);
+    if (tries > OTP_MAX_TRIES) {
+      await this.redis.del(key, triesKey);
+      throw new TooManyRequests("Too many wrong codes. Please request a new one.");
     }
-    await this.redis.del(key);
+    if (sha(String(code)) !== hash) throw new BadRequestException("That code isn’t right. Please check and try again.");
+
+    // Single use: only the request that actually deletes the code signs in.
+    const consumed = await this.redis.del(key);
+    await this.redis.del(triesKey);
+    if (!consumed) throw new BadRequestException("That code has already been used. Please request a new one.");
 
     let [user] = await this.db.select().from(users).where(eq(users.phone, phone)).limit(1);
     let isNew = false;

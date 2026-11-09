@@ -1,8 +1,10 @@
-import { Body, Controller, Get, Param, Post, Query, Req, Res, Header } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Req, Header, UnauthorizedException, type RawBodyRequest } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import { IsIn, IsOptional, IsString, MaxLength } from "class-validator";
 import { IngestService } from "./ingest.service";
 import { CurrentUser, AuthUser, Public } from "../auth/public.decorator";
+import { verifyMetaSignature } from "../common/meta-signature";
+import { env, isProd } from "../common/env";
 
 class CreateSourceDto {
   @IsIn(["website", "meta", "google", "linkedin", "whatsapp", "portal_99acres", "portal_magicbricks", "portal_housing", "call", "other"])
@@ -36,13 +38,14 @@ export class IngestController {
 
   /**
    * One endpoint for every platform. The key in the URL identifies the member,
-   * so no sign-in is needed, and Meta's signature is checked when configured.
+   * so no sign-in is needed. Meta's calls must carry a valid signature over the
+   * raw body; in production they are refused until META_APP_SECRET is set.
    */
   @Public() @Post("ingest/:source/:key") @Header("cache-control", "no-store")
-  async ingest(@Param("source") source: string, @Param("key") key: string, @Body() body: Record<string, unknown>, @Req() req: any) {
+  async ingest(@Param("source") source: string, @Param("key") key: string, @Body() body: Record<string, unknown>, @Req() req: RawBodyRequest<{ headers: Record<string, string | string[] | undefined> }>) {
     if (source === "meta") {
-      const ok = this.svc.verifyMetaSignature(req.rawBody ?? Buffer.from(JSON.stringify(body ?? {})), req.headers["x-hub-signature-256"], process.env.META_APP_SECRET);
-      if (!ok) return { ok: false, error: "bad signature" };
+      const check = verifyMetaSignature(req.rawBody, req.headers["x-hub-signature-256"], env.META_APP_SECRET, isProd());
+      if (!check.ok) throw new UnauthorizedException(`Webhook rejected: ${check.reason}.`);
     }
     return this.svc.handle(source, key, body ?? {});
   }

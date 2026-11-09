@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException, BadRequestException } from "@nestjs/common";
+import { Injectable, Inject, NotFoundException, BadRequestException, ConflictException } from "@nestjs/common";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { projects, listings, users } from "../db/schema";
@@ -148,18 +148,35 @@ Never promise returns. Use only these facts: ${JSON.stringify({ name: p.name, bu
   async publish(userId: string, id: string) {
     const p = await this.get(id);
     if (p.ownerId !== userId) throw new NotFoundException("That project could not be found.");
+
+    // Claim the project first, atomically, so a double click or a retry can
+    // never publish the same configurations twice.
+    const [claimed] = await this.db.update(projects).set({ published: true, updatedAt: new Date() })
+      .where(and(eq(projects.id, id), eq(projects.ownerId, userId), eq(projects.published, false)))
+      .returning({ id: projects.id });
+    if (!claimed) throw new ConflictException("This project has already been published.");
+
     const created: string[] = [];
-    for (const c of p.configs) {
-      const listing = await this.listingsSvc.create(userId, {
-        title: `${c.bhk} BHK in ${p.name}, ${p.locality}`,
-        purpose: "sale", kind: "Apartment", bhk: c.bhk, areaSqft: c.sbua, priceInr: c.price,
-        city: p.city, locality: p.locality, possession: p.status === "Ready to move" ? "Ready to move" : "Under construction",
-        description: p.summary ?? undefined, amenities: p.amenities, usps: p.usps,
-        reraNumber: p.reraNumber ?? undefined, verified: true, projectSourceId: p.id, status: "active",
-      } as never);
-      created.push(listing.id);
+    try {
+      for (const c of p.configs) {
+        const listing = await this.listingsSvc.create(userId, {
+          title: `${c.bhk} BHK in ${p.name}, ${p.locality}`,
+          purpose: "sale", kind: "Apartment", bhk: c.bhk, areaSqft: c.sbua, priceInr: c.price,
+          city: p.city, locality: p.locality, possession: p.status === "Ready to move" ? "Ready to move" : "Under construction",
+          description: p.summary ?? undefined, amenities: p.amenities, usps: p.usps,
+          // Imported from text the member pasted, so nothing here is verified:
+          // only an admin sets `verified`.
+          reraNumber: p.reraNumber ?? undefined, verified: false, projectSourceId: p.id, status: "active",
+        } as never);
+        created.push(listing.id);
+      }
+    } catch (e) {
+      // If nothing was created, release the claim so the member can retry. After
+      // a partial run the project stays published, so a retry cannot duplicate
+      // the listings that did go live.
+      if (!created.length) await this.db.update(projects).set({ published: false }).where(eq(projects.id, id));
+      throw e;
     }
-    await this.db.update(projects).set({ published: true, updatedAt: new Date() }).where(eq(projects.id, id));
     return { ok: true, listingIds: created };
   }
 }

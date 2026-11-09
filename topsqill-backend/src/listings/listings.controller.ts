@@ -36,6 +36,29 @@ class CreateListingDto {
   @IsOptional() @IsArray() mediaIds?: string[];
 }
 
+/**
+ * Every field is optional, and each is declared here so the validation pipe can
+ * strip anything else. A bare `Partial<CreateListingDto>` type is erased at
+ * runtime, which let any column (verified, hidden, ownerId...) through.
+ */
+class UpdateListingDto {
+  @IsOptional() @IsString() @MaxLength(140) title?: string;
+  @IsOptional() @IsIn(["sale", "rent"]) purpose?: "sale" | "rent";
+  @IsOptional() @IsString() kind?: string;
+  @IsOptional() @IsString() city?: string;
+  @IsOptional() @IsString() locality?: string;
+  @IsOptional() @IsInt() bhk?: number;
+  @IsOptional() @IsInt() areaSqft?: number;
+  @IsOptional() @IsInt() priceInr?: number;
+  @IsOptional() @IsString() possession?: string;
+  @IsOptional() @IsString() furnishing?: string;
+  @IsOptional() @IsString() facing?: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsArray() amenities?: string[];
+  @IsOptional() @IsArray() usps?: string[];
+  @IsOptional() @IsIn(["active", "sold", "archived"]) status?: "active" | "sold" | "archived";
+}
+
 @ApiTags("listings")
 @Controller("v1/listings")
 export class ListingsController {
@@ -53,8 +76,8 @@ export class ListingsController {
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateListingDto) { return this.svc.create(user.id, dto as any); }
 
   @Patch(":id")
-  update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: Partial<CreateListingDto>) {
-    return this.svc.update(user.id, id, dto as any);
+  update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateListingDto) {
+    return this.svc.update(user.id, id, dto);
   }
 
   @Public() @Post(":id/view")

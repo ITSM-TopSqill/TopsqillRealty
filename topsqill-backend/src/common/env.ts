@@ -27,6 +27,16 @@ const schema = z.object({
   OTP_PROVIDER: z.string().optional(),
   WHATSAPP_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+  // Meta signs every lead-ads and WhatsApp webhook with the app secret. In
+  // production, webhooks are refused outright until this is set.
+  META_APP_SECRET: z.string().optional(),
+
+  // Shared with the web app. Lets its server tell the API the real visitor IP
+  // for rate limiting; without it, a forwarded IP header is never trusted.
+  INTERNAL_PROXY_SECRET: z.string().min(16).optional(),
+  // How many proxies (load balancer, Cloud Run front end) sit in front of the API.
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(1),
 
   ANTHROPIC_API_KEY: z.string().optional(),
   CLAUDE_MODEL: z.string().default("claude-sonnet-5-5"),

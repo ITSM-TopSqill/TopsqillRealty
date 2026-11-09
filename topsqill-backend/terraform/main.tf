@@ -53,8 +53,8 @@ resource "google_vpc_access_connector" "connector" {
   network       = google_compute_network.vpc.name
   ip_cidr_range = "10.20.16.0/28"
   min_instances = 2
-  max_instances = 10
-  machine_type  = "e2-standard-4"
+  max_instances = 3
+  machine_type  = "e2-micro"
 }
 
 resource "google_compute_global_address" "private_ip" {

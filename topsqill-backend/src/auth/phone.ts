@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+
 /** Normalises Indian phone numbers to E.164 (+91XXXXXXXXXX). */
 export function normalisePhone(raw: string, defaultCountry = "91"): string | null {
   if (!raw) return null;
@@ -15,8 +17,10 @@ export function normalisePhone(raw: string, defaultCountry = "91"): string | nul
   return null;
 }
 
-/** 6-digit code, never starting with 0 so it is easy to read out. */
+/**
+ * 6-digit code, never starting with 0 so it is easy to read out.
+ * Drawn from the OS's cryptographic generator: Math.random is predictable.
+ */
 export function makeOtp(): string {
-  const n = Math.floor(Math.random() * 900000) + 100000;
-  return String(n);
+  return String(randomInt(100000, 1000000));
 }

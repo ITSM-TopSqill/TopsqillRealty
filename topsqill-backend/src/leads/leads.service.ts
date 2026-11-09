@@ -21,6 +21,33 @@ export class LeadsService {
   ) {}
 
   /**
+   * The owner's team: accepted connections who work at the same agency.
+   *
+   * Agency is free text anyone can type, so on its own it proves nothing;
+   * requiring an accepted connection means the owner chose each teammate.
+   * Leads (and the buyer's phone number) only ever go to the owner or this team.
+   * Sorted by id so round-robin assignment is stable.
+   */
+  async teamOf(ownerId: string): Promise<string[]> {
+    const res = await this.read.execute(sql`
+      select u.id
+        from connections c
+        join users o on o.id = c.user_id
+        join users u on u.id = c.peer_id
+       where c.user_id = ${ownerId} and c.status = 'accepted' and u.status = 'active'
+         and nullif(btrim(o.agency), '') is not null
+         and lower(btrim(u.agency)) = lower(btrim(o.agency))
+       order by u.id
+       limit 50`);
+    const rows = (Array.isArray(res) ? res : res.rows) as unknown as { id: string }[];
+    return rows.map((r) => r.id);
+  }
+
+  async isOnTeam(ownerId: string, userId: string): Promise<boolean> {
+    return userId === ownerId || (await this.teamOf(ownerId)).includes(userId);
+  }
+
+  /**
    * Creates a lead, or merges into an existing one from the same phone number.
    * Without this, one buyer enquiring from three portals becomes three leads and
    * three phone calls, which is the fastest way to lose them.
@@ -146,6 +173,9 @@ export class LeadsService {
   async assign(userId: string, id: string, assigneeId: string) {
     const lead = await this.get(userId, id);
     if (lead.ownerId !== userId) throw new ForbiddenException("Only the lead owner can reassign it.");
+    if (!(await this.isOnTeam(lead.ownerId, assigneeId))) {
+      throw new ForbiddenException("Leads can only be assigned to connected teammates at your agency.");
+    }
     await this.db.update(leads).set({ assigneeId, updatedAt: new Date() }).where(eq(leads.id, id));
     const [who] = await this.read.select({ name: users.name }).from(users).where(eq(users.id, assigneeId)).limit(1);
     await this.addActivity(id, userId, "system", `Assigned to ${who?.name ?? "a colleague"}`);

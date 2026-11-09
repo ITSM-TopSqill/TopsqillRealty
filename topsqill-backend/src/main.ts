@@ -10,17 +10,13 @@ async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     // Fastify handles roughly twice the requests per second of Express on the same CPU.
-    new FastifyAdapter({ trustProxy: true, bodyLimit: 2 * 1024 * 1024, disableRequestLogging: true }),
-    { bufferLogs: true },
+    // Trust only the proxies we know sit in front of us (a number of hops, not
+    // `true`), so a client-supplied X-Forwarded-For cannot choose `req.ip`.
+    new FastifyAdapter({ trustProxy: env.TRUST_PROXY_HOPS || false, bodyLimit: 2 * 1024 * 1024, disableRequestLogging: true }),
+    // Keeps the exact request bytes on `req.rawBody`: Meta signs webhooks over
+    // the raw body, which re-serialising the parsed JSON does not reproduce.
+    { bufferLogs: true, rawBody: true },
   );
-
-  // Keep the exact bytes of incoming webhooks: Meta's signature is over the raw body.
-  const fastify = app.getHttpAdapter().getInstance();
-  fastify.addHook("preValidation", async (req: any) => {
-    if (typeof req.url === "string" && req.url.startsWith("/v1/ingest/") && req.body) {
-      req.rawBody = Buffer.from(JSON.stringify(req.body));
-    }
-  });
 
   await app.register(import("@fastify/helmet"), { contentSecurityPolicy: false });
   await app.register(import("@fastify/compress"), { encodings: ["br", "gzip"], threshold: 1024 });

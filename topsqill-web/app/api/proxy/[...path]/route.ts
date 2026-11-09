@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { API_URL } from "@/lib/api";
+import { visitorHeaders } from "@/lib/client-ip";
 import { getToken, getRefreshToken, setSession, clearSession } from "@/lib/session";
 
 /**
@@ -19,8 +20,8 @@ async function forward(req: NextRequest, path: string, token: string | null) {
     headers: {
       "content-type": req.headers.get("content-type") ?? "application/json",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
-      // The API uses this for its own rate limiting.
-      "x-forwarded-for": req.headers.get("x-forwarded-for") ?? "",
+      // The visitor's real IP, for the API's rate limits (never the raw header).
+      ...visitorHeaders(req.headers),
     },
     body: body || undefined,
     cache: "no-store",

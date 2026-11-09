@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { API_URL } from "@/lib/api";
+import { visitorHeaders } from "@/lib/client-ip";
 
 /** Asks the API to send a one-time code. */
 export async function POST(req: NextRequest) {
@@ -8,7 +9,7 @@ export async function POST(req: NextRequest) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-forwarded-for": req.headers.get("x-forwarded-for") ?? "",
+      ...visitorHeaders(req.headers),
     },
     body: JSON.stringify({ phone: body?.phone }),
     cache: "no-store",
