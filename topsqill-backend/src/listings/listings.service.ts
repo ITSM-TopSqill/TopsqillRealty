@@ -13,6 +13,13 @@ export type SearchQuery = {
   cursor?: string; limit?: number;
 };
 
+/** The listing fields an owner may edit after publishing. */
+export const LISTING_EDITABLE = [
+  "title", "purpose", "kind", "city", "locality", "bhk", "areaSqft", "priceInr",
+  "possession", "furnishing", "facing", "description", "amenities", "usps", "status",
+] as const;
+export type ListingPatch = Partial<Pick<typeof listings.$inferInsert, (typeof LISTING_EDITABLE)[number]>>;
+
 @Injectable()
 export class ListingsService {
   constructor(
@@ -37,7 +44,8 @@ export class ListingsService {
   private async searchUncached(q: SearchQuery) {
     const limit = Math.min(Math.max(q.limit ?? 24, 1), 50);
     const cur = decodeCursor(q.cursor);
-    const where = [eq(listings.status, "active")];
+    // Hidden listings (moderated, or owned by a suspended member) never appear in search.
+    const where = [eq(listings.status, "active"), eq(listings.hidden, false)];
     if (q.city) where.push(eq(listings.city, q.city));
     if (q.locality) where.push(eq(listings.locality, q.locality));
     if (q.purpose) where.push(eq(listings.purpose, q.purpose));
@@ -106,7 +114,11 @@ export class ListingsService {
   async getById(id: string) {
     return this.cache.wrap(`listing:${id}`, 60, async () => {
       const [row] = await this.read.select().from(listings).where(eq(listings.id, id)).limit(1);
-      if (!row) throw new NotFoundException("That listing is no longer available.");
+      // Hidden and draft listings are not public. Sold and archived ones stay
+      // viewable, so shared links do not break once a deal closes.
+      if (!row || row.hidden || row.status === "draft" || row.status === "pending") {
+        throw new NotFoundException("That listing is no longer available.");
+      }
       const [mediaRows, owner] = await Promise.all([
         this.read.select({ m: media, position: listingMedia.position })
           .from(listingMedia).innerJoin(media, eq(media.id, listingMedia.mediaId))
@@ -138,11 +150,20 @@ export class ListingsService {
     return row;
   }
 
-  async update(userId: string, id: string, patch: Partial<typeof listings.$inferInsert>) {
-    const [existing] = await this.db.select({ ownerId: listings.ownerId }).from(listings).where(eq(listings.id, id)).limit(1);
+  async update(userId: string, id: string, patch: ListingPatch) {
+    const [existing] = await this.db.select({ ownerId: listings.ownerId, publishedAt: listings.publishedAt })
+      .from(listings).where(eq(listings.id, id)).limit(1);
     if (!existing) throw new NotFoundException("That listing is no longer available.");
     if (existing.ownerId !== userId) throw new ForbiddenException("You can only edit your own listings.");
-    const [row] = await this.db.update(listings).set({ ...patch, updatedAt: new Date() }).where(eq(listings.id, id)).returning();
+
+    // Only fields an owner may change. Flags such as `verified`, `hidden`, the
+    // counters and the owner itself are set by the platform, never by the member.
+    const data: Record<string, unknown> = {};
+    for (const k of LISTING_EDITABLE) if (k in patch && (patch as Record<string, unknown>)[k] !== undefined) data[k] = (patch as Record<string, unknown>)[k];
+    if (data.status === "active" && !existing.publishedAt) data.publishedAt = new Date();
+    data.updatedAt = new Date();
+
+    const [row] = await this.db.update(listings).set(data as Partial<typeof listings.$inferInsert>).where(eq(listings.id, id)).returning();
     await this.cache.invalidate(`listing:${id}`);
     return row;
   }

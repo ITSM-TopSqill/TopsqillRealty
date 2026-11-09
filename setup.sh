@@ -6,6 +6,7 @@ set -e
 DB_URL="${DATABASE_URL:-postgres://postgres@localhost:5432/topsqill}"
 REDIS="${REDIS_URL:-redis://localhost:6379}"
 SECRET="${JWT_SECRET:-$(head -c 32 /dev/urandom | base64 | tr -d '/+=' )}"
+PROXY_SECRET="${INTERNAL_PROXY_SECRET:-$(head -c 32 /dev/urandom | base64 | tr -d '/+=' )}"
 
 echo "Using database: $DB_URL"
 echo
@@ -20,6 +21,8 @@ PORT=8080
 DATABASE_URL=$DB_URL
 REDIS_URL=$REDIS
 JWT_SECRET=$SECRET
+INTERNAL_PROXY_SECRET=$PROXY_SECRET
+TRUST_PROXY_HOPS=0
 CDN_BASE_URL=
 ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
 ENV
@@ -37,6 +40,7 @@ cat > .env <<ENV
 API_URL=http://localhost:8080
 NEXT_PUBLIC_API_URL=http://localhost:8080
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
+INTERNAL_PROXY_SECRET=$PROXY_SECRET
 ENV
 npm run build
 

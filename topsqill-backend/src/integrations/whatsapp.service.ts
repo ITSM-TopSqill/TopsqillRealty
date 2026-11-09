@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger, BadRequestException, NotFoundException } from "@nestjs/common";
+import { Injectable, Inject, Logger, BadRequestException, NotFoundException, ConflictException } from "@nestjs/common";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { whatsappAccounts, whatsappMessages, whatsappOptins, leads } from "../db/schema";
@@ -8,6 +8,7 @@ import { newId } from "../common/ids";
 import { normalisePhone } from "../auth/phone";
 
 const GRAPH = (v = "v23.0") => `https://graph.facebook.com/${v}`;
+const TAKEN = "This WhatsApp number is already connected to another Topsqill.ai account.";
 
 /**
  * Sending on WhatsApp.
@@ -28,13 +29,28 @@ export class WhatsAppService {
     private readonly leadsSvc: LeadsService,
   ) {}
 
+  /**
+   * Connects a WhatsApp Business number, or refreshes the member's own token.
+   * A number already connected by someone else is refused: overwriting its
+   * token would let one member take over another's number and conversations.
+   */
   async connect(userId: string, input: { wabaId: string; phoneNumberId: string; displayNumber?: string; token: string }) {
+    const [existing] = await this.db.select({ ownerId: whatsappAccounts.ownerId }).from(whatsappAccounts)
+      .where(eq(whatsappAccounts.phoneNumberId, input.phoneNumberId)).limit(1);
+    if (existing && existing.ownerId !== userId) throw new ConflictException(TAKEN);
+
     const secretRef = await this.secrets.put(`wa-${userId}-${input.phoneNumberId}`, input.token);
     const id = newId();
     const [row] = await this.db.insert(whatsappAccounts)
       .values({ id, ownerId: userId, wabaId: input.wabaId, phoneNumberId: input.phoneNumberId, displayNumber: input.displayNumber, secretRef })
-      .onConflictDoUpdate({ target: whatsappAccounts.phoneNumberId, set: { wabaId: input.wabaId, secretRef, status: "connected" } })
+      .onConflictDoUpdate({
+        target: whatsappAccounts.phoneNumberId,
+        set: { wabaId: input.wabaId, secretRef, status: "connected" },
+        // Covers the race where someone else connects the number between the check and here.
+        setWhere: eq(whatsappAccounts.ownerId, userId),
+      })
       .returning();
+    if (!row) throw new ConflictException(TAKEN);
     return { id: row.id, phoneNumberId: row.phoneNumberId, displayNumber: row.displayNumber, status: row.status };
   }
 

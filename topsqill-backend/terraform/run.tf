@@ -29,6 +29,30 @@ resource "google_project_iam_member" "app_roles" {
   member  = "serviceAccount:${google_service_account.app.email}"
 }
 
+data "google_project" "this" {
+  project_id = var.project_id
+}
+
+# Members' ad and WhatsApp tokens are stored as secrets named ads-* and wa-*.
+# The app may create those, add versions and delete them, but the condition
+# keeps it from changing or deleting any other secret (the database URL, the
+# JWT key). Creating a secret is checked against the project itself, hence the
+# first clause.
+resource "google_project_iam_member" "app_token_secrets" {
+  project = var.project_id
+  role    = "roles/secretmanager.admin"
+  member  = "serviceAccount:${google_service_account.app.email}"
+  condition {
+    title       = "member-token-secrets-only"
+    description = "Only ads-* and wa-* secrets holding members' platform tokens"
+    expression  = <<-EOT
+      resource.type == "cloudresourcemanager.googleapis.com/Project" ||
+      resource.name.startsWith("projects/${data.google_project.this.number}/secrets/ads-") ||
+      resource.name.startsWith("projects/${data.google_project.this.number}/secrets/wa-")
+    EOT
+  }
+}
+
 resource "google_storage_bucket_iam_member" "app_buckets" {
   for_each = { uploads = google_storage_bucket.uploads.name, media = google_storage_bucket.media.name, documents = google_storage_bucket.documents.name }
   bucket   = each.value
@@ -61,6 +85,26 @@ resource "google_secret_manager_secret" "jwt" {
 resource "google_secret_manager_secret_version" "jwt" {
   secret      = google_secret_manager_secret.jwt.id
   secret_data = random_password.jwt.result
+}
+
+# Shared by the API and the web app: lets the web server pass each visitor's IP
+# for rate limiting. Give the web app's service the same secret as
+# INTERNAL_PROXY_SECRET, or every visitor shares one sign-in rate limit.
+resource "random_password" "internal_proxy" {
+  length  = 48
+  special = false
+}
+
+resource "google_secret_manager_secret" "internal_proxy" {
+  secret_id = "${local.name}-internal-proxy-secret"
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "internal_proxy" {
+  secret      = google_secret_manager_secret.internal_proxy.id
+  secret_data = random_password.internal_proxy.result
 }
 
 # Filled in by hand after `terraform apply`, so keys never sit in the repository.
@@ -152,6 +196,20 @@ resource "google_cloud_run_v2_service" "api" {
             version = "latest"
           }
         }
+      }
+      env {
+        name = "INTERNAL_PROXY_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.internal_proxy.secret_id
+            version = "latest"
+          }
+        }
+      }
+      env {
+        # Cloud Run's front end adds one hop; the load balancer adds another.
+        name  = "TRUST_PROXY_HOPS"
+        value = var.use_custom_domain ? "2" : "1"
       }
       env {
         name = "JWT_SECRET"

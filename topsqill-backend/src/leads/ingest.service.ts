@@ -1,8 +1,8 @@
 import { Injectable, Inject, NotFoundException, BadRequestException, Logger } from "@nestjs/common";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
-import { leadSources, ingestEvents, users } from "../db/schema";
+import { leadSources, ingestEvents } from "../db/schema";
 import { LeadsService } from "./leads.service";
 import { newId } from "../common/ids";
 import { env } from "../common/env";
@@ -58,15 +58,6 @@ export class IngestService {
     return { items: rows };
   }
 
-  /** Meta signs each webhook. An unsigned or wrongly signed call is rejected. */
-  verifyMetaSignature(raw: Buffer, header: string | undefined, appSecret?: string): boolean {
-    if (!appSecret) return true;                     // not configured yet (development)
-    if (!header?.startsWith("sha256=")) return false;
-    const expected = "sha256=" + createHmac("sha256", appSecret).update(raw).digest("hex");
-    const a = Buffer.from(header), b = Buffer.from(expected);
-    return a.length === b.length && timingSafeEqual(a, b);
-  }
-
   async handle(sourceKind: string, ingestKey: string, payload: Record<string, unknown>) {
     const [src] = await this.read.select().from(leadSources).where(eq(leadSources.ingestKey, ingestKey)).limit(1);
     if (!src) throw new NotFoundException("Unknown ingest key.");
@@ -98,15 +89,16 @@ export class IngestService {
     }
   }
 
-  /** Round robin keeps one person from receiving every lead. */
+  /**
+   * Round robin keeps one person from receiving every lead. It rotates through
+   * the owner and their team (see LeadsService.teamOf), never through everyone
+   * who happens to type the same agency name on their profile.
+   */
   private async pickAssignee(src: typeof leadSources.$inferSelect): Promise<string> {
     if (src.assignRule !== "round_robin") return src.ownerId;
-    const team = await this.read.select({ id: users.id }).from(users)
-      .where(and(eq(users.agency, sql`(select agency from users where id = ${src.ownerId})`), eq(users.status, "active")))
-      .limit(20);
+    const team = [src.ownerId, ...(await this.leadsSvc.teamOf(src.ownerId))];
     if (team.length < 2) return src.ownerId;
-    const idx = src.leadCount % team.length;
-    return team[idx].id;
+    return team[src.leadCount % team.length];
   }
 
   private async logEvent(id: string, sourceId: string, status: string, payload: unknown, leadId: string | null, error?: string) {

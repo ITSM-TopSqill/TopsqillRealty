@@ -1,9 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Query, Req, UnauthorizedException, type RawBodyRequest } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import { IsIn, IsOptional, IsString, IsArray, MaxLength } from "class-validator";
 import { AdPlatformsService } from "./ad-platforms.service";
 import { WhatsAppService } from "./whatsapp.service";
 import { CurrentUser, AuthUser, Public } from "../auth/public.decorator";
+import { verifyMetaSignature } from "../common/meta-signature";
+import { env, isProd } from "../common/env";
 
 class ConnectAdDto {
   @IsIn(["meta", "google", "linkedin"]) platform: "meta" | "google" | "linkedin";
@@ -74,9 +76,20 @@ export class IntegrationsController {
   /** Meta verifies the webhook once with a challenge. */
   @Public() @Get("whatsapp/webhook")
   verify(@Query("hub.mode") mode: string, @Query("hub.verify_token") token: string, @Query("hub.challenge") challenge: string) {
-    return mode === "subscribe" && token === process.env.WHATSAPP_VERIFY_TOKEN ? challenge : { ok: false };
+    // An unset token must never match a request that simply omits it.
+    const expected = env.WHATSAPP_VERIFY_TOKEN;
+    return mode === "subscribe" && !!expected && token === expected ? challenge : { ok: false };
   }
 
+  /**
+   * Incoming messages and delivery statuses. Anyone on the internet can reach
+   * this URL, so only calls signed by Meta are processed: an unsigned call
+   * could otherwise create leads and record WhatsApp consent for any number.
+   */
   @Public() @Post("whatsapp/webhook")
-  webhook(@Body() body: Record<string, unknown>) { return this.wa.handleWebhook(null, body); }
+  webhook(@Body() body: Record<string, unknown>, @Req() req: RawBodyRequest<{ headers: Record<string, string | string[] | undefined> }>) {
+    const check = verifyMetaSignature(req.rawBody, req.headers["x-hub-signature-256"], env.META_APP_SECRET, isProd());
+    if (!check.ok) throw new UnauthorizedException(`Webhook rejected: ${check.reason}.`);
+    return this.wa.handleWebhook(null, body);
+  }
 }
