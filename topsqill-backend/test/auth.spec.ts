@@ -168,3 +168,40 @@ describe("email sign-in and sign-up", () => {
     expect(on.sent).toHaveLength(1);
   });
 });
+
+describe("refreshing a session", () => {
+  /** One refresh token, as the database would hold it, with an atomic "revoke if not yet revoked". */
+  async function setup(revokedAt: Date | null = null) {
+    vi.resetModules();
+    process.env.NODE_ENV = "test";
+    process.env.DATABASE_URL = "postgres://x@localhost/x";
+    process.env.JWT_SECRET = "test-secret-at-least-16";
+    const { AuthService } = await import("../src/auth/auth.service");
+    const token = { id: "rt1", userId: "u1", revokedAt };
+    const db = {
+      update: () => ({ set: () => ({ where: () => ({ returning: async () => {
+        if (token.revokedAt) return [];
+        token.revokedAt = new Date();
+        await new Promise((r) => setTimeout(r, 20));        // the winner is still working when siblings arrive
+        return [token];
+      } }) }) }),
+      // select({ revokedAt }) reads the token; select() reads the member.
+      select: (cols?: unknown) => ({ from: () => ({ where: () => ({ limit: async () => (cols ? [{ revokedAt: token.revokedAt }] : [member]) }) }) }),
+      insert: () => ({ values: () => Promise.resolve() }),
+    };
+    const svc = new AuthService(db as never, fakeRedis() as never, new JwtService({ secret: "test-secret-at-least-16" }), {} as never);
+    return svc;
+  }
+
+  it("gives parallel requests with the same token the same new session instead of signing the member out", async () => {
+    const svc = await setup();
+    const results = await Promise.all([svc.refresh("old"), svc.refresh("old"), svc.refresh("old")]);
+    expect(new Set(results.map((r) => r.refreshToken)).size).toBe(1);
+    expect(results[0].accessToken).toBeTruthy();
+  });
+
+  it("refuses a token that was rotated long ago", async () => {
+    const svc = await setup(new Date(Date.now() - 10 * 60_000));
+    await expect(svc.refresh("old")).rejects.toThrow(/sign in again/);
+  });
+});

@@ -1,15 +1,16 @@
 import { cookies } from "next/headers";
 import { api } from "./api";
+import { ACCESS, REFRESH, REFRESH_MAX_AGE, cookieOptions, type Tokens } from "./session-cookies";
 
 /**
  * Sessions.
  *
- * The access token is short-lived; the refresh token is single-use. Both are
- * httpOnly cookies, so they never reach JavaScript. When the access token
- * expires, the proxy silently refreshes it and retries once.
+ * The access token is short-lived (15 minutes); the refresh token lasts 30
+ * days and is single-use. Both are httpOnly cookies, so they never reach
+ * JavaScript. proxy.ts renews the access token before any page renders, so a
+ * page load never sees an expired session while the refresh token is valid.
  */
-export const ACCESS = "tq_at";
-export const REFRESH = "tq_rt";
+export { ACCESS, REFRESH };
 
 export type SessionUser = {
   id: string; name: string; type: string; city?: string | null;
@@ -21,19 +22,10 @@ export type SessionUser = {
   cover?: { urls?: Record<string, string> } | null;
 };
 
-/**
- * Cookies are marked Secure only when the site is actually served over HTTPS.
- * Deciding this from NODE_ENV instead would break local testing: a production
- * build served over http://localhost would set Secure cookies that Safari
- * refuses to store, so the member would appear signed out straight away.
- */
-const isHttps = () => (process.env.NEXT_PUBLIC_SITE_URL ?? "").startsWith("https://");
-
-export async function setSession(tokens: { accessToken: string; refreshToken: string; expiresIn: number }) {
+export async function setSession(tokens: Tokens) {
   const jar = await cookies();
-  const secure = isHttps();
-  jar.set(ACCESS, tokens.accessToken, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge: tokens.expiresIn });
-  jar.set(REFRESH, tokens.refreshToken, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge: 30 * 24 * 3600 });
+  jar.set(ACCESS, tokens.accessToken, cookieOptions(tokens.expiresIn));
+  jar.set(REFRESH, tokens.refreshToken, cookieOptions(REFRESH_MAX_AGE));
 }
 
 export async function clearSession() {

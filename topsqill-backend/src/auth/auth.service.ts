@@ -31,6 +31,8 @@ export type SignupProfile = { name: string; type: "buyer" | "seller" | "dealer" 
 
 const OTP_TTL = 300;         // the code is valid for 5 minutes
 const OTP_MAX_TRIES = 5;
+/** How long a just-rotated refresh token still returns the pair that replaced it. */
+const REFRESH_GRACE_SECONDS = 30;
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 
 const NO_ACCOUNT = { phone: "We couldn’t find an account with this mobile number.", email: "We couldn’t find an account with this email." };
@@ -136,14 +138,40 @@ export class AuthService {
   /** Refresh tokens are single-use: using one issues a new pair and retires the old. */
   async refresh(token: string, device?: string) {
     const hash = sha(token);
-    const [row] = await this.db.select().from(refreshTokens)
+    // Retire the token atomically: when several requests present it at once
+    // (a page load fires a few), exactly one of them wins the rotation.
+    const [row] = await this.db.update(refreshTokens).set({ revokedAt: new Date() })
       .where(and(eq(refreshTokens.tokenHash, hash), isNull(refreshTokens.revokedAt), gt(refreshTokens.expiresAt, new Date())))
-      .limit(1);
-    if (!row) throw new BadRequestException("Please sign in again.");
-    await this.db.update(refreshTokens).set({ revokedAt: new Date() }).where(eq(refreshTokens.id, row.id));
+      .returning();
+    if (!row) return this.fromSiblingRotation(hash);
+
     const [user] = await this.db.select().from(users).where(eq(users.id, row.userId)).limit(1);
     if (!user || user.status !== "active") throw new BadRequestException("Please sign in again.");
-    return this.issueTokens(user.id, user.type, user.isAdmin, device);
+    const tokens = await this.issueTokens(user.id, user.type, user.isAdmin, device);
+    // The requests that lost the race get this same new pair for a short while,
+    // instead of an error that would sign the member out. The pair sits in the
+    // private Redis for 30 seconds, under a key only the old token can derive.
+    await this.redis.set(`rt:grace:${hash}`, JSON.stringify(tokens), "EX", REFRESH_GRACE_SECONDS).catch(() => {});
+    return tokens;
+  }
+
+  /**
+   * A token that was rotated moments ago by a parallel request: hand back the
+   * pair that rotation issued. The winner may still be writing it, so wait
+   * briefly. Anything older is a genuinely stale (or stolen) token.
+   */
+  private async fromSiblingRotation(hash: string) {
+    const [old] = await this.db.select({ revokedAt: refreshTokens.revokedAt }).from(refreshTokens)
+      .where(eq(refreshTokens.tokenHash, hash)).limit(1);
+    const recent = old?.revokedAt && Date.now() - old.revokedAt.getTime() < REFRESH_GRACE_SECONDS * 1000;
+    if (recent) {
+      for (let i = 0; i < 20; i++) {
+        const cached = await this.redis.get(`rt:grace:${hash}`).catch(() => null);
+        if (cached) return JSON.parse(cached) as { accessToken: string; refreshToken: string; expiresIn: number };
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+    throw new BadRequestException("Please sign in again.");
   }
 
   async logout(token: string) {
