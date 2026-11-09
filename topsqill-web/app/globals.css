@@ -81,6 +81,8 @@ img{max-width:100%}
   background:var(--card);outline:none;width:100%}
 .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--vio)}
 .error{color:var(--red);font-size:13px;font-weight:600}
+/* a button that reads as an inline link */
+.linklike{background:none;border:0;padding:0;font:inherit;font-weight:800;color:var(--vio);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .empty{text-align:center;padding:40px 20px;color:var(--ink2)}
 
 /* layout grids */

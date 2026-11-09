@@ -28,6 +28,14 @@ const schema = z.object({
   WHATSAPP_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+
+  // Email sign-in codes go out over SMTP. Without SMTP_HOST, codes are only
+  // logged (development); in production, email sign-in is then switched off.
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().default(587),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  EMAIL_FROM: z.string().optional(),            // e.g. "Topsqill.ai <no-reply@topsqill.ai>"
   // Meta signs every lead-ads and WhatsApp webhook with the app secret. In
   // production, webhooks are refused outright until this is set.
   META_APP_SECRET: z.string().optional(),

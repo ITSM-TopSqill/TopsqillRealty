@@ -63,3 +63,23 @@ variable "alert_email" {
   type = string
   default = ""
 }
+# Email sign-in codes are sent over SMTP. Leave smtp_host empty to keep email
+# sign-in off. Before setting it, add the SMTP password as a version of the
+# "<name>-smtp-password" secret that terraform creates.
+variable "smtp_host" {
+  type    = string
+  default = ""
+}
+variable "smtp_port" {
+  type    = number
+  default = 587
+}
+variable "smtp_user" {
+  type    = string
+  default = ""
+}
+variable "email_from" {
+  type        = string
+  default     = ""
+  description = "Sender, e.g. \"Topsqill.ai <no-reply@topsqill.ai>\""
+}

@@ -18,7 +18,7 @@ export default async function OnboardingPage() {
         <p className="muted" style={{ margin: "6px 0 18px" }}>
           Tell us who you are. AI will write your headline and About, and you can edit both.
         </p>
-        <OnboardingForm name={user.name} />
+        <OnboardingForm name={user.name} type={user.type} />
       </div>
     </main>
   );

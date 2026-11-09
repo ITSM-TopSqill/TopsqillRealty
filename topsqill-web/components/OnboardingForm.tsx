@@ -12,11 +12,16 @@ const TYPES = [
 ];
 const CITIES = ["Gurgaon", "Noida", "Greater Noida", "Delhi", "Faridabad", "Mumbai", "Pune", "Bengaluru", "Hyderabad"];
 
-/** Three short steps: who you are, where you work, and the AI-written profile. */
-export function OnboardingForm({ name: initialName }: { name: string }) {
+/**
+ * Three short steps: who you are, where you work, and the AI-written profile.
+ * Members who just signed up already gave their name and type, so they start
+ * at "A few details" with both filled in (and can still go back to change them).
+ */
+export function OnboardingForm({ name: initialName, type: initialType }: { name: string; type?: string }) {
   const router = useRouter();
-  const [step, setStep] = useState(0);
-  const [type, setType] = useState("dealer");
+  const known = initialName !== "New member" && TYPES.some((t) => t.value === initialType);
+  const [step, setStep] = useState(known ? 1 : 0);
+  const [type, setType] = useState(known ? initialType! : "dealer");
   const [name, setName] = useState(initialName === "New member" ? "" : initialName);
   const [city, setCity] = useState("Gurgaon");
   const [localities, setLocalities] = useState("");

@@ -15,3 +15,9 @@ redis_gb          = 1
 api_min_instances = 0                    # scales to zero when nobody is using it
 api_max_instances = 8
 worker_max_instances = 2
+# Email sign-in codes (any SMTP provider: Amazon SES, Resend, SendGrid, Brevo, Google Workspace).
+# Add the password first:  printf '%s' 'PASSWORD' | gcloud secrets versions add topsqill-staging-smtp-password --data-file=-
+smtp_host  = ""                          # e.g. "smtp.resend.com"
+smtp_port  = 587
+smtp_user  = ""                          # e.g. "resend"
+email_from = ""                          # e.g. "Topsqill.ai <no-reply@topsqill.ai>"

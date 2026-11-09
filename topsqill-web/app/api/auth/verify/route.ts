@@ -2,13 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { API_URL } from "@/lib/api";
 import { setSession } from "@/lib/session";
 
-/** Checks the code and stores the tokens as httpOnly cookies. */
+/** Checks the code (signing in, or creating the account) and stores the tokens as httpOnly cookies. */
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const res = await fetch(`${API_URL}/v1/auth/otp/verify`, {
+  const body = await req.json().catch(() => ({}));
+  const res = await fetch(`${API_URL}/v1/auth/code/verify`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ phone: body?.phone, code: body?.code, device: req.headers.get("user-agent")?.slice(0, 160) }),
+    body: JSON.stringify({
+      channel: body?.channel, identifier: body?.identifier, code: body?.code, intent: body?.intent,
+      profile: body?.intent === "signup" ? body?.profile : undefined,
+      device: req.headers.get("user-agent")?.slice(0, 160),
+    }),
     cache: "no-store",
   });
   const data = await res.json();

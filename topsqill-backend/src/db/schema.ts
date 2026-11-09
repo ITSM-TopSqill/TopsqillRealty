@@ -23,8 +23,11 @@ export const postKind = pgEnum("post_kind", ["update", "listing", "requirement",
 
 export const users = pgTable("users", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  phone: varchar("phone", { length: 16 }).notNull(),              // E.164, e.g. +919355135887
+  phone: varchar("phone", { length: 16 }),                        // E.164, e.g. +919355135887; null for email-only members
   email: varchar("email", { length: 160 }),
+  // True only once the member proved they own the address with a code.
+  // Only verified addresses can be used to sign in, and each one only once.
+  emailVerified: boolean("email_verified").notNull().default(false),
   name: varchar("name", { length: 120 }).notNull(),
   type: profileType("type").notNull().default("buyer"),
   status: userStatus("status").notNull().default("pending"),
@@ -49,6 +52,7 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   phoneUq: uniqueIndex("users_phone_uq").on(t.phone),
+  emailVerifiedUq: uniqueIndex("users_email_verified_uq").on(sql`lower(${t.email})`).where(sql`${t.emailVerified}`),
   // "dealers in Gurgaon", newest first
   typeCityIdx: index("users_type_city_idx").on(t.type, t.city, t.createdAt.desc()).where(sql`${t.status} = 'active'`),
   // name search (trigram index is added in the SQL migration)

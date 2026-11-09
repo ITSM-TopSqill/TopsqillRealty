@@ -1,4 +1,5 @@
-import { Injectable, Inject, NotFoundException } from "@nestjs/common";
+import { Injectable, Inject, NotFoundException, BadRequestException } from "@nestjs/common";
+import { normaliseEmail } from "../auth/email";
 import { eq, and, inArray, sql, desc } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { users, connections, media } from "../db/schema";
@@ -44,7 +45,7 @@ export class ProfilesService {
     let contact: { phone?: string; email?: string } | null = null;
     if (relation === "self" || relation === "connected") {
       const [u] = await this.read.select({ phone: users.phone, email: users.email }).from(users).where(eq(users.id, id)).limit(1);
-      contact = { phone: u?.phone, email: u?.email ?? undefined };
+      contact = { phone: u?.phone ?? undefined, email: u?.email ?? undefined };
     }
     return { ...profile, relation, contact };
   }
@@ -56,9 +57,30 @@ export class ProfilesService {
     if (!Object.keys(data).length) return this.getProfile(userId, userId);
     data.updatedAt = new Date();
     if ("reraNumber" in data) data.reraVerified = false;  // re-verify after any change
+    if ("email" in data) await this.applyEmailChange(userId, data);
     await this.db.update(users).set(data as any).where(eq(users.id, userId));
     await this.cache.invalidate(`profile:${userId}`);
     return this.getProfile(userId, userId);
+  }
+
+  /**
+   * A typed-in address is unverified until proven with a code, so it can never
+   * be used to sign in, and so nobody can claim someone else's address.
+   * Members who joined by email sign in with it, so they cannot change it here:
+   * that would lock them out of their own account.
+   */
+  private async applyEmailChange(userId: string, data: Record<string, unknown>) {
+    const raw = data.email as string | null | undefined;
+    const next = raw == null || String(raw).trim() === "" ? null : normaliseEmail(raw);
+    if (raw && !next) throw new BadRequestException("Enter a valid email address.");
+    const [me] = await this.db.select({ email: users.email, emailVerified: users.emailVerified, phone: users.phone })
+      .from(users).where(eq(users.id, userId)).limit(1);
+    if ((me?.email ?? null) === next) { delete data.email; return; }
+    if (me && !me.phone && me.emailVerified) {
+      throw new BadRequestException("You sign in with this email, so it can’t be changed here yet.");
+    }
+    data.email = next;
+    data.emailVerified = false;
   }
 
   /** Connection request. Both directions are written in one transaction. */

@@ -24,7 +24,7 @@ export default async function HomePage() {
             leads in one inbox, and AI that writes the boring parts for you.
           </p>
           <div className="row">
-            <Link href="/signin" className="btn" style={{ background: "#fff", color: "#1F1D33" }}>Join Topsqill.ai</Link>
+            <Link href="/signup" className="btn" style={{ background: "#fff", color: "#1F1D33" }}>Join Topsqill.ai</Link>
             <Link href="/listings" className="btn" style={{ border: "2px solid rgba(255,255,255,.7)", color: "#fff" }}>Browse listings</Link>
           </div>
         </section>

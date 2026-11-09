@@ -5,19 +5,8 @@ import { jobs, jobApplications, users } from "../db/schema";
 import { ClaudeService } from "../ai/claude.service";
 import { newId, encodeCursor, decodeCursor } from "../common/ids";
 
-/**
- * Drizzle wraps database errors, so the Postgres code sits on `cause`.
- * 23505 is a unique-constraint violation: the row already exists.
- */
-export function isUniqueViolation(e: unknown): boolean {
-  let cur: unknown = e;
-  for (let i = 0; i < 5 && cur; i++) {
-    const err = cur as { code?: string; message?: string; cause?: unknown };
-    if (err.code === "23505" || /duplicate key value/i.test(err.message ?? "")) return true;
-    cur = err.cause;
-  }
-  return false;
-}
+export { isUniqueViolation } from "../common/db-errors";
+import { isUniqueViolation } from "../common/db-errors";
 
 export const JOB_CATEGORIES = ["Sales", "Pre-sales", "Channel partners", "Marketing", "Leasing", "Site and engineering", "Operations"] as const;
 

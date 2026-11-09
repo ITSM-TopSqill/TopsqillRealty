@@ -107,6 +107,15 @@ resource "google_secret_manager_secret_version" "internal_proxy" {
   secret_data = random_password.internal_proxy.result
 }
 
+# SMTP password for sign-in code emails. Add its value by hand
+# (gcloud secrets versions add ...) before setting smtp_host.
+resource "google_secret_manager_secret" "smtp_password" {
+  secret_id = "${local.name}-smtp-password"
+  replication {
+    auto {}
+  }
+}
+
 # Filled in by hand after `terraform apply`, so keys never sit in the repository.
 resource "google_secret_manager_secret" "anthropic" {
   secret_id = "${local.name}-anthropic-key"
@@ -217,6 +226,32 @@ resource "google_cloud_run_v2_service" "api" {
           secret_key_ref {
             secret  = google_secret_manager_secret.jwt.secret_id
             version = "latest"
+          }
+        }
+      }
+      # Email sign-in, only once SMTP is configured: without these settings the
+      # API simply does not offer email sign-in.
+      dynamic "env" {
+        for_each = var.smtp_host == "" ? {} : {
+          SMTP_HOST  = var.smtp_host
+          SMTP_PORT  = tostring(var.smtp_port)
+          SMTP_USER  = var.smtp_user
+          EMAIL_FROM = var.email_from
+        }
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+      dynamic "env" {
+        for_each = var.smtp_host == "" ? [] : ["SMTP_PASS"]
+        content {
+          name = env.value
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.smtp_password.secret_id
+              version = "latest"
+            }
           }
         }
       }

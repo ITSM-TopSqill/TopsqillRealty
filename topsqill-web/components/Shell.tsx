@@ -54,7 +54,10 @@ export function Shell({ user, current, unread, children }: {
                 <span>Me</span>
               </Link>
             ) : (
-              <Link href="/signin" className="btn btn-ai" style={{ alignSelf: "center", marginLeft: 8 }}>Sign in</Link>
+              <>
+                <Link href="/signin" className="btn btn-g" style={{ alignSelf: "center", marginLeft: 8 }}>Sign in</Link>
+                <Link href="/signup" className="btn btn-ai" style={{ alignSelf: "center", marginLeft: 6 }}>Join</Link>
+              </>
             )}
           </nav>
         </div>

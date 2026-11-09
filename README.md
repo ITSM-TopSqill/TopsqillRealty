@@ -80,8 +80,13 @@ Open **http://localhost:3000**.
 
 ## Signing in
 
-Enter any 10-digit mobile number. No SMS is sent locally: the code is printed in the backend
-terminal, as `OTP for +919355135887 is 123456`.
+Choose **Join** to create an account, or **Sign in** if you have one. Use an email address or a
+10-digit mobile number. Nothing is sent locally: the code appears on screen ("Development mode")
+and in the backend terminal, as `Email code for you@example.com is 123456`.
+
+In production, email codes are sent over SMTP (set `smtp_host`, `smtp_user`, `email_from` in
+`terraform.tfvars` and the `-smtp-password` secret). Mobile codes need WhatsApp
+(`OTP_PROVIDER=whatsapp`). The sign-in screen only offers the methods that are configured.
 
 To make yourself an admin:
 

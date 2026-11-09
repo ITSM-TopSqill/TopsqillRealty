@@ -75,9 +75,13 @@ export class AdminService {
       if (!reraOk) score += 30;
     }
 
-    const dupRes = await this.read.execute(sql`
-      select count(*)::int as n from users where phone = ${u?.phone ?? ""} and id <> ${v.userId}`);
-    const dup = Number((Array.isArray(dupRes) ? dupRes[0] : (dupRes as any).rows[0])?.n ?? 0);
+    // Members who joined by email have no phone, so there is nothing to compare.
+    let dup = 0;
+    if (u?.phone) {
+      const dupRes = await this.read.execute(sql`
+        select count(*)::int as n from users where phone = ${u.phone} and id <> ${v.userId}`);
+      dup = Number((Array.isArray(dupRes) ? dupRes[0] : (dupRes as any).rows[0])?.n ?? 0);
+    }
     checks.push({ label: "Phone not already used on Topsqill.ai", ok: dup === 0 });
     if (dup) score += 25;
 
