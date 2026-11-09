@@ -53,7 +53,13 @@ export class ProfilesService {
   async updateMe(userId: string, patch: Partial<typeof users.$inferInsert>) {
     const allowed = ["name", "type", "city", "localities", "headline", "about", "agency", "yearsExperience", "reraNumber", "avatarMediaId", "coverMediaId", "email"] as const;
     const data: Record<string, unknown> = {};
-    for (const k of allowed) if (k in patch) data[k] = (patch as Record<string, unknown>)[k];
+    // `undefined` means "not sent". The validated DTO is a class instance, and
+    // with ES2022+ class fields every declared property exists on it, so an
+    // `in` check alone would treat untouched fields (email, reraNumber) as edits.
+    for (const k of allowed) {
+      const v = (patch as Record<string, unknown>)[k];
+      if (v !== undefined) data[k] = v;
+    }
     if (!Object.keys(data).length) return this.getProfile(userId, userId);
     data.updatedAt = new Date();
     if ("reraNumber" in data) data.reraVerified = false;  // re-verify after any change

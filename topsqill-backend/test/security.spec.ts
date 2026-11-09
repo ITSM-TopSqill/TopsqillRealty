@@ -109,3 +109,34 @@ describe("connection requests", () => {
     expect(countsBumped).toBe(false);
   });
 });
+
+describe("profile saves", () => {
+  /** A member who joined by email; `written` captures what the save would store. */
+  async function setup() {
+    const { ProfilesService } = await import("../src/profiles/profiles.service");
+    let written: Record<string, unknown> | null = null;
+    const db = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ email: "aman@example.com", emailVerified: true, phone: null }] }) }) }),
+      update: () => ({ set: (d: Record<string, unknown>) => { written = d; return { where: async () => [] }; } }),
+    };
+    const svc = new ProfilesService(db as never, db as never, { invalidate: async () => {} } as never, {} as never);
+    svc.getProfile = (async () => ({})) as never;
+    return { svc, written: () => written };
+  }
+
+  it("ignores fields the form did not send, as a validated DTO carries them all as undefined", async () => {
+    const { svc, written } = await setup();
+    // What the validation pipe hands over: every declared field present, most undefined.
+    const dto = { name: "Aman Gupta", type: "builder", city: "Noida", localities: undefined, headline: "Hi", about: "About",
+      agency: undefined, yearsExperience: undefined, reraNumber: undefined, avatarMediaId: undefined, coverMediaId: undefined, email: undefined };
+    await expect(svc.updateMe("u2", dto as never)).resolves.toBeDefined();
+    expect(written()).toMatchObject({ name: "Aman Gupta", type: "builder" });
+    expect(written()).not.toHaveProperty("email");
+    expect(written()).not.toHaveProperty("reraVerified");      // untouched RERA stays verified
+  });
+
+  it("still refuses to change the email an email-only member signs in with", async () => {
+    const { svc } = await setup();
+    await expect(svc.updateMe("u2", { email: "other@example.com" } as never)).rejects.toThrow(/sign in with this email/);
+  });
+});
