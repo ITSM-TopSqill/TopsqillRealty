@@ -1,10 +1,11 @@
 import "reflect-metadata";
+import { createServer } from "node:http";
 import { Worker, Job } from "bullmq";
 import Redis from "ioredis";
 import { Pool } from "pg";
 import { env } from "../src/common/env";
 import { poolConfig } from "../src/db/pool-config";
-import { QUEUES } from "../src/queue/queue.module";
+import { QUEUES } from "../src/queue/queues";
 import { processMedia } from "./media.processor";
 import { fanoutPost } from "./fanout.processor";
 import { flushCounters } from "./counters";
@@ -15,6 +16,10 @@ import { runMatch } from "./match.processor";
  * Background workers. Everything slow lives here so the API always answers fast:
  * image resizing, video to HLS, 3D compression, feed delivery and counter writes.
  * Runs as its own Cloud Run service, scaled separately from the API.
+ *
+ * Cloud Run only keeps a container that answers on $PORT, so a tiny HTTP server
+ * reports health: /health means the process is up (used by the probes, so a
+ * Redis blip never restarts the container), /ready also needs Redis.
  */
 const connection = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
 const pool = new Pool(poolConfig(env.DATABASE_URL, { max: 5, application_name: "topsqill-worker" }));
@@ -37,9 +42,18 @@ const timer = setInterval(() => flushCounters(pool, connection).catch((e) => con
 // below the rate limits, and it keeps the member's spend figures honest.
 const statsTimer = setInterval(() => syncLiveCampaigns(pool).catch((e) => console.error("campaign sync", e.message)), 15 * 60_000);
 
+const health = createServer((req, res) => {
+  const redisUp = connection.status === "ready";
+  const ok = req.url === "/ready" ? redisUp : true;
+  res.writeHead(ok ? 200 : 503, { "content-type": "application/json" });
+  res.end(JSON.stringify({ ok, redis: redisUp, workers: workers.filter((w) => w.isRunning()).length }));
+});
+health.listen(Number(process.env.PORT ?? 8080), "0.0.0.0");
+
 async function shutdown() {
   clearInterval(timer);
   clearInterval(statsTimer);
+  health.close();
   await Promise.all(workers.map((w) => w.close()));
   await pool.end().catch(() => { });
   await connection.quit().catch(() => { });

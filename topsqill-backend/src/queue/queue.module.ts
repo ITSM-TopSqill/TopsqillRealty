@@ -3,14 +3,10 @@ import { Queue, JobsOptions } from "bullmq";
 import Redis from "ioredis";
 import { REDIS } from "../redis/redis.module";
 
-/** Anything slow runs here so the API answers immediately. */
-export const QUEUES = {
-  media: "media",          // image resizing, video to HLS, 3D compression, safety checks
-  ai: "ai",                // listing extraction, captions, lead scoring
-  fanout: "fanout",        // writing new posts into followers' feeds
-  notify: "notify",        // push, WhatsApp, email
-} as const;
-export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
+import { QUEUES, type QueueName } from "./queues";
+
+/** Anything slow runs on these queues so the API answers immediately. */
+export { QUEUES, type QueueName };
 
 const defaults: JobsOptions = {
   attempts: 5,
