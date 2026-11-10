@@ -5,6 +5,7 @@ import { users, listings, posts, postComments, reports, verifications, auditLog,
 import { CacheService } from "../redis/redis.module";
 import { NotificationsService } from "../notifications/notifications.service";
 import { MediaService } from "../media/media.service";
+import { ClaudeService } from "../ai/claude.service";
 import { newId } from "../common/ids";
 
 type Decision = "approved" | "rejected" | "info";
@@ -17,7 +18,88 @@ export class AdminService {
     private readonly cache: CacheService,
     private readonly notifs: NotificationsService,
     private readonly mediaSvc: MediaService,
+    private readonly claude: ClaudeService,
   ) {}
+
+  /* --------------------------------- AI --------------------------------- */
+
+  /** Calls, failures and tokens per AI feature over the last 7 days, and today. */
+  async aiUsage() {
+    const res = await this.read.execute(sql`
+      select feature,
+             count(*)::int                                              as calls,
+             count(*) filter (where not ok)::int                        as failed,
+             count(*) filter (where created_at::date = now()::date)::int as today,
+             coalesce(sum(input_tokens),0)::bigint                      as "inputTokens",
+             coalesce(sum(output_tokens),0)::bigint                     as "outputTokens",
+             coalesce(round(avg(ms)),0)::int                            as "avgMs",
+             count(distinct user_id)::int                               as members
+      from ai_usage where created_at > now() - interval '7 days'
+      group by feature order by calls desc`);
+    const features = (Array.isArray(res) ? res : (res as { rows: unknown[] }).rows) as Record<string, number | string>[];
+    const daily = await this.read.execute(sql`
+      select to_char(d::date, 'YYYY-MM-DD') as day, count(a.id)::int as calls
+      from generate_series(now() - interval '6 days', now(), interval '1 day') d
+      left join ai_usage a on a.created_at::date = d::date
+      group by d order by d`);
+    return {
+      configured: this.claude.available,
+      model: this.claude.model,
+      dailyLimitPerMember: Number(process.env.AI_DAILY_LIMIT ?? 200),
+      features: features.map((f) => ({ ...f, inputTokens: Number(f.inputTokens), outputTokens: Number(f.outputTokens) })),
+      daily: Array.isArray(daily) ? daily : (daily as { rows: unknown[] }).rows,
+    };
+  }
+
+  /**
+   * The admin's morning brief: yesterday's numbers in a few sentences, with
+   * what needs attention first. Written once a day and kept until midnight.
+   */
+  async aiBrief(adminId: string, refresh = false) {
+    const day = new Date().toISOString().slice(0, 10);
+    const key = `admin:brief:${day}`;
+    if (!refresh) {
+      const hit = await this.cache.redis.get(key).catch(() => null);
+      if (hit) return JSON.parse(hit);
+    }
+    const res = await this.read.execute(sql`
+      select
+        (select count(*) from users where created_at > now() - interval '1 day')::int                         as "newMembers",
+        (select count(*) from listings where published_at > now() - interval '1 day')::int                     as "newListings",
+        (select count(*) from requirements where created_at > now() - interval '1 day')::int                   as "newRequirements",
+        (select count(*) from leads where created_at > now() - interval '1 day')::int                          as "newLeads",
+        (select count(*) from messages where created_at > now() - interval '1 day')::int                       as "messages",
+        (select count(*) from posts where created_at > now() - interval '1 day')::int                          as "posts",
+        (select count(*) from jobs where created_at > now() - interval '1 day')::int                           as "newJobs",
+        (select count(*) from verifications where status in ('pending','info'))::int                           as "pendingVerifications",
+        (select count(*) from verifications where status in ('pending','info') and created_at < now() - interval '2 days')::int as "verificationsOver2Days",
+        (select count(*) from reports where status = 'open')::int                                              as "openReports",
+        (select count(*) from media where status = 'failed' and created_at > now() - interval '1 day')::int    as "failedUploads",
+        (select count(*) from ai_usage where not ok and created_at > now() - interval '1 day')::int            as "aiFailures",
+        (select count(*) from users where created_at between now() - interval '8 days' and now() - interval '1 day')::int as "membersPrior7Days"`);
+    const m = (Array.isArray(res) ? res[0] : (res as { rows: unknown[] }).rows[0]) as Record<string, number>;
+
+    const fallback = () => {
+      const bullets: string[] = [];
+      if (m.verificationsOver2Days) bullets.push(`${m.verificationsOver2Days} verification request${m.verificationsOver2Days === 1 ? " has" : "s have"} waited over 2 days. Review them first.`);
+      if (m.openReports) bullets.push(`${m.openReports} open report${m.openReports === 1 ? "" : "s"} to moderate.`);
+      bullets.push(`Last 24 hours: ${m.newMembers} new members, ${m.newListings} listings, ${m.newRequirements} requirements, ${m.newLeads} leads, ${m.messages} messages, ${m.posts} posts.`);
+      if (m.failedUploads) bullets.push(`${m.failedUploads} uploads failed processing. Check the media worker logs.`);
+      if (m.aiFailures) bullets.push(`${m.aiFailures} AI calls failed. Check the API key and quota.`);
+      return { bullets };
+    };
+    const { data, source } = await this.claude.json<{ bullets: string[] }>(
+      `You write the daily brief for the admin of Topsqill.ai, an Indian real estate network. From these numbers for the last 24 hours, write 3 to 5 short bullets: what needs action first (old verifications, reports, failures), then growth and activity, with one practical suggestion. Be specific with numbers. No fluff.
+
+NUMBERS: ${JSON.stringify(m)}
+
+Return JSON: {"bullets": ["..."]}`,
+      fallback, { userId: adminId, feature: "admin.brief", maxTokens: 600 },
+    );
+    const brief = { day, bullets: (data.bullets ?? []).slice(0, 6).map(String), metrics: m, source, generatedAt: new Date().toISOString() };
+    await this.cache.redis.set(key, JSON.stringify(brief), "EX", 86_400).catch(() => {});
+    return brief;
+  }
 
   /* ------------------------ member verification ------------------------ */
 

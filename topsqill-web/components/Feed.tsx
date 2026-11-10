@@ -9,6 +9,9 @@ import { Avatar, TypePill } from "./ui";
 import type { Post } from "@/lib/types";
 import type { SessionUser } from "@/lib/session";
 
+type Tone = "write" | "fix" | "punchy" | "short" | "hinglish" | "tags";
+const STYLES: [Tone, string][] = [["fix", "Fix grammar"], ["punchy", "Punchier"], ["short", "Shorter"], ["hinglish", "Hinglish"], ["tags", "Add hashtags"]];
+
 /** Write a post, with AI help for people who dislike writing. */
 export function Composer({ user }: { user: SessionUser }) {
   const router = useRouter();
@@ -16,12 +19,18 @@ export function Composer({ user }: { user: SessionUser }) {
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState<"post" | "ai" | null>(null);
   const [error, setError] = useState("");
+  const [undo, setUndo] = useState<string | null>(null);
 
-  async function writeWithAi() {
+  /** "write" turns a topic into a post; the other styles rewrite what is there. */
+  async function writeWithAi(tone: Tone = "write") {
     if (!body.trim()) { setError("Type a topic first, then let AI expand it."); return; }
     setBusy("ai"); setError("");
     try {
-      const res = await clientApi<{ text: string }>("/v1/ai/write/post", { method: "POST", body: { topic: body } });
+      const res = await clientApi<{ text: string }>("/v1/ai/write/post", {
+        method: "POST",
+        body: tone === "write" ? { topic: body.slice(0, 600) } : { topic: "rewrite", tone, current: body.slice(0, 5000) },
+      });
+      setUndo(body);
       setBody(res.text);
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(null); }
@@ -53,10 +62,19 @@ export function Composer({ user }: { user: SessionUser }) {
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={5} autoFocus
             placeholder="What would you like to share?"
             style={{ width: "100%", border: "1.5px solid var(--line)", borderRadius: 12, padding: 12, background: "var(--card)" }} />
+          {body.trim().length > 20 ? (
+            <div className="row" style={{ flexWrap: "wrap", gap: 6 }} aria-label="Rewrite with AI">
+              <span className="small muted" style={{ fontWeight: 700 }}>✨ Rewrite:</span>
+              {STYLES.map(([tone, label]) => (
+                <button key={tone} className="chip" style={{ height: 30, fontSize: 12.5 }} onClick={() => writeWithAi(tone)} disabled={busy !== null}>{label}</button>
+              ))}
+              {undo !== null ? <button className="linklike small" onClick={() => { setBody(undo); setUndo(null); }}>Undo</button> : null}
+            </div>
+          ) : null}
           {error ? <p className="error">{error}</p> : null}
           <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn btn-g sm" onClick={() => { setOpen(false); setBody(""); setError(""); }}>Cancel</button>
-            <button className="btn btn-o sm" onClick={writeWithAi} disabled={busy !== null}>
+            <button className="btn btn-g sm" onClick={() => { setOpen(false); setBody(""); setError(""); setUndo(null); }}>Cancel</button>
+            <button className="btn btn-o sm" onClick={() => writeWithAi("write")} disabled={busy !== null}>
               {busy === "ai" ? "Writing…" : "✨ Write with AI"}
             </button>
             <button className="btn btn-p sm" onClick={publish} disabled={busy !== null || !body.trim()}>
@@ -196,16 +214,26 @@ export function PostCard({ post, meId, startOpen = false }: { post: Post; meId: 
         <button className="pa" onClick={share}>↗ Share</button>
       </div>
 
-      {showComments ? <Comments postId={post.id} meId={meId} postAuthorId={post.authorId} onCount={(n) => setComments(n)} onAdded={() => setComments((n) => n + 1)} /> : null}
+      {showComments ? <Comments postId={post.id} postBody={body} meId={meId} postAuthorId={post.authorId} onCount={(n) => setComments(n)} onAdded={() => setComments((n) => n + 1)} /> : null}
     </article>
   );
 }
 
 type CommentRow = { id: string; body: string; authorId: string; authorName: string; authorType?: string; createdAt: string };
 
-function Comments({ postId, meId, postAuthorId, onAdded, onCount }: {
-  postId: string; meId: string | null; postAuthorId: string; onAdded: () => void; onCount: (n: number) => void;
+function Comments({ postId, postBody, meId, postAuthorId, onAdded, onCount }: {
+  postId: string; postBody: string; meId: string | null; postAuthorId: string; onAdded: () => void; onCount: (n: number) => void;
 }) {
+  const [suggesting, setSuggesting] = useState(false);
+  /** Drafts a short comment; the member edits or posts it. */
+  async function suggest() {
+    setSuggesting(true); setError("");
+    try {
+      const res = await clientApi<{ text: string }>("/v1/ai/write/comment", { method: "POST", body: { postBody: postBody.slice(0, 4000) } });
+      setBody(res.text);
+    } catch (e) { setError((e as Error).message); }
+    finally { setSuggesting(false); }
+  }
   const [items, setItems] = useState<CommentRow[] | null>(null);
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
@@ -249,6 +277,7 @@ function Comments({ postId, meId, postAuthorId, onAdded, onCount }: {
           <input value={body} onChange={(e) => setBody(e.target.value)} placeholder="Add a comment…" maxLength={2000}
             onKeyDown={(e) => { if (e.key === "Enter") send(); }} aria-label="Add a comment"
             style={{ flex: 1, height: 38, borderRadius: 999, border: "1.5px solid var(--line)", padding: "0 14px", background: "var(--card)" }} />
+          <button className="btn btn-g sm" onClick={suggest} disabled={busy || suggesting} title="Suggest a comment with AI">{suggesting ? "…" : "✨"}</button>
           <button className="btn btn-p sm" onClick={send} disabled={busy || !body.trim()}>{busy ? "…" : "Post"}</button>
         </div>
       ) : <Link href={`/signin?next=/posts/${postId}`} className="small">Sign in to comment</Link>}

@@ -3,6 +3,10 @@ import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import { IsIn, IsOptional, IsString, MaxLength, IsObject, IsArray, IsInt } from "class-validator";
 import { WriterService } from "./writer.service";
 import { ProjectsService } from "./projects.service";
+import { AssistantService } from "./assistant.service";
+import { ListingChatService } from "./listing-chat.service";
+import { Type } from "class-transformer";
+import { ValidateNested, ArrayMaxSize } from "class-validator";
 import { CurrentUser, AuthUser, Public } from "../auth/public.decorator";
 
 class ImportDto {
@@ -20,7 +24,7 @@ class ProfileDto {
 }
 class PostDto {
   @IsString() @MaxLength(600) topic: string;
-  @IsOptional() @IsIn(["write", "punchy", "hinglish", "tags", "fix"]) tone?: "write" | "punchy" | "hinglish" | "tags" | "fix";
+  @IsOptional() @IsIn(["write", "punchy", "short", "hinglish", "tags", "fix"]) tone?: "write" | "punchy" | "short" | "hinglish" | "tags" | "fix";
   @IsOptional() @IsString() @MaxLength(5000) current?: string;
 }
 class ListingCopyDto { @IsObject() listing: Record<string, unknown>; @IsOptional() @IsInt() localityRate?: number; }
@@ -29,11 +33,32 @@ class FollowUpDto {
   @IsObject() lead: Record<string, unknown>;
 }
 class CommentDto { @IsString() @MaxLength(4000) postBody: string; }
+class TurnDto {
+  @IsIn(["user", "assistant"]) role: "user" | "assistant";
+  @IsString() @MaxLength(6000) text: string;
+}
+class AskDto {
+  @IsString() @MaxLength(1000) message: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({ each: true }) @Type(() => TurnDto) history?: TurnDto[];
+}
 
 @ApiTags("ai")
 @Controller("v1/ai")
 export class AiController {
-  constructor(private readonly writer: WriterService, private readonly projects: ProjectsService) {}
+  constructor(
+    private readonly writer: WriterService,
+    private readonly projects: ProjectsService,
+    private readonly assistant: AssistantService,
+    private readonly listingChat: ListingChatService,
+  ) {}
+
+  @Post("assistant") @ApiOperation({ summary: "Ask Topsqill.ai: search, match, price and write in one chat" })
+  ask(@CurrentUser() user: AuthUser, @Body() dto: AskDto) { return this.assistant.ask(user.id, dto.message, dto.history ?? []); }
+
+  @Post("listings/:id/ask") @ApiOperation({ summary: "Answer a question about one listing, from its facts only" })
+  askListing(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: AskDto) {
+    return this.listingChat.ask(user.id, id, dto.message, dto.history ?? []);
+  }
 
   @Post("projects/import") @ApiOperation({ summary: "Build a full project listing from a link and its page text" })
   importProject(@CurrentUser() user: AuthUser, @Body() dto: ImportDto) { return this.projects.importFromUrl(user.id, dto); }
@@ -61,6 +86,6 @@ export class AiController {
 
   @Post("write/follow-up")
   followUp(@CurrentUser() user: AuthUser, @Body() dto: FollowUpDto) {
-    return this.writer.leadFollowUp(user.id, dto.channel, dto.lead, { name: "Me", id: user.id });
+    return this.writer.senderOf(user.id).then((sender) => this.writer.leadFollowUp(user.id, dto.channel, dto.lead, sender));
   }
 }

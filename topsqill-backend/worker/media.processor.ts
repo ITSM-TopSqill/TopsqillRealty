@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import sharp from "sharp";
 import { env } from "../src/common/env";
 import { readUpload, writePublic, copyToPublic } from "../src/media/storage";
+import { tagPhoto } from "./photo-tags";
 
 /** Photo sizes the app actually uses. A phone never downloads a 4K file for a small card. */
 export const IMAGE_SIZES = [
@@ -56,6 +57,14 @@ async function processImage(data: MediaJob, pool: Pool) {
   const blurhash = `data:image/jpeg;base64,${tiny.toString("base64")}`.slice(0, 64);
 
   await finish(pool, data.mediaId, { variants, width: meta.width ?? null, height: meta.height ?? null, blurhash });
+
+  // AI labels the photo (Kitchen, Bedroom…) after it is ready, so a slow or
+  // failed label never delays the upload. Private documents are never sent.
+  const { rows } = await pool.query("select owner_id, label, group_name from media where id=$1", [data.mediaId]);
+  if (rows[0] && rows[0].group_name !== "private") {
+    const small = await sharp(buf).rotate().resize({ width: 512, withoutEnlargement: true }).jpeg({ quality: 70 }).toBuffer();
+    await tagPhoto(pool, data.mediaId, rows[0].owner_id, small, rows[0].label);
+  }
   return { variants: Object.keys(variants).length };
 }
 

@@ -1,5 +1,8 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Inject } from "@nestjs/common";
+import { eq } from "drizzle-orm";
 import { ClaudeService } from "./claude.service";
+import { DB_READ, type Database } from "../db/db.module";
+import { users } from "../db/schema";
 
 type Profile = { name: string; type: string; city?: string | null; localities?: string[]; agency?: string | null; years?: number | null; notes?: string };
 
@@ -10,7 +13,14 @@ type Profile = { name: string; type: string; city?: string | null; localities?: 
  */
 @Injectable()
 export class WriterService {
-  constructor(private readonly claude: ClaudeService) {}
+  constructor(private readonly claude: ClaudeService, @Inject(DB_READ) private readonly read: Database) {}
+
+  /** Who a message is from: the member's real name and agency, never a placeholder. */
+  async senderOf(userId: string) {
+    const [me] = await this.read.select({ name: users.name, agency: users.agency, phone: users.phone })
+      .from(users).where(eq(users.id, userId)).limit(1);
+    return { name: me?.name ?? "Your Topsqill.ai advisor", agency: me?.agency ?? null, phone: me?.phone ?? null };
+  }
 
   async profile(userId: string, p: Profile) {
     const locs = p.localities?.length ? p.localities : [p.city ?? "your city"];
@@ -48,21 +58,25 @@ Listing: ${JSON.stringify(listing)}`;
     return { ...data, source };
   }
 
-  async post(userId: string, topic: string, tone: "write" | "punchy" | "hinglish" | "tags" | "fix", current?: string, context?: Record<string, unknown>) {
+  async post(userId: string, topic: string, tone: "write" | "punchy" | "short" | "hinglish" | "tags" | "fix", current?: string, context?: Record<string, unknown>) {
+    const base = current ?? topic;
     const fallback = () => {
-      if (tone === "hinglish") return { text: `${topic}. Agar aap ghar dhoondh rahe ho, mujhe DM karo. Sab listings verified hain 🙏 #TopsqillAI` };
-      if (tone === "tags") return { text: `${current ?? topic}\n\n#RealEstate #TopsqillAI #PropertyDeals` };
-      if (tone === "fix") return { text: (current ?? topic).replace(/\s+/g, " ").trim() };
-      if (tone === "punchy") return { text: `🔥 ${(current ?? topic).split(/(?<=[.!?])\s+/).slice(0, 2).join(" ")}\n\nDM me today 👇` };
+      if (tone === "hinglish") return { text: `${base}\n\nAgar aap ghar dhoondh rahe ho, mujhe DM karo. Sab listings verified hain 🙏 #TopsqillAI` };
+      if (tone === "tags") return { text: `${base}\n\n#RealEstate #TopsqillAI #PropertyDeals #HomeBuying` };
+      if (tone === "fix") return { text: base.replace(/\s+/g, " ").replace(/\s([,.!?])/g, "$1").replace(/(^|[.!?]\s+)([a-z])/g, (_m, p, c) => p + c.toUpperCase()).trim() };
+      if (tone === "punchy") return { text: `🔥 ${base.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ")}\n\nDM me today 👇` };
+      if (tone === "short") return { text: base.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ") };
       return { text: `📣 ${topic}\n\nIf you are buying, selling or renting, let’s talk. Drop a comment and I will call you back today. #TopsqillAI` };
     };
-    const instruction = tone === "write" ? `Write a LinkedIn-style post about: "${topic}".`
-      : tone === "punchy" ? "Rewrite it shorter and punchier, with a strong first line."
-      : tone === "hinglish" ? "Rewrite it in natural Hinglish (Roman script), friendly tone."
-      : tone === "tags" ? "Keep the text and add 4 relevant hashtags at the end."
-      : "Fix grammar and clarity only, keeping the meaning.";
-    const prompt = `${instruction} 60-110 words, confident and specific, 1-3 emojis, ending with a clear call to action.
-Return ONLY JSON {"text": the post}. Never promise returns.
+    // Each style has its own length rule: fixing grammar must not rewrite the post.
+    const instruction = tone === "write" ? `Write a LinkedIn-style post about: "${topic}". 60-110 words, confident and specific, 1-3 emojis, ending with a clear call to action.`
+      : tone === "punchy" ? "Rewrite the current post punchier: a strong first line, active verbs, 1-3 emojis, a clear call to action. At most 80 words."
+      : tone === "short" ? "Rewrite the current post in about half the words, keeping every key fact (price, place, size) and the call to action."
+      : tone === "hinglish" ? "Rewrite the current post in natural Hinglish (Hindi in Roman script mixed with English), friendly tone, same facts, similar length."
+      : tone === "tags" ? "Return the current post unchanged, followed by a blank line and 4 to 6 relevant hashtags (place, property type, #RealEstate)."
+      : "Fix spelling, grammar and punctuation only. Keep the wording, tone, length and emojis.";
+    const prompt = `${instruction}
+Return ONLY JSON {"text": the post}. Never promise returns or guaranteed appreciation.
 ${context ? `Context: ${JSON.stringify(context)}\n` : ""}${current ? `Current post: """${current}"""` : ""}`;
     const { data, source } = await this.claude.json(prompt, fallback, { userId, feature: "write.post", maxTokens: 700 });
     return { text: String((data as { text?: string }).text ?? fallback().text), source };
@@ -85,7 +99,7 @@ Lead: ${JSON.stringify(lead)}. Sender: ${JSON.stringify(sender)}`;
   }
 
   async comment(userId: string, postBody: string, me: Record<string, unknown>) {
-    const fallback = () => ({ text: "Great share. I have clients looking in this area, sending you a message now." });
+    const fallback = () => ({ text: "Thanks for sharing this, really useful for anyone following this market." });
     const prompt = `Write one short, genuine comment (max 25 words, no hashtags) on this real estate post, as ${JSON.stringify(me)}.
 Return ONLY JSON {"text": the comment}.
 Post: """${postBody.slice(0, 1200)}"""`;

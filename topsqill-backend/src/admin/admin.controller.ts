@@ -38,6 +38,12 @@ export class AdminController {
   @Get("overview") @ApiOperation({ summary: "Numbers for the admin dashboard" })
   overview() { return this.svc.overview(); }
 
+  @Get("ai") @ApiOperation({ summary: "AI usage by feature, and whether AI is configured" })
+  ai() { return this.svc.aiUsage(); }
+
+  @Get("ai/brief") @ApiOperation({ summary: "Today's AI-written brief for the admin" })
+  brief(@CurrentUser() user: AuthUser, @Query("refresh") refresh?: string) { return this.svc.aiBrief(user.id, refresh === "1"); }
+
   @Get("verifications")
   queue(@Query("status") status?: string) { return this.svc.verificationQueue(status ?? "pending"); }
 

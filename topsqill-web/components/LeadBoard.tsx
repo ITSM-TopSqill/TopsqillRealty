@@ -73,8 +73,27 @@ export function LeadBoard({ columns }: { columns: Record<string, Lead[]> }) {
 function LeadDrawer({ lead, onClose, onMove }: { lead: Lead; onClose: () => void; onMove: (l: Lead, s: string) => void }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [channel, setChannel] = useState<"whatsapp" | "email" | "call" | null>(null);
+  const [note, setNote] = useState("");
+
+  function flash(t: string) { setNote(t); setTimeout(() => setNote(""), 2500); }
+
+  /** Records the follow-up on the lead's timeline, so the team sees it was done. */
+  async function logIt() {
+    if (!draft.trim() || !channel) return;
+    try {
+      await clientApi(`/v1/leads/${lead.id}/activity`, { method: "POST", body: { kind: channel, body: draft.slice(0, 2000) } });
+      flash("Logged on this lead");
+    } catch (e) { flash((e as Error).message); }
+  }
+
+  const subject = draft.match(/^Subject:\s*(.+)\n+/i);
+  const mailto = lead.email && draft
+    ? `mailto:${lead.email}?subject=${encodeURIComponent(subject?.[1] ?? "Following up")}&body=${encodeURIComponent(subject ? draft.slice(subject[0].length) : draft)}`
+    : null;
 
   async function writeFollowUp(channel: "whatsapp" | "email" | "call") {
+    setChannel(channel);
     setBusy(true);
     try {
       const res = await clientApi<{ text: string }>("/v1/ai/write/follow-up", {
@@ -130,11 +149,20 @@ function LeadDrawer({ lead, onClose, onMove }: { lead: Lead; onClose: () => void
             <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={7}
               placeholder={busy ? "Writing…" : "Your draft appears here"}
               style={{ width: "100%", marginTop: 10, border: "1.5px solid var(--line)", borderRadius: 12, padding: 10, background: "var(--card)" }} />
-            {lead.phone && draft ? (
-              <a className="btn btn-p sm" style={{ marginTop: 8 }} target="_blank" rel="noopener"
-                href={`https://wa.me/${lead.phone.replace(/\D/g, "")}?text=${encodeURIComponent(draft)}`}>
-                Send on WhatsApp
-              </a>
+            {draft && !busy ? (
+              <div className="row" style={{ flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                {channel === "whatsapp" && lead.phone ? (
+                  <a className="btn btn-p sm" target="_blank" rel="noopener" onClick={logIt}
+                    href={`https://wa.me/${lead.phone.replace(/\D/g, "")}?text=${encodeURIComponent(draft)}`}>
+                    Send on WhatsApp
+                  </a>
+                ) : null}
+                {channel === "email" && mailto ? <a className="btn btn-p sm" href={mailto} onClick={logIt}>Open in email</a> : null}
+                {channel === "call" && lead.phone ? <a className="btn btn-p sm" href={`tel:${lead.phone}`} onClick={logIt}>Call {lead.phone}</a> : null}
+                <button className="btn btn-o sm" onClick={() => { navigator.clipboard?.writeText(draft).then(() => flash("Copied"), () => flash("Couldn’t copy")); }}>Copy</button>
+                <button className="btn btn-g sm" onClick={logIt}>Log as done</button>
+                {note ? <span className="small" style={{ color: "var(--vio)", fontWeight: 700 }} aria-live="polite">{note}</span> : null}
+              </div>
             ) : null}
           </div>
         </div>

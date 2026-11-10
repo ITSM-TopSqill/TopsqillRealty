@@ -398,6 +398,16 @@ resource "google_cloud_run_v2_service" "worker" {
           }
         }
       }
+      env {
+        # AI photo tagging (Kitchen, Bedroom…) runs here after each upload.
+        name = "ANTHROPIC_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.anthropic.secret_id
+            version = "latest"
+          }
+        }
+      }
       startup_probe {
         http_get { path = "/health" }
         initial_delay_seconds = 2

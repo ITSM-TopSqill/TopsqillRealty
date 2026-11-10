@@ -74,7 +74,8 @@ export function MessageDock({ me }: { me: { id: string; name: string; type?: str
   const items = useSyncExternalStore(subscribe, () => inbox, () => null);
   const unread = useLiveCount("messages");
   const [filter, setFilter] = useState("");
-  const hidden = pathname.startsWith("/messages");
+  // Full-screen chats have their own composer at the bottom of the page.
+  const hidden = pathname.startsWith("/messages") || pathname.startsWith("/assistant");
 
   useEffect(() => {
     if (hidden) return;

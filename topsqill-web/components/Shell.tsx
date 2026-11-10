@@ -36,6 +36,11 @@ export function Shell({ user, current, unread, children }: {
           </Link>
 
           <Suspense fallback={<div className="searchbox" />}><SearchBox /></Suspense>
+          {user ? (
+            <Link href="/assistant" className="ask-ai" title="Ask Topsqill.ai" aria-current={current === "/assistant" ? "page" : undefined}>
+              <span aria-hidden>✨</span><span className="ask-ai-t">AI</span>
+            </Link>
+          ) : null}
 
           <nav className="tabs">
             {TABS.map((t) => {
