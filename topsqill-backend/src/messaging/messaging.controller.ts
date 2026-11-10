@@ -24,6 +24,9 @@ export class MessagingController {
   @Get("conversations") @ApiOperation({ summary: "My inbox" })
   inbox(@CurrentUser() user: AuthUser) { return this.svc.inbox(user.id); }
 
+  @Get("conversations/unread") @ApiOperation({ summary: "Unread messages across all chats" })
+  unread(@CurrentUser() user: AuthUser) { return this.svc.unreadTotal(user.id); }
+
   @Post("conversations/with/:peerId") @ApiOperation({ summary: "Open (or reuse) a chat with someone" })
   open(@CurrentUser() user: AuthUser, @Param("peerId") peerId: string) { return this.svc.openWith(user.id, peerId); }
 

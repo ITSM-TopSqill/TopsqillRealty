@@ -1,10 +1,11 @@
-import { Injectable, Inject, NotFoundException } from "@nestjs/common";
+import { Injectable, Inject, NotFoundException, BadRequestException } from "@nestjs/common";
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { posts, postLikes, postComments, connections, follows, users, media } from "../db/schema";
 import { CacheService } from "../redis/redis.module";
 import { QueueService, QUEUES } from "../queue/queue.module";
 import { MediaService } from "../media/media.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { newId, encodeCursor, decodeCursor } from "../common/ids";
 
 /**
@@ -25,6 +26,7 @@ export class FeedService {
     private readonly cache: CacheService,
     private readonly queue: QueueService,
     private readonly mediaSvc: MediaService,
+    private readonly notifs: NotificationsService,
   ) {}
 
   async createPost(userId: string, input: { kind?: string; body: string; refId?: string; mediaIds?: string[] }) {
@@ -38,25 +40,46 @@ export class FeedService {
     return row;
   }
 
-  /** Home feed: pre-built list in Redis, with a database fallback. */
+  /**
+   * Home feed: pre-built list in Redis, with a database fallback.
+   *
+   * Cursors say which source made them ("c:" a post id from the Redis list,
+   * "d:" a time and id from Postgres). Before, the two kinds were mixed up when
+   * the source changed between pages, so "load more" repeated or skipped posts.
+   */
   async home(userId: string, cursor?: string, limit = 20) {
     limit = Math.min(Math.max(limit, 1), 50);
+    if (cursor?.startsWith("d:")) return this.homeFromDb(userId, cursor.slice(2), limit);
+    const afterId = cursor?.startsWith("c:") ? cursor.slice(2) : undefined;
+
     const ids = await this.cache.redis.zrevrange(FEED_KEY(userId), 0, 400).catch(() => [] as string[]);
-    if (ids.length) {
-      const start = cursor ? ids.indexOf(cursor) + 1 : 0;
+    if (ids.length && (!afterId || ids.includes(afterId))) {
+      const start = afterId ? ids.indexOf(afterId) + 1 : 0;
       const slice = ids.slice(start, start + limit + 1);
-      if (slice.length) {
-        const hasMore = slice.length > limit;
-        const page = hasMore ? slice.slice(0, limit) : slice;
-        const items = await this.hydrate(page, userId);
-        return { items, nextCursor: hasMore ? page[page.length - 1] : null, source: "cache" };
+      if (slice.length > limit) {
+        const page = slice.slice(0, limit);
+        return { items: await this.hydrate(page, userId), nextCursor: `c:${page[page.length - 1]}`, source: "cache" };
       }
+      // The cached list only holds posts delivered since it was created, so it
+      // runs out: carry on from Postgres after its last post, on this same page.
+      // (Stopping here hid every older post from the member's network.)
+      const cached = await this.hydrate(slice, userId);
+      const anchorId = cached.length ? cached[cached.length - 1].id : afterId;
+      const [anchor] = anchorId ? await this.read.select({ createdAt: posts.createdAt }).from(posts).where(eq(posts.id, anchorId)).limit(1) : [];
+      const rest = await this.homeFromDb(userId, anchor ? encodeCursor(anchor.createdAt, anchorId!) : undefined, Math.max(limit - cached.length, 1), new Set(ids));
+      const items = [...cached, ...rest.items].slice(0, limit);
+      return { items, nextCursor: rest.nextCursor, source: "cache+db" };
     }
-    return this.homeFromDb(userId, cursor, limit);
+    // Past the end of the cached list (or it expired): carry on from that post in Postgres.
+    if (afterId) {
+      const [p] = await this.read.select({ createdAt: posts.createdAt }).from(posts).where(eq(posts.id, afterId)).limit(1);
+      return this.homeFromDb(userId, p ? encodeCursor(p.createdAt, afterId) : undefined, limit);
+    }
+    return this.homeFromDb(userId, undefined, limit);
   }
 
   /** Used for new members, and whenever the cached feed is empty. */
-  private async homeFromDb(userId: string, cursor?: string, limit = 20) {
+  private async homeFromDb(userId: string, cursor?: string, limit = 20, skip?: Set<string>) {
     const cur = decodeCursor(cursor);
     const authorIds = await this.audienceOf(userId);
     const where = [eq(posts.hidden, false)];
@@ -67,10 +90,11 @@ export class FeedService {
       .orderBy(desc(posts.createdAt), desc(posts.id)).limit(limit + 1);
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
-    const items = await this.decorate(page, userId);
+    // Posts already shown from the cached list are not repeated.
+    const items = await this.decorate(skip ? page.filter((p) => !skip.has(p.id)) : page, userId);
     return {
       items,
-      nextCursor: hasMore && page.length ? encodeCursor(page[page.length - 1].createdAt, page[page.length - 1].id) : null,
+      nextCursor: hasMore && page.length ? `d:${encodeCursor(page[page.length - 1].createdAt, page[page.length - 1].id)}` : null,
       source: "db",
     };
   }
@@ -117,21 +141,52 @@ export class FeedService {
     }));
   }
 
+  /** One post, for its own page (shared links and alerts open it). */
+  async getPost(postId: string, viewerId?: string) {
+    const [row] = await this.read.select().from(posts).where(and(eq(posts.id, postId), eq(posts.hidden, false))).limit(1);
+    if (!row) throw new NotFoundException("That post is not available.");
+    const [item] = await this.decorate([row], viewerId ?? "");
+    return item;
+  }
+
+  private async postOrFail(postId: string) {
+    const [p] = await this.read.select({ id: posts.id, authorId: posts.authorId, body: posts.body })
+      .from(posts).where(and(eq(posts.id, postId), eq(posts.hidden, false))).limit(1);
+    if (!p) throw new NotFoundException("That post is not available.");
+    return p;
+  }
+
   async like(userId: string, postId: string, on: boolean) {
+    const post = await this.postOrFail(postId);
     if (on) {
       const res = await this.db.insert(postLikes).values({ postId, userId }).onConflictDoNothing().returning();
-      if (res.length) await this.db.update(posts).set({ likeCount: sql`${posts.likeCount} + 1` }).where(eq(posts.id, postId));
+      if (res.length) {
+        await this.db.update(posts).set({ likeCount: sql`${posts.likeCount} + 1` }).where(eq(posts.id, postId));
+        // One alert per post per hour, however many people like it in that time.
+        const fresh = await this.cache.redis.set(`notif:like:${postId}`, "1", "EX", 3600, "NX").catch(() => "OK");
+        if (fresh) {
+          const name = await this.notifs.nameOf(userId);
+          await this.notifs.create({ userId: post.authorId, kind: "post", title: `${name} liked your post`, body: excerpt(post.body), actorId: userId, targetType: "post", targetId: postId });
+        }
+      }
     } else {
       const res = await this.db.delete(postLikes).where(and(eq(postLikes.postId, postId), eq(postLikes.userId, userId))).returning();
       if (res.length) await this.db.update(posts).set({ likeCount: sql`greatest(${posts.likeCount} - 1, 0)` }).where(eq(posts.id, postId));
     }
-    return { ok: true, liked: on };
+    const [{ likeCount }] = await this.db.select({ likeCount: posts.likeCount }).from(posts).where(eq(posts.id, postId));
+    return { ok: true, liked: on, likeCount };
   }
 
   async comment(userId: string, postId: string, body: string) {
-    const [row] = await this.db.insert(postComments).values({ id: newId(), postId, authorId: userId, body }).returning();
-    await this.db.update(posts).set({ commentCount: sql`${posts.commentCount} + 1` }).where(eq(posts.id, postId));
-    return row;
+    const text = body.trim();
+    if (!text) throw new BadRequestException("Write a comment first.");
+    const post = await this.postOrFail(postId);
+    const [row] = await this.db.insert(postComments).values({ id: newId(), postId, authorId: userId, body: text }).returning();
+    const [{ commentCount }] = await this.db.update(posts).set({ commentCount: sql`${posts.commentCount} + 1` })
+      .where(eq(posts.id, postId)).returning({ commentCount: posts.commentCount });
+    const name = await this.notifs.nameOf(userId);
+    await this.notifs.create({ userId: post.authorId, kind: "comment", title: `${name} commented on your post`, body: excerpt(text), actorId: userId, targetType: "post", targetId: postId });
+    return { ...row, commentCount };
   }
 
   async comments(postId: string, limit = 20) {
@@ -147,3 +202,5 @@ export class FeedService {
   static FANOUT_LIMIT = FANOUT_LIMIT;
   static feedKey = FEED_KEY;
 }
+
+const excerpt = (t: string) => (t.length > 120 ? `${t.slice(0, 117)}…` : t);

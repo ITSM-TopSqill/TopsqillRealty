@@ -23,6 +23,10 @@ const schema = z.object({
   GCS_BUCKET_UPLOADS: z.string().optional(),
   GCS_BUCKET_PUBLIC: z.string().optional(),
   CDN_BASE_URL: z.string().default(""),
+  // Without Cloud Storage (local development), files are kept in this folder
+  // and served by the API itself from API_PUBLIC_URL.
+  LOCAL_MEDIA_DIR: z.string().default(".media"),
+  API_PUBLIC_URL: z.string().optional(),
 
   OTP_PROVIDER: z.string().optional(),
   WHATSAPP_TOKEN: z.string().optional(),
@@ -35,7 +39,9 @@ const schema = z.object({
   SMTP_PORT: z.coerce.number().int().default(587),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
-  EMAIL_FROM: z.string().optional(),            // e.g. "Topsqill.ai <no-reply@topsqill.ai>"
+  EMAIL_FROM: z.string().optional(),
+  // The website's address, for links in alert emails.
+  WEB_URL: z.string().default("https://topsqill.ai"),            // e.g. "Topsqill.ai <no-reply@topsqill.ai>"
   // Meta signs every lead-ads and WhatsApp webhook with the app secret. In
   // production, webhooks are refused outright until this is set.
   META_APP_SECRET: z.string().optional(),

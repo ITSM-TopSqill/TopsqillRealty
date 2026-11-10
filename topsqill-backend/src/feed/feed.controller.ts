@@ -41,6 +41,9 @@ export class FeedController {
     return this.svc.comment(user.id, id, dto.body);
   }
 
+  @Public() @Get("posts/:id")
+  getPost(@Param("id") id: string, @CurrentUser() user?: AuthUser) { return this.svc.getPost(id, user?.id); }
+
   @Public() @Get("posts/:id/comments")
   comments(@Param("id") id: string) { return this.svc.comments(id); }
 }

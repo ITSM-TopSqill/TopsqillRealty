@@ -15,7 +15,7 @@ type Profile = {
   kycVerified?: boolean; reraVerified?: boolean; reraNumber?: string | null;
   connectionCount: number; followerCount: number; listingCount: number;
   avatar?: { urls?: Record<string, string> } | null; cover?: { urls?: Record<string, string> } | null;
-  relation: "self" | "connected" | "pending" | "none";
+  relation: "self" | "connected" | "pending" | "incoming" | "none";
   contact?: { phone?: string; email?: string } | null;
 };
 
@@ -37,8 +37,8 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
   const profile = await api<Profile>(`/v1/profiles/${id}`, token ? { token } : { revalidate: 60 }).catch(() => null);
   if (!profile) notFound();
 
-  const listings = await api<Paged<Listing>>(`/v1/listings?limit=12`, { revalidate: 60 })
-    .then((r) => ({ ...r, items: r.items.filter((l) => l.owner?.id === id || l.ownerId === id) }))
+  // Only this member's listings (the API filters by owner).
+  const listings = await api<Paged<Listing>>(`/v1/listings?ownerId=${encodeURIComponent(id)}&limit=24`, { revalidate: 30 })
     .catch(() => ({ items: [], nextCursor: null }));
 
   const cover = imageUrl(profile.cover, "large");
@@ -69,7 +69,11 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
             </div>
             <div className="row">
               {isMe
-                ? <Link href="/profile/edit" className="btn btn-o">Edit profile</Link>
+                ? <>
+                    {!profile.kycVerified || (profile.type === "dealer" && !profile.reraVerified)
+                      ? <Link href="/profile/verify" className="btn btn-ai">✓ Get verified</Link> : null}
+                    <Link href="/profile/edit" className="btn btn-o">Edit profile</Link>
+                  </>
                 : <ConnectButton peerId={profile.id} relation={profile.relation} signedIn={!!user} />}
             </div>
           </div>
@@ -100,7 +104,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
           <p className="small">📞 <a href={`tel:${profile.contact.phone}`}>{profile.contact.phone}</a></p>
           {profile.contact.email ? <p className="small">✉️ {profile.contact.email}</p> : null}
         </div>
-      ) : profile.relation === "none" ? (
+      ) : profile.relation === "none" || profile.relation === "incoming" ? (
         <div className="card pad" style={{ marginBottom: 16 }}>
           <p className="small muted" style={{ margin: 0 }}>
             Phone and email become visible once {profile.name.split(" ")[0]} accepts your connection.

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
+import { refreshCounts } from "./Live";
 
 export function MarkAllRead() {
   const router = useRouter();
@@ -10,7 +11,7 @@ export function MarkAllRead() {
   return (
     <button className="btn btn-g sm" disabled={busy} onClick={async () => {
       setBusy(true);
-      try { await clientApi("/v1/notifications/read-all", { method: "POST" }); router.refresh(); }
+      try { await clientApi("/v1/notifications/read-all", { method: "POST" }); refreshCounts(); router.refresh(); }
       finally { setBusy(false); }
     }}>
       Mark all as read

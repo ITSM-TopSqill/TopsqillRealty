@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Query } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
-import { IsIn, IsString, IsOptional, IsInt, Min, Max } from "class-validator";
+import { IsIn, IsString, IsOptional, IsInt, Min, Max, IsArray, ArrayMaxSize } from "class-validator";
 import { Type } from "class-transformer";
 import { NotificationsService } from "./notifications.service";
 import { CurrentUser, AuthUser } from "../auth/public.decorator";
@@ -9,6 +9,7 @@ class PushTokenDto {
   @IsString() token: string;
   @IsIn(["web", "android", "ios"]) platform: string;
 }
+class ReadDto { @IsArray() @ArrayMaxSize(100) @IsString({ each: true }) ids: string[]; }
 class ListDto {
   @IsOptional() @IsString() cursor?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) limit?: number;
@@ -24,6 +25,12 @@ export class NotificationsController {
 
   @Get("unread")
   unread(@CurrentUser() user: AuthUser) { return this.svc.unreadCount(user.id); }
+
+  @Get("latest") @ApiOperation({ summary: "Newest unread alerts, for the pop-up" })
+  latest(@CurrentUser() user: AuthUser) { return this.svc.latestUnread(user.id); }
+
+  @Post("read")
+  read(@CurrentUser() user: AuthUser, @Body() dto: ReadDto) { return this.svc.markRead(user.id, dto.ids); }
 
   @Post("read-all")
   readAll(@CurrentUser() user: AuthUser) { return this.svc.markAllRead(user.id); }

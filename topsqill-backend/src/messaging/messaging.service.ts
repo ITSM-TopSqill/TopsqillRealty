@@ -2,10 +2,11 @@ import { Injectable, Inject, ForbiddenException, NotFoundException, BadRequestEx
 import { and, desc, eq, inArray, isNull, lt, or, sql, ne } from "drizzle-orm";
 import Redis from "ioredis";
 import { DB, DB_READ, type Database } from "../db/db.module";
-import { conversations, messages, users, media } from "../db/schema";
+import { conversations, messages, users, media, notifications, listings } from "../db/schema";
 import { REDIS } from "../redis/redis.module";
 import { MediaService } from "../media/media.service";
 import { NotificationsService } from "../notifications/notifications.service";
+import { LeadsService } from "../leads/leads.service";
 import { newId, encodeCursor, decodeCursor } from "../common/ids";
 
 /** Conversation ids are stable: the same two people always share one row. */
@@ -19,6 +20,7 @@ export class MessagingService {
     @Inject(REDIS) private readonly redis: Redis,
     private readonly mediaSvc: MediaService,
     private readonly notifs: NotificationsService,
+    private readonly leadsSvc: LeadsService,
   ) {}
 
   async openWith(userId: string, peerId: string) {
@@ -116,19 +118,49 @@ export class MessagingService {
 
     const peerId = convo.aId === userId ? convo.bId : convo.aId;
     await this.redis.publish(`convo:${conversationId}`, JSON.stringify({ type: "message", data: row })).catch(() => {});
-    const [sender] = await this.read.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
-    await this.notifs.create({
-      userId: peerId, kind: "message", title: `New message from ${sender?.name ?? "a member"}`,
-      body: preview, actorId: userId, targetType: "conversation", targetId: conversationId,
-    });
+    // An enquiry about someone's listing also lands on their lead board.
+    if (input.refType === "listing" && input.refId) await this.captureEnquiry(userId, peerId, input.refId, input.body).catch(() => null);
+
+    // One alert per unread chat: later messages update it instead of piling up.
+    const name = await this.notifs.nameOf(userId);
+    const [open] = await this.db.update(notifications).set({ body: preview, createdAt: new Date() })
+      .where(and(eq(notifications.userId, peerId), eq(notifications.targetType, "conversation"), eq(notifications.targetId, conversationId), isNull(notifications.readAt)))
+      .returning({ id: notifications.id });
+    if (!open) {
+      await this.notifs.create({
+        userId: peerId, kind: "message", title: `New message from ${name}`,
+        body: preview, actorId: userId, targetType: "conversation", targetId: conversationId,
+      });
+    } else {
+      await this.redis.publish(`user:${peerId}`, JSON.stringify({ type: "notification", data: { id: open.id } })).catch(() => {});
+    }
     return row;
+  }
+
+  private async captureEnquiry(buyerId: string, ownerId: string, listingId: string, body?: string) {
+    const [l] = await this.read.select({ ownerId: listings.ownerId, city: listings.city, locality: listings.locality }).from(listings).where(eq(listings.id, listingId)).limit(1);
+    if (!l || l.ownerId !== ownerId) return;
+    const [b] = await this.read.select({ name: users.name, phone: users.phone, email: users.email }).from(users).where(eq(users.id, buyerId)).limit(1);
+    await this.leadsSvc.capture(ownerId, {
+      name: b?.name, phone: b?.phone ?? undefined, email: b?.email ?? undefined, source: "topsqill", sourceDetail: "Enquiry on Topsqill.ai",
+      listingId, city: l.city, locality: l.locality, note: body?.slice(0, 500),
+    });
   }
 
   async markRead(userId: string, conversationId: string) {
     await this.assertMember(conversationId, userId);
     await this.db.update(messages).set({ readAt: new Date() })
       .where(and(eq(messages.conversationId, conversationId), ne(messages.senderId, userId), isNull(messages.readAt)));
+    await this.notifs.markReadFor(userId, "conversation", conversationId);
     return { ok: true };
+  }
+
+  /** Unread messages across all chats, for the Messages badge. */
+  async unreadTotal(userId: string) {
+    const [r] = await this.read.select({ n: sql<number>`count(*)::int` }).from(messages)
+      .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+      .where(and(or(eq(conversations.aId, userId), eq(conversations.bId, userId)), ne(messages.senderId, userId), isNull(messages.readAt)));
+    return { unread: r?.n ?? 0 };
   }
 
   /** Typing indicators are pure Redis: never written to the database. */

@@ -11,6 +11,7 @@ import { fanoutPost } from "./fanout.processor";
 import { flushCounters } from "./counters";
 import { syncLiveCampaigns } from "./campaign-sync";
 import { runMatch } from "./match.processor";
+import { deliverNotification } from "./notify.processor";
 
 /**
  * Background workers. Everything slow lives here so the API always answers fast:
@@ -28,7 +29,9 @@ const log = (m: string, extra?: unknown) => console.log(JSON.stringify({ severit
 const workers = [
   new Worker(QUEUES.media, async (job: Job) => processMedia(job, pool), { connection, concurrency: 4 }),
   new Worker(QUEUES.fanout, async (job: Job) => fanoutPost(job, pool, connection), { connection, concurrency: 8 }),
-  new Worker(QUEUES.ai, async (job: Job) => runMatch(job, pool), { connection, concurrency: 4 }),
+  new Worker(QUEUES.ai, async (job: Job) => runMatch(job, pool, connection), { connection, concurrency: 4 }),
+  // Alert emails. Previously nothing consumed this queue, so they piled up in Redis unsent.
+  new Worker(QUEUES.notify, async (job: Job) => deliverNotification(job, pool, connection), { connection, concurrency: 4 }),
 ];
 
 for (const w of workers) {

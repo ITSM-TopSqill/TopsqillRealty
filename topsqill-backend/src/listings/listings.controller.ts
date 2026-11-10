@@ -14,6 +14,8 @@ class SearchDto {
   @IsOptional() @Type(() => Number) @IsInt() minPrice?: number;
   @IsOptional() @Type(() => Number) @IsInt() maxPrice?: number;
   @IsOptional() @IsString() possession?: string;
+  /** One member's listings, for their profile. */
+  @IsOptional() @IsString() ownerId?: string;
   @IsOptional() @IsString() cursor?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) limit?: number;
 }

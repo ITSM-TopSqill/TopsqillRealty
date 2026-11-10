@@ -41,7 +41,7 @@ resource "google_monitoring_alert_policy" "errors" {
       threshold_value = 10
       duration        = "180s"
       aggregations {
-        alignment_period = "60s"
+        alignment_period   = "60s"
         per_series_aligner = "ALIGN_RATE"
       }
     }
@@ -60,7 +60,7 @@ resource "google_monitoring_alert_policy" "db_cpu" {
       threshold_value = 0.8
       duration        = "300s"
       aggregations {
-        alignment_period = "60s"
+        alignment_period   = "60s"
         per_series_aligner = "ALIGN_MEAN"
       }
     }

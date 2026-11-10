@@ -5,6 +5,7 @@ import { ValidationPipe, Logger } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { AppModule } from "./app.module";
 import { env, isProd } from "./common/env";
+import { isLocalStorage } from "./media/storage";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -19,11 +20,33 @@ async function bootstrap() {
   );
 
   await app.register(import("@fastify/helmet"), { contentSecurityPolicy: false });
+
+  // A POST with no body (Like, Connect, Accept) is fine even if the client
+  // labels it as JSON: Fastify would otherwise reject it with "Body cannot be
+  // empty", which is how those buttons silently failed.
+  app.getHttpAdapter().getInstance().addHook("onRequest", async (req: { headers: Record<string, string | string[] | undefined> }) => {
+    const h = req.headers;
+    const noBody = !h["transfer-encoding"] && (h["content-length"] === undefined || h["content-length"] === "0");
+    if (noBody && h["content-type"]) delete h["content-type"];
+  });
+
+  // Local development keeps files on disk, so the browser uploads straight to
+  // the API: accept raw file bodies on that one route. On Google Cloud files go
+  // to Cloud Storage and the API never receives them.
+  if (isLocalStorage) {
+    app.getHttpAdapter().getInstance().addContentTypeParser(
+      /^(image|video|model)\/|^application\/(pdf|octet-stream)/,
+      { parseAs: "buffer", bodyLimit: 500 * 1024 * 1024 },
+      (_req: unknown, body: Buffer, done: (err: Error | null, body?: Buffer) => void) => done(null, body),
+    );
+  }
   await app.register(import("@fastify/compress"), { encodings: ["br", "gzip"], threshold: 1024 });
 
   app.enableCors({
     origin: isProd() ? [/\.topsqill\.ai$/] : true,
     credentials: true,
+    // The default list stops at POST, which blocked uploads (PUT) and edits (PATCH).
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
     maxAge: 86400,
   });
 

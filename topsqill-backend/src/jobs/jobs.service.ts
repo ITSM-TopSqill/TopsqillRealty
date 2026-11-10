@@ -3,6 +3,7 @@ import { and, desc, eq, lt, or, sql, inArray } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { jobs, jobApplications, users } from "../db/schema";
 import { ClaudeService } from "../ai/claude.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { newId, encodeCursor, decodeCursor } from "../common/ids";
 
 export { isUniqueViolation } from "../common/db-errors";
@@ -16,6 +17,7 @@ export class JobsService {
     @Inject(DB) private readonly db: Database,
     @Inject(DB_READ) private readonly read: Database,
     private readonly claude: ClaudeService,
+    private readonly notifs: NotificationsService,
   ) {}
 
   /** Turns one line ("need 2 sales managers, 4+ years, 8 to 12 LPA") into a full job post. */
@@ -113,6 +115,11 @@ Use realistic Indian salary ranges. Company: ${company}. City: ${city}. Request:
         id: newId(), jobId, userId, ...input, matchScore: score,
       }).returning();
       await this.db.update(jobs).set({ applicantCount: sql`${jobs.applicantCount} + 1` }).where(eq(jobs.id, jobId));
+      const name = await this.notifs.nameOf(userId);
+      await this.notifs.create({
+        userId: job.ownerId, kind: "job", title: `${name} applied for ${job.title}`,
+        body: `Match score ${score}%. ${input.note ? input.note.slice(0, 100) : ""}`.trim(), actorId: userId, targetType: "job", targetId: jobId,
+      });
       return row;
     } catch (e) {
       if (isUniqueViolation(e)) throw new ConflictException("You have already applied to this job.");
@@ -151,6 +158,13 @@ Use realistic Indian salary ranges. Company: ${company}. City: ${city}. Request:
     const job = await this.get(app.jobId);
     if (job.ownerId !== userId) throw new ForbiddenException("Only the employer can update applications.");
     const [row] = await this.db.update(jobApplications).set({ status }).where(eq(jobApplications.id, applicationId)).returning();
+    const said: Record<string, string> = {
+      viewed: "viewed your application", shortlisted: "shortlisted you 🎉", rejected: "decided not to go ahead with your application", hired: "hired you 🎉",
+    };
+    await this.notifs.create({
+      userId: row.userId, kind: "job", title: `${job.company} ${said[status]}`, body: job.title,
+      actorId: userId, targetType: "job", targetId: job.id,
+    });
     return row;
   }
 }

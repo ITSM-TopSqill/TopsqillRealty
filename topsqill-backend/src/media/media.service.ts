@@ -4,8 +4,7 @@ import { DB, DB_READ, type Database } from "../db/db.module";
 import { media } from "../db/schema";
 import { QueueService, QUEUES } from "../queue/queue.module";
 import { newId } from "../common/ids";
-import { env } from "../common/env";
-import { Storage } from "@google-cloud/storage";
+import { uploadUrl, publicBase, checkSignature, saveLocalUpload, isLocalStorage, privateReadUrl } from "./storage";
 
 const IMAGE = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/avif"];
 const VIDEO = ["video/mp4", "video/quicktime", "video/webm"];
@@ -13,7 +12,6 @@ const MODEL = ["model/gltf-binary", "application/octet-stream"];
 const DOC = ["application/pdf"];
 const MAX_BYTES: Record<string, number> = { image: 25e6, video: 500e6, model3d: 80e6, document: 25e6 };
 
-const storage = env.GCP_PROJECT_ID ? new Storage({ projectId: env.GCP_PROJECT_ID }) : null;
 
 @Injectable()
 export class MediaService {
@@ -28,39 +26,60 @@ export class MediaService {
    * upload link, the file goes straight to Cloud Storage, and we then process it
    * in the background. The API stays fast no matter how big the video is.
    */
-  async createUpload(userId: string, input: { mimeType: string; bytes: number; filename?: string }) {
+  async createUpload(userId: string, input: { mimeType: string; bytes: number; filename?: string; private?: boolean }) {
     const kind = IMAGE.includes(input.mimeType) ? "image"
       : VIDEO.includes(input.mimeType) ? "video"
       : DOC.includes(input.mimeType) ? "document"
       : MODEL.includes(input.mimeType) || /\.glb$/i.test(input.filename || "") ? "model3d"
       : null;
     if (!kind) throw new BadRequestException("That file type isn’t supported.");
+    // Private files (KYC and RERA documents) are photos or PDFs, never published.
+    if (input.private && kind !== "image" && kind !== "document") throw new BadRequestException("Upload a photo or a PDF of the document.");
     if (!input.bytes || input.bytes > MAX_BYTES[kind]) throw new BadRequestException(`That file is too large. The limit is ${Math.round(MAX_BYTES[kind] / 1e6)} MB.`);
 
     const id = newId();
-    const ext = (input.filename?.split(".").pop() || input.mimeType.split("/")[1] || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
-    const objectPath = `uploads/${userId}/${id}.${ext}`;
+    const ext = (input.filename?.split(".").pop() || input.mimeType.split("/")[1] || "bin").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8);
+    const objectPath = `${input.private ? "private" : "uploads"}/${userId}/${id}.${ext}`;
 
-    await this.db.insert(media).values({ id, ownerId: userId, kind: kind as any, status: "uploading", objectPath, mimeType: input.mimeType, bytes: input.bytes });
+    await this.db.insert(media).values({
+      id, ownerId: userId, kind: (input.private ? "document" : kind) as never, status: "uploading", objectPath, mimeType: input.mimeType, bytes: input.bytes,
+      groupName: input.private ? "private" : null, label: input.filename?.slice(0, 60) ?? null,
+    });
+    const url = await uploadUrl(id, objectPath, input.mimeType);
+    return { mediaId: id, uploadUrl: url, method: "PUT", headers: { "content-type": input.mimeType }, expiresInSeconds: 900 };
+  }
 
-    let uploadUrl = `dev://local/${objectPath}`;
-    if (storage && env.GCS_BUCKET_UPLOADS) {
-      const [url] = await storage.bucket(env.GCS_BUCKET_UPLOADS).file(objectPath).getSignedUrl({
-        version: "v4", action: "write", expires: Date.now() + 15 * 60 * 1000, contentType: input.mimeType,
-      });
-      uploadUrl = url;
-    }
-    return { mediaId: id, uploadUrl, method: "PUT", headers: { "content-type": input.mimeType }, expiresInSeconds: 900 };
+  /** Local development only: the browser PUTs the file to the API, which keeps it on disk. */
+  async localUpload(mediaId: string, exp: string, sig: string, body: Buffer | undefined) {
+    if (!isLocalStorage) throw new NotFoundException();
+    if (!checkSignature(`up:${mediaId}:${exp}`, sig) || Number(exp) < Date.now()) throw new BadRequestException("This upload link has expired. Please try again.");
+    if (!body?.length) throw new BadRequestException("The file was empty.");
+    const [row] = await this.read.select().from(media).where(and(eq(media.id, mediaId), eq(media.status, "uploading"))).limit(1);
+    if (!row) throw new NotFoundException("That upload could not be found.");
+    if (row.bytes && body.length > row.bytes * 1.05 + 1024) throw new BadRequestException("The file is larger than announced.");
+    await saveLocalUpload(row.objectPath, body);
+    return { ok: true };
   }
 
   /** The app calls this once the upload finishes; processing then runs in the background. */
   async confirmUpload(userId: string, mediaId: string) {
-    const [row] = await this.db.update(media).set({ status: "processing" })
+    const [current] = await this.read.select({ groupName: media.groupName }).from(media).where(and(eq(media.id, mediaId), eq(media.ownerId, userId))).limit(1);
+    const isPrivate = current?.groupName === "private";
+    // Private documents are kept exactly as uploaded and never copied anywhere public.
+    const [row] = await this.db.update(media).set({ status: isPrivate ? "ready" : "processing" })
       .where(and(eq(media.id, mediaId), eq(media.ownerId, userId), eq(media.status, "uploading"))).returning();
     if (!row) throw new NotFoundException("That upload could not be found.");
+    if (isPrivate) return { mediaId: row.id, status: "ready" };
     // jobId = mediaId, so a repeated call never processes the same file twice.
     await this.queue.add(QUEUES.media, `process:${row.kind}`, { mediaId: row.id, kind: row.kind, objectPath: row.objectPath, mimeType: row.mimeType }, `media-${row.id}`);
     return { mediaId: row.id, status: "processing" };
+  }
+
+  /** A short-lived link to a private document, for its owner or an admin. */
+  async privateLink(mediaId: string) {
+    const [row] = await this.read.select().from(media).where(eq(media.id, mediaId)).limit(1);
+    if (!row || row.groupName !== "private") throw new NotFoundException("That document could not be found.");
+    return { url: await privateReadUrl(row.objectPath), mimeType: row.mimeType, label: row.label };
   }
 
   async get(mediaId: string) {
@@ -71,9 +90,12 @@ export class MediaService {
 
   /** What the app receives: CDN links only, never bucket paths. */
   publicView(row: typeof media.$inferSelect) {
-    const base = env.CDN_BASE_URL || "";
+    const base = publicBase();
     const urls: Record<string, string> = {};
-    for (const [k, v] of Object.entries(row.variants || {})) urls[k] = v.startsWith("http") ? v : `${base}/${v}`;
+    // Private documents never get public links.
+    if (row.groupName !== "private") {
+      for (const [k, v] of Object.entries(row.variants || {})) urls[k] = v.startsWith("http") ? v : `${base}/${v}`;
+    }
     return {
       id: row.id, kind: row.kind, status: row.status, label: row.label, group: row.groupName,
       caption: row.caption, width: row.width, height: row.height, durationMs: row.durationMs,

@@ -1,10 +1,8 @@
 import { Job } from "bullmq";
 import type { Pool } from "pg";
 import sharp from "sharp";
-import { Storage } from "@google-cloud/storage";
 import { env } from "../src/common/env";
-
-const storage = env.GCP_PROJECT_ID ? new Storage({ projectId: env.GCP_PROJECT_ID }) : null;
+import { readUpload, writePublic, copyToPublic } from "../src/media/storage";
 
 /** Photo sizes the app actually uses. A phone never downloads a 4K file for a small card. */
 export const IMAGE_SIZES = [
@@ -107,20 +105,5 @@ async function finish(pool: Pool, mediaId: string, fields: { variants: Record<st
   );
 }
 
-async function download(path: string): Promise<Buffer> {
-  if (!storage || !env.GCS_BUCKET_UPLOADS) throw new Error("Cloud Storage is not configured");
-  const [buf] = await storage.bucket(env.GCS_BUCKET_UPLOADS).file(path).download();
-  return buf;
-}
-async function upload(path: string, body: Buffer, contentType: string) {
-  if (!storage || !env.GCS_BUCKET_PUBLIC) return;
-  await storage.bucket(env.GCS_BUCKET_PUBLIC).file(path).save(body, {
-    contentType,
-    // Media never changes once written, so browsers and the CDN can keep it for a year.
-    metadata: { cacheControl: "public, max-age=31536000, immutable" },
-  });
-}
-async function copyToPublic(from: string, to: string) {
-  if (!storage || !env.GCS_BUCKET_UPLOADS || !env.GCS_BUCKET_PUBLIC) return;
-  await storage.bucket(env.GCS_BUCKET_UPLOADS).file(from).copy(storage.bucket(env.GCS_BUCKET_PUBLIC).file(to));
-}
+const download = (path: string) => readUpload(path);
+const upload = (path: string, body: Buffer, contentType: string) => writePublic(path, body, contentType);

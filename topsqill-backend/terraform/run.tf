@@ -53,6 +53,15 @@ resource "google_project_iam_member" "app_token_secrets" {
   }
 }
 
+# Upload links are signed URLs. On Cloud Run there is no key file, so the
+# service account signs them through the IAM Credentials API, which needs
+# permission to sign as itself. Without it every photo upload failed.
+resource "google_service_account_iam_member" "app_sign_self" {
+  service_account_id = google_service_account.app.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.app.email}"
+}
+
 resource "google_storage_bucket_iam_member" "app_buckets" {
   for_each = { uploads = google_storage_bucket.uploads.name, media = google_storage_bucket.media.name, documents = google_storage_bucket.documents.name }
   bucket   = each.value
@@ -73,7 +82,7 @@ resource "google_secret_manager_secret_version" "db_url" {
 }
 
 resource "random_password" "jwt" {
-  length = 48
+  length  = 48
   special = false
 }
 resource "google_secret_manager_secret" "jwt" {
@@ -137,8 +146,8 @@ resource "google_cloud_run_v2_service" "api" {
   # With a domain, only the load balancer may reach the API. Without one,
   # Cloud Run's own HTTPS URL is the front door.
   deletion_protection = false
-  ingress  = var.use_custom_domain ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
-  labels   = local.labels
+  ingress             = var.use_custom_domain ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
+  labels              = local.labels
 
   template {
     service_account = google_service_account.app.email
@@ -172,15 +181,15 @@ resource "google_cloud_run_v2_service" "api" {
 
       }
       env {
-        name = "GCP_PROJECT_ID"
+        name  = "GCP_PROJECT_ID"
         value = var.project_id
       }
       env {
-        name = "GCS_BUCKET_UPLOADS"
+        name  = "GCS_BUCKET_UPLOADS"
         value = google_storage_bucket.uploads.name
       }
       env {
-        name = "GCS_BUCKET_PUBLIC"
+        name  = "GCS_BUCKET_PUBLIC"
         value = google_storage_bucket.media.name
       }
       env {
@@ -190,11 +199,11 @@ resource "google_cloud_run_v2_service" "api" {
         value = var.use_custom_domain ? "https://${var.cdn_domain}" : "https://storage.googleapis.com/${google_storage_bucket.media.name}"
       }
       env {
-        name = "REDIS_URL"
+        name  = "REDIS_URL"
         value = "redis://${google_redis_instance.cache.host}:${google_redis_instance.cache.port}"
       }
       env {
-        name = "DB_POOL_MAX"
+        name  = "DB_POOL_MAX"
         value = "10"
       }
       env {
@@ -346,6 +355,36 @@ resource "google_cloud_run_v2_service" "worker" {
           secret_key_ref {
             secret  = google_secret_manager_secret.db_url.secret_id
             version = "latest"
+          }
+        }
+      }
+      env {
+        # Links in alert emails point here.
+        name  = "WEB_URL"
+        value = var.web_url
+      }
+      # Alert emails (new message, invitation, lead) go out from the worker.
+      dynamic "env" {
+        for_each = var.smtp_host == "" ? {} : {
+          SMTP_HOST  = var.smtp_host
+          SMTP_PORT  = tostring(var.smtp_port)
+          SMTP_USER  = var.smtp_user
+          EMAIL_FROM = var.email_from
+        }
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+      dynamic "env" {
+        for_each = var.smtp_host == "" ? [] : ["SMTP_PASS"]
+        content {
+          name = env.value
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.smtp_password.secret_id
+              version = "latest"
+            }
           }
         }
       }

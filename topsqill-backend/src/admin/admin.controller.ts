@@ -41,6 +41,9 @@ export class AdminController {
   @Get("verifications")
   queue(@Query("status") status?: string) { return this.svc.verificationQueue(status ?? "pending"); }
 
+  @Get("verifications/:id/documents") @ApiOperation({ summary: "Short-lived links to the documents" })
+  documents(@Param("id") id: string) { return this.svc.verificationDocuments(id); }
+
   @Post("verifications/:id/review") @ApiOperation({ summary: "Run the automatic risk checks" })
   review(@Param("id") id: string) { return this.svc.riskCheck(id); }
 

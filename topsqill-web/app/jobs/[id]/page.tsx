@@ -5,10 +5,11 @@ import { api } from "@/lib/api";
 import { getUser, getToken } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { ApplyPanel } from "@/components/ApplyPanel";
+import { Applicants, type Applicant } from "@/components/Applicants";
 import { timeAgo } from "@/lib/format";
 import type { Job } from "@/lib/types";
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -25,6 +26,10 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const [{ id }, user, token] = await Promise.all([params, getUser(), getToken()]);
   const job = await api<Job>(`/v1/jobs/${id}`, { revalidate: 60 }).catch(() => null);
   if (!job) notFound();
+  const mine = !!user && job.ownerId === user.id;
+  const applicants = mine
+    ? await api<{ items: Applicant[] }>(`/v1/jobs/${id}/applicants`, { token }).catch(() => ({ items: [] as Applicant[] }))
+    : null;
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -50,23 +55,35 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
           <span className="tag">{job.expMin}–{job.expMax} yrs</span>
           {job.incentives ? <span className="tag">Incentives</span> : null}
         </div>
-        <ApplyPanel jobId={job.id} signedIn={!!user} />
+        {mine ? <p className="small" style={{ margin: 0 }}>This is your job post. Applicants are listed below.</p> : <ApplyPanel jobId={job.id} signedIn={!!user} />}
       </div>
+
+      {applicants ? <Applicants items={applicants.items} /> : null}
 
       {job.summary ? <div className="card pad" style={{ marginBottom: 16 }}><h2 style={{ fontSize: 19, marginBottom: 8 }}>About the role</h2><p style={{ margin: 0, maxWidth: "72ch" }}>{job.summary}</p></div> : null}
 
-      <div className="card pad" style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 19, marginBottom: 8 }}>What you’ll do</h2>
-        <ul style={{ margin: 0, paddingLeft: 20 }}>{job.responsibilities.map((r) => <li key={r}>{r}</li>)}</ul>
-        <h2 style={{ fontSize: 19, margin: "18px 0 8px" }}>What we’re looking for</h2>
-        <ul style={{ margin: 0, paddingLeft: 20 }}>{job.requirements.map((r) => <li key={r}>{r}</li>)}</ul>
-        {job.skills.length ? (
-          <>
-            <h2 style={{ fontSize: 19, margin: "18px 0 8px" }}>Skills</h2>
-            <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>{job.skills.map((s) => <span key={s} className="tag">{s}</span>)}</div>
-          </>
-        ) : null}
-      </div>
+      {job.responsibilities.length || job.requirements.length || job.skills.length ? (
+        <div className="card pad" style={{ marginBottom: 16 }}>
+          {job.responsibilities.length ? (
+            <>
+              <h2 style={{ fontSize: 19, marginBottom: 8 }}>What you’ll do</h2>
+              <ul style={{ margin: "0 0 18px", paddingLeft: 20 }}>{job.responsibilities.map((r) => <li key={r}>{r}</li>)}</ul>
+            </>
+          ) : null}
+          {job.requirements.length ? (
+            <>
+              <h2 style={{ fontSize: 19, marginBottom: 8 }}>What we’re looking for</h2>
+              <ul style={{ margin: "0 0 18px", paddingLeft: 20 }}>{job.requirements.map((r) => <li key={r}>{r}</li>)}</ul>
+            </>
+          ) : null}
+          {job.skills.length ? (
+            <>
+              <h2 style={{ fontSize: 19, marginBottom: 8 }}>Skills</h2>
+              <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>{job.skills.map((s) => <span key={s} className="tag">{s}</span>)}</div>
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       <Link href="/jobs" className="btn btn-g">← All jobs</Link>
     </Shell>

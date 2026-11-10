@@ -1,15 +1,15 @@
 variable "project_id" {
-  type = string
+  type        = string
   description = "GCP project, e.g. topsqill-prod"
 }
 variable "environment" {
-  type = string
-  default = "prod"
+  type        = string
+  default     = "prod"
   description = "prod or staging"
 }
 variable "region" {
-  type = string
-  default = "asia-south1"
+  type        = string
+  default     = "asia-south1"
   description = "Mumbai"
 }
 variable "use_custom_domain" {
@@ -19,48 +19,48 @@ variable "use_custom_domain" {
 }
 
 variable "api_domain" {
-  type = string
+  type    = string
   default = "api.topsqill.ai"
 }
 variable "cdn_domain" {
-  type = string
+  type    = string
   default = "cdn.topsqill.ai"
 }
 variable "allowed_origins" {
-  type = list(string)
+  type    = list(string)
   default = ["https://topsqill.ai", "https://www.topsqill.ai"]
 }
 variable "db_tier" {
-  type = string
-  default = "db-custom-4-16384"
+  type        = string
+  default     = "db-custom-4-16384"
   description = "4 vCPU, 16 GB"
 }
 variable "db_disk_gb" {
-  type = number
+  type    = number
   default = 100
 }
 variable "redis_gb" {
-  type = number
+  type    = number
   default = 5
 }
 variable "api_min_instances" {
-  type = number
+  type    = number
   default = 2
 }
 variable "api_max_instances" {
-  type = number
+  type    = number
   default = 100
 }
 variable "worker_max_instances" {
-  type = number
+  type    = number
   default = 20
 }
 variable "image_tag" {
-  type = string
+  type    = string
   default = "latest"
 }
 variable "alert_email" {
-  type = string
+  type    = string
   default = ""
 }
 # Email sign-in codes are sent over SMTP. Leave smtp_host empty to keep email
@@ -82,4 +82,16 @@ variable "email_from" {
   type        = string
   default     = ""
   description = "Sender, e.g. \"Topsqill.ai <no-reply@topsqill.ai>\""
+}
+
+variable "public_media" {
+  type        = bool
+  default     = true
+  description = "Let anyone read processed photos in the media bucket (needed without a custom domain and CDN)."
+}
+
+variable "web_url" {
+  type        = string
+  default     = "https://topsqill.ai"
+  description = "The website's address, used for links in alert emails, e.g. your Vercel URL."
 }

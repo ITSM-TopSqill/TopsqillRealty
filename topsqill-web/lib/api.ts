@@ -40,7 +40,7 @@ export async function api<T>(path: string, opts: Options = {}): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: opts.method ?? "GET",
     headers: {
-      "content-type": "application/json",
+      ...(opts.body === undefined ? {} : { "content-type": "application/json" }),
       ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
     },
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
@@ -56,7 +56,7 @@ export async function api<T>(path: string, opts: Options = {}): Promise<T> {
 export async function clientApi<T>(path: string, opts: Omit<Options, "token" | "revalidate"> = {}): Promise<T> {
   const res = await fetch(`/api/proxy${path}`, {
     method: opts.method ?? "GET",
-    headers: { "content-type": "application/json" },
+    headers: opts.body === undefined ? {} : { "content-type": "application/json" },
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
     signal: opts.signal,
   });

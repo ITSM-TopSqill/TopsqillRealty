@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { getUser, getToken } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { Avatar, Empty, ListingCard, TypePill } from "@/components/ui";
-import { Composer, PostCard } from "@/components/Feed";
+import { Composer, PostCard, MoreFeed } from "@/components/Feed";
 import { inr, timeAgo, compact } from "@/lib/format";
 import type { Listing, Paged, Post, Requirement } from "@/lib/types";
 
@@ -72,7 +72,10 @@ export default async function HomePage() {
         <section className="col">
           <Composer user={user} />
           {feed.items.length
-            ? feed.items.map((p) => <PostCard key={p.id} post={p} meId={user.id} />)
+            ? <>
+                {feed.items.map((p) => <PostCard key={p.id} post={p} meId={user.id} />)}
+                <MoreFeed cursor={feed.nextCursor} meId={user.id} />
+              </>
             : <Empty title="Your feed is quiet" text="Connect with dealers and builders in your city, and their updates will show up here."
                 action={<Link href="/network" className="btn btn-ai">Find people</Link>} />}
         </section>

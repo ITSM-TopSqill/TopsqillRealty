@@ -1,8 +1,10 @@
-import { Injectable, Inject, NotFoundException } from "@nestjs/common";
+import { Injectable, Inject, NotFoundException, BadRequestException, ConflictException } from "@nestjs/common";
 import { and, desc, eq, sql, inArray, gte } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { users, listings, posts, postComments, reports, verifications, auditLog, media } from "../db/schema";
 import { CacheService } from "../redis/redis.module";
+import { NotificationsService } from "../notifications/notifications.service";
+import { MediaService } from "../media/media.service";
 import { newId } from "../common/ids";
 
 type Decision = "approved" | "rejected" | "info";
@@ -13,7 +15,68 @@ export class AdminService {
     @Inject(DB) private readonly db: Database,
     @Inject(DB_READ) private readonly read: Database,
     private readonly cache: CacheService,
+    private readonly notifs: NotificationsService,
+    private readonly mediaSvc: MediaService,
   ) {}
+
+  /* ------------------------ member verification ------------------------ */
+
+  /**
+   * A member asks to be verified. Documents are private uploads (never public),
+   * stored as "label|mediaId" so reviewers see what each file is. Admins are
+   * alerted; the automatic risk checks run straight away.
+   */
+  async submitVerification(userId: string, input: { kind: "kyc" | "rera"; reraNumber?: string; documents: { label: string; mediaId: string }[] }) {
+    if (!input.documents.length) throw new BadRequestException("Upload at least one document.");
+    if (input.kind === "rera" && !input.reraNumber?.trim()) throw new BadRequestException("Enter your RERA registration number.");
+    const ids = input.documents.map((d) => d.mediaId);
+    const files = await this.read.select({ id: media.id, ownerId: media.ownerId, groupName: media.groupName, status: media.status })
+      .from(media).where(inArray(media.id, ids));
+    if (files.length !== ids.length || files.some((f) => f.ownerId !== userId || f.groupName !== "private" || f.status !== "ready")) {
+      throw new BadRequestException("One of the documents is still uploading or could not be found. Please upload it again.");
+    }
+    const [open] = await this.read.select({ id: verifications.id }).from(verifications)
+      .where(and(eq(verifications.userId, userId), eq(verifications.kind, input.kind), inArray(verifications.status, ["pending", "info"]))).limit(1);
+    if (open) throw new ConflictException("You already have a request under review. We will let you know soon.");
+
+    if (input.kind === "rera") {
+      await this.db.update(users).set({ reraNumber: input.reraNumber!.trim().slice(0, 64), reraVerified: false }).where(eq(users.id, userId));
+      await this.cache.redis.del(`profile:${userId}`).catch(() => 0);
+    }
+    const id = newId();
+    const [row] = await this.db.insert(verifications).values({
+      id, userId, kind: input.kind, status: "pending",
+      documents: input.documents.map((d) => `${d.label.replace(/\|/g, " ").slice(0, 40)}|${d.mediaId}`),
+    }).returning();
+    await this.riskCheck(id).catch(() => null);
+
+    const admins = await this.read.select({ id: users.id }).from(users).where(and(eq(users.isAdmin, true), eq(users.status, "active"))).limit(20);
+    const name = await this.notifs.nameOf(userId);
+    for (const a of admins) {
+      await this.notifs.create({ userId: a.id, kind: "system", title: `${name} asked for ${input.kind === "rera" ? "RERA" : "KYC"} verification`, actorId: userId, targetType: "verification", targetId: id });
+    }
+    return row;
+  }
+
+  async myVerifications(userId: string) {
+    const rows = await this.read.select({ id: verifications.id, kind: verifications.kind, status: verifications.status, note: verifications.note, createdAt: verifications.createdAt, reviewedAt: verifications.reviewedAt })
+      .from(verifications).where(eq(verifications.userId, userId)).orderBy(desc(verifications.createdAt)).limit(20);
+    return { items: rows };
+  }
+
+  /** Short-lived links to a request's documents, for the reviewing admin. */
+  async verificationDocuments(verificationId: string) {
+    const [v] = await this.read.select({ documents: verifications.documents }).from(verifications).where(eq(verifications.id, verificationId)).limit(1);
+    if (!v) throw new NotFoundException("That request could not be found.");
+    const out: { label: string; url: string | null; mimeType?: string }[] = [];
+    for (const d of v.documents ?? []) {
+      const [label, mediaId] = String(d).split("|");
+      if (!mediaId) { out.push({ label, url: null }); continue; }
+      const link = await this.mediaSvc.privateLink(mediaId).catch(() => null);
+      out.push({ label, url: link?.url ?? null, mimeType: link?.mimeType });
+    }
+    return { items: out };
+  }
 
   /** Numbers for the admin overview. One round trip, not six. */
   async overview() {
@@ -114,6 +177,11 @@ export class AdminService {
       await this.cache.invalidate(`profile:${v.userId}`);
     }
     await this.audit(adminId, `verification.${decision}`, "user", v.userId, { kind: v.kind });
+    const what = v.kind === "rera" ? "RERA" : "KYC";
+    const title = decision === "approved" ? `Your ${what} verification is approved ✓`
+      : decision === "rejected" ? `Your ${what} verification was not approved` : `We need a little more for your ${what} verification`;
+    await this.notifs.create({ userId: v.userId, kind: "system", title, body: note ?? null, actorId: adminId, targetType: "verification", targetId: v.id });
+    await this.notifs.markReadFor(adminId, "verification", v.id);
     return v;
   }
 

@@ -23,7 +23,8 @@ export default async function NetworkPage() {
   ]);
 
   const connectedIds = new Set(connected.items.map((p) => p.id));
-  const people = (suggestions.people ?? []).filter((p) => p.id !== user.id && !connectedIds.has(p.id));
+  const invitedMe = new Set(pending.items.map((p) => p.id));
+  const people = (suggestions.people ?? []).filter((p) => p.id !== user.id && !connectedIds.has(p.id) && !invitedMe.has(p.id));
 
   return (
     <Shell user={user} current="/network">
@@ -58,7 +59,7 @@ export default async function NetworkPage() {
                 </div>
                 <TypePill type={p.type} />
                 <p className="small muted" style={{ minHeight: 34, margin: "6px 0 10px" }}>{p.headline}</p>
-                <ConnectButton peerId={p.id} relation="none" signedIn />
+                <ConnectButton peerId={p.id} relation="none" signedIn compact />
               </div>
             ))}
           </div>

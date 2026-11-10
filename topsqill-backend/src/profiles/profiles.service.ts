@@ -5,6 +5,7 @@ import { DB, DB_READ, type Database } from "../db/db.module";
 import { users, connections, media } from "../db/schema";
 import { CacheService } from "../redis/redis.module";
 import { MediaService } from "../media/media.service";
+import { NotificationsService } from "../notifications/notifications.service";
 
 @Injectable()
 export class ProfilesService {
@@ -13,6 +14,7 @@ export class ProfilesService {
     @Inject(DB_READ) private readonly read: Database,
     private readonly cache: CacheService,
     private readonly mediaSvc: MediaService,
+    private readonly notifs: NotificationsService,
   ) {}
 
   /** Profile card data, cached for 2 minutes: it appears on nearly every screen. */
@@ -35,13 +37,11 @@ export class ProfilesService {
     });
 
     // Contact details are only shown to accepted connections (and to yourself).
-    let relation: "self" | "connected" | "pending" | "none" = "none";
+    // "pending" is a request I sent; "incoming" is one waiting for my answer.
+    // An invitation I ignored reads as "none", so I can still connect later.
+    let relation: "self" | "connected" | "pending" | "incoming" | "none" = "none";
     if (viewerId === id) relation = "self";
-    else if (viewerId) {
-      const [c] = await this.read.select({ status: connections.status }).from(connections)
-        .where(and(eq(connections.userId, viewerId), eq(connections.peerId, id))).limit(1);
-      relation = c ? (c.status === "accepted" ? "connected" : "pending") : "none";
-    }
+    else if (viewerId) relation = await this.relationOf(viewerId, id);
     let contact: { phone?: string; email?: string } | null = null;
     if (relation === "self" || relation === "connected") {
       const [u] = await this.read.select({ phone: users.phone, email: users.email }).from(users).where(eq(users.id, id)).limit(1);
@@ -89,14 +89,43 @@ export class ProfilesService {
     data.emailVerified = false;
   }
 
-  /** Connection request. Both directions are written in one transaction. */
+  private async relationOf(viewerId: string, peerId: string) {
+    const [c] = await this.db.select({ status: connections.status, requestedBy: connections.requestedBy }).from(connections)
+      .where(and(eq(connections.userId, viewerId), eq(connections.peerId, peerId))).limit(1);
+    if (!c) return "none" as const;
+    if (c.status === "accepted") return "connected" as const;
+    if (c.status === "pending") return c.requestedBy === viewerId ? "pending" as const : "incoming" as const;
+    // Ignored: the person who sent it still sees "pending", the one who ignored it can connect again.
+    return c.requestedBy === viewerId ? "pending" as const : "none" as const;
+  }
+
+  /**
+   * Connect. If they already invited me, this accepts their invitation rather
+   * than leaving two requests crossing in the post.
+   */
   async connect(userId: string, peerId: string) {
-    if (userId === peerId) return { ok: false, message: "You can’t connect with yourself." };
+    if (userId === peerId) throw new BadRequestException("You can’t connect with yourself.");
+    const [peer] = await this.read.select({ status: users.status }).from(users).where(eq(users.id, peerId)).limit(1);
+    if (!peer || peer.status !== "active") throw new NotFoundException("That member is not available.");
+
+    const relation = await this.relationOf(userId, peerId);
+    if (relation === "connected") return { ok: true, status: "connected" };
+    if (relation === "pending") return { ok: true, status: "pending" };
+    if (relation === "incoming") return this.respond(userId, peerId, true);
+
     await this.db.transaction(async (tx) => {
+      // A request I once ignored is replaced by my own.
+      await tx.delete(connections).where(and(eq(connections.status, "ignored"),
+        sql`(${connections.userId} = ${userId} and ${connections.peerId} = ${peerId}) or (${connections.userId} = ${peerId} and ${connections.peerId} = ${userId})`));
       await tx.insert(connections).values([
         { userId, peerId, status: "pending", requestedBy: userId },
         { userId: peerId, peerId: userId, status: "pending", requestedBy: userId },
       ]).onConflictDoNothing();
+    });
+    const [me] = await this.read.select({ name: users.name, headline: users.headline }).from(users).where(eq(users.id, userId)).limit(1);
+    await this.notifs.create({
+      userId: peerId, kind: "connection", title: `${me?.name ?? "A member"} wants to connect`,
+      body: me?.headline ?? null, actorId: userId, targetType: "profile", targetId: userId,
     });
     return { ok: true, status: "pending" };
   }
@@ -124,8 +153,18 @@ export class ProfilesService {
         await tx.update(users).set({ connectionCount: sql`${users.connectionCount} + 1` }).where(inArray(users.id, [userId, peerId]));
       }
     });
-    await Promise.all([this.cache.invalidate(`profile:${userId}`), this.cache.invalidate(`profile:${peerId}`)]);
-    return { ok: true, status };
+    // Both feeds now include each other's posts, and both profile cards change.
+    await this.cache.redis.del(`profile:${userId}`, `profile:${peerId}`, `audience:${userId}`, `audience:${peerId}`).catch(() => 0);
+    // The invitation alert is answered either way.
+    await this.notifs.markReadFor(userId, "profile", peerId);
+    if (accept) {
+      const name = await this.notifs.nameOf(userId);
+      await this.notifs.create({
+        userId: peerId, kind: "connection", title: `${name} accepted your invitation`,
+        body: "You can now message each other and see each other’s posts.", actorId: userId, targetType: "profile", targetId: userId,
+      });
+    }
+    return { ok: true, status: accept ? "connected" : "ignored" };
   }
 
   async listConnections(userId: string, status: "accepted" | "pending" = "accepted", limit = 30) {

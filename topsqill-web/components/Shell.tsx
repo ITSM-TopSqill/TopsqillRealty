@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Avatar } from "./ui";
 import type { SessionUser } from "@/lib/session";
+import { LiveBadge, LiveAlerts } from "./Live";
 
 const TABS = [
   { href: "/", label: "Home", icon: "🏠" },
@@ -38,12 +39,12 @@ export function Shell({ user, current, unread, children }: {
 
           <nav className="tabs">
             {TABS.map((t) => {
-              const count = t.href === "/messages" ? unread?.messages : t.href === "/notifications" ? unread?.notifications : 0;
+              const kind = t.href === "/messages" ? "messages" : t.href === "/notifications" ? "notifications" : null;
               return (
                 <Link key={t.href} href={t.href} className={`tab ${current === t.href ? "on" : ""}`}>
                   <span aria-hidden>{t.icon}</span>
                   <span>{t.label}</span>
-                  {count ? <span className="badge-dot">{count > 9 ? "9+" : count}</span> : null}
+                  {kind && user ? <LiveBadge kind={kind} initial={unread?.[kind]} /> : null}
                 </Link>
               );
             })}
@@ -68,12 +69,14 @@ export function Shell({ user, current, unread, children }: {
       </header>
 
       <main className="wrap">{children}</main>
+      {user ? <LiveAlerts /> : null}
 
       <nav className="bbar" aria-label="Main">
         {[TABS[0], TABS[1], TABS[2], TABS[5], TABS[6]].map((t) => (
-          <Link key={t.href} href={t.href} className={current === t.href ? "on" : ""}>
+          <Link key={t.href} href={t.href} className={current === t.href ? "on" : ""} style={{ position: "relative" }}>
             <span aria-hidden style={{ fontSize: 20 }}>{t.icon}</span>
             <span>{t.label}</span>
+            {t.href === "/messages" && user ? <LiveBadge kind="messages" initial={unread?.messages} /> : null}
           </Link>
         ))}
       </nav>

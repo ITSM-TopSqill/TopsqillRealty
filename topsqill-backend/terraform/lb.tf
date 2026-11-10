@@ -1,6 +1,6 @@
 # HTTPS load balancer with a managed certificate, Cloud CDN and Cloud Armor.
 resource "google_compute_region_network_endpoint_group" "api_neg" {
-  count = var.use_custom_domain ? 1 : 0
+  count                 = var.use_custom_domain ? 1 : 0
   name                  = "${local.name}-api-neg"
   network_endpoint_type = "SERVERLESS"
   region                = var.region
@@ -8,7 +8,7 @@ resource "google_compute_region_network_endpoint_group" "api_neg" {
 }
 
 resource "google_compute_backend_service" "api" {
-  count = var.use_custom_domain ? 1 : 0
+  count                 = var.use_custom_domain ? 1 : 0
   name                  = "${local.name}-api-backend"
   load_balancing_scheme = "EXTERNAL_MANAGED"
   protocol              = "HTTPS"
@@ -31,13 +31,13 @@ resource "google_compute_backend_service" "api" {
     }
   }
   log_config {
-    enable = true
+    enable      = true
     sample_rate = 0.1
   }
 }
 
 resource "google_compute_backend_bucket" "media" {
-  count = var.use_custom_domain ? 1 : 0
+  count       = var.use_custom_domain ? 1 : 0
   name        = "${local.name}-media-backend"
   bucket_name = google_storage_bucket.media.name
   enable_cdn  = true
@@ -52,7 +52,7 @@ resource "google_compute_backend_bucket" "media" {
 }
 
 resource "google_compute_url_map" "main" {
-  count = var.use_custom_domain ? 1 : 0
+  count           = var.use_custom_domain ? 1 : 0
   name            = "${local.name}-urlmap"
   default_service = google_compute_backend_service.api[0].id
 
@@ -71,12 +71,12 @@ resource "google_compute_url_map" "main" {
 
 resource "google_compute_managed_ssl_certificate" "cert" {
   count = var.use_custom_domain ? 1 : 0
-  name = "${local.name}-cert"
+  name  = "${local.name}-cert"
   managed { domains = [var.api_domain, var.cdn_domain] }
 }
 
 resource "google_compute_target_https_proxy" "https" {
-  count = var.use_custom_domain ? 1 : 0
+  count            = var.use_custom_domain ? 1 : 0
   name             = "${local.name}-https-proxy"
   url_map          = google_compute_url_map.main[0].id
   ssl_certificates = [google_compute_managed_ssl_certificate.cert[0].id]
@@ -90,7 +90,7 @@ resource "google_compute_global_address" "lb_ip" {
 }
 
 resource "google_compute_global_forwarding_rule" "https" {
-  count = var.use_custom_domain ? 1 : 0
+  count                 = var.use_custom_domain ? 1 : 0
   name                  = "${local.name}-https"
   load_balancing_scheme = "EXTERNAL_MANAGED"
   port_range            = "443"
@@ -101,19 +101,19 @@ resource "google_compute_global_forwarding_rule" "https" {
 # Plain HTTP is redirected to HTTPS.
 resource "google_compute_url_map" "redirect" {
   count = var.use_custom_domain ? 1 : 0
-  name = "${local.name}-redirect"
+  name  = "${local.name}-redirect"
   default_url_redirect {
     https_redirect = true
-    strip_query = false
+    strip_query    = false
   }
 }
 resource "google_compute_target_http_proxy" "http" {
-  count = var.use_custom_domain ? 1 : 0
+  count   = var.use_custom_domain ? 1 : 0
   name    = "${local.name}-http-proxy"
   url_map = google_compute_url_map.redirect[0].id
 }
 resource "google_compute_global_forwarding_rule" "http" {
-  count = var.use_custom_domain ? 1 : 0
+  count                 = var.use_custom_domain ? 1 : 0
   name                  = "${local.name}-http"
   load_balancing_scheme = "EXTERNAL_MANAGED"
   port_range            = "80"
@@ -124,7 +124,7 @@ resource "google_compute_global_forwarding_rule" "http" {
 # Blocks common attacks and limits abusive clients before they reach the API.
 resource "google_compute_security_policy" "armor" {
   count = var.use_custom_domain ? 1 : 0
-  name = "${local.name}-armor"
+  name  = "${local.name}-armor"
 
   rule {
     action   = "rate_based_ban"
@@ -138,7 +138,7 @@ resource "google_compute_security_policy" "armor" {
       exceed_action  = "deny(429)"
       enforce_on_key = "IP"
       rate_limit_threshold {
-        count = 600
+        count        = 600
         interval_sec = 60
       }
       ban_duration_sec = 300

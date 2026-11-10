@@ -16,20 +16,29 @@ export type UploadedItem = { mediaId: string; name: string; progress: number; st
 
 const MAX = { image: 25e6, video: 500e6, document: 25e6 } as const;
 
-export function MediaUploader({ items, onChange, max = 20, accept = "image/*,video/*,application/pdf" }: {
+export function MediaUploader({ items, onChange, max = 20, accept = "image/*,video/*,application/pdf", privateFiles = false, title, hint }: {
   items: UploadedItem[]; onChange: (items: UploadedItem[]) => void; max?: number; accept?: string;
+  /** Documents for verification: stored privately, never published. */
+  privateFiles?: boolean; title?: string; hint?: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState("");
+  // Uploads finish one by one, long after the render that started them, so
+  // updates always apply to the latest list. Using the list from the render
+  // that started an upload overwrote other uploads' progress, leaving photos
+  // stuck on "Processing" or dropping them when several were added at once.
+  const latest = useRef(items);
+  latest.current = items;
+  function commit(next: UploadedItem[]) { latest.current = next; onChange(next); }
 
   function update(mediaId: string, patch: Partial<UploadedItem>) {
-    onChange(items.map((i) => (i.mediaId === mediaId ? { ...i, ...patch } : i)));
+    commit(latest.current.map((i) => (i.mediaId === mediaId ? { ...i, ...patch } : i)));
   }
 
   async function handleFiles(files: FileList | File[]) {
     setError("");
-    const list = Array.from(files).slice(0, Math.max(0, max - items.length));
+    const list = Array.from(files).slice(0, Math.max(0, max - latest.current.length));
     if (!list.length) { setError(`You can add up to ${max} files.`); return; }
 
     for (const file of list) {
@@ -41,24 +50,24 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
       try {
         // 1. Ask the API where to put it.
         const ticket = await clientApi<{ mediaId: string; uploadUrl: string; method: string; headers: Record<string, string> }>(
-          "/v1/media/uploads", { method: "POST", body: { mimeType: file.type, bytes: file.size, filename: file.name } },
+          "/v1/media/uploads", { method: "POST", body: { mimeType: file.type || "application/octet-stream", bytes: file.size, filename: file.name, ...(privateFiles ? { private: true } : {}) } },
         );
         const entry: UploadedItem = {
           mediaId: ticket.mediaId, name: file.name, progress: 0, status: "uploading",
           previewUrl: kind === "image" ? URL.createObjectURL(file) : undefined,
         };
-        items = [...items, entry];
-        onChange(items);
+        commit([...latest.current, entry]);
 
         // 2. Send the bytes straight to storage, reporting progress as it goes.
         await putWithProgress(ticket.uploadUrl, file, ticket.headers, (pct) => update(ticket.mediaId, { progress: pct }));
 
         // 3. Tell the API, which queues resizing or video conversion.
-        await clientApi(`/v1/media/${ticket.mediaId}/confirm`, { method: "POST" });
-        update(ticket.mediaId, { status: "processing", progress: 100 });
-        watch(ticket.mediaId);
+        const done = await clientApi<{ status: string }>(`/v1/media/${ticket.mediaId}/confirm`, { method: "POST" });
+        if (done.status === "ready") update(ticket.mediaId, { status: "ready", progress: 100 });   // private documents need no processing
+        else { update(ticket.mediaId, { status: "processing", progress: 100 }); watch(ticket.mediaId); }
       } catch (e) {
-        setError((e as Error).message);
+        setError(`${file.name}: ${(e as Error).message}`);
+        commit(latest.current.filter((i) => i.name !== file.name || i.status !== "uploading"));
       }
     }
   }
@@ -94,12 +103,18 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
           background: dragging ? "color-mix(in srgb, var(--vio) 7%, var(--card))" : "var(--soft)",
         }}
       >
-        <div style={{ fontSize: 28 }} aria-hidden>📷</div>
-        <b>Add photos and videos</b>
-        <div className="small muted">Drag them here, or click to choose. Exterior, rooms, amenities and a walkthrough video.</div>
+        <div style={{ fontSize: 28 }} aria-hidden>{privateFiles ? "🔒" : "📷"}</div>
+        <b>{title ?? "Add photos and videos"}</b>
+        <div className="small muted">{hint ?? "Drag them here, or click to choose. Exterior, rooms, amenities and a walkthrough video."}</div>
       </div>
       <input ref={input} type="file" accept={accept} multiple hidden
-        onChange={(e) => { const f = e.target.files; e.currentTarget.value = ""; if (f) handleFiles(f); }} />
+        onChange={(e) => {
+          // Copy the files before clearing the input (clearing lets the same
+          // file be picked again), since some browsers empty the list in place.
+          const f = Array.from(e.target.files ?? []);
+          e.currentTarget.value = "";
+          if (f.length) handleFiles(f);
+        }} />
 
       {error ? <p className="error" style={{ marginTop: 8 }}>{error}</p> : null}
 
@@ -107,11 +122,14 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(120px,1fr))", gap: 10, marginTop: 12 }}>
           {items.map((it) => (
             <figure key={it.mediaId} style={{ margin: 0, position: "relative", borderRadius: 12, overflow: "hidden", background: "var(--chip)", aspectRatio: "4/3" }}>
-              {it.previewUrl || it.media ? (
+              {(it.previewUrl || imageUrl(it.media, "thumb")) ? (
                 <img src={imageUrl(it.media, "thumb") ?? it.previewUrl} alt={it.name}
                   style={{ width: "100%", height: "100%", objectFit: "cover", opacity: it.status === "ready" ? 1 : 0.6 }} />
               ) : (
-                <div style={{ display: "grid", placeItems: "center", height: "100%", fontSize: 24 }} aria-hidden>🎬</div>
+                <div style={{ display: "grid", placeItems: "center", height: "100%", fontSize: 24, padding: 6, textAlign: "center" }}>
+                  <span aria-hidden>{privateFiles ? "📄" : "🎬"}</span>
+                  <span style={{ fontSize: 11, wordBreak: "break-all" }}>{it.name}</span>
+                </div>
               )}
 
               {it.status !== "ready" ? (
@@ -125,7 +143,7 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
               ) : null}
 
               <button type="button" aria-label={`Remove ${it.name}`}
-                onClick={() => onChange(items.filter((x) => x.mediaId !== it.mediaId))}
+                onClick={() => commit(latest.current.filter((x) => x.mediaId !== it.mediaId))}
                 style={{ position: "absolute", top: 4, right: 4, width: 24, height: 24, borderRadius: "50%", background: "rgba(255,255,255,.92)", fontWeight: 800 }}>
                 ×
               </button>
@@ -140,7 +158,6 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
 /** XMLHttpRequest is used instead of fetch because it reports upload progress. */
 function putWithProgress(url: string, file: File, headers: Record<string, string>, onProgress: (pct: number) => void) {
   return new Promise<void>((resolve, reject) => {
-    if (url.startsWith("dev://")) { onProgress(100); resolve(); return; }   // local development without storage
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url, true);
     for (const [k, v] of Object.entries(headers ?? {})) xhr.setRequestHeader(k, v);

@@ -18,6 +18,18 @@ export function ApprovalCard({ verification }: { verification: Verification }) {
   );
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+
+  /** Documents are private: each view asks for a link that works for 15 minutes. */
+  async function openDoc(label: string) {
+    const tab = window.open("", "_blank");
+    setBusy(`doc:${label}`);
+    try {
+      const { items } = await clientApi<{ items: { label: string; url: string | null }[] }>(`/v1/admin/verifications/${verification.id}/documents`);
+      const url = items.find((i) => i.label === label && i.url)?.url;
+      if (url && tab) tab.location.href = url; else { tab?.close(); alert("That document could not be opened."); }
+    } catch (e) { tab?.close(); alert((e as Error).message); }
+    finally { setBusy(null); }
+  }
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState("");
 
@@ -80,7 +92,12 @@ export function ApprovalCard({ verification }: { verification: Verification }) {
 
       {verification.documents?.length ? (
         <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-          {verification.documents.map((d) => <span key={d} className="tag">📄 {d}</span>)}
+          {verification.documents.map((d) => {
+            const [label, mediaId] = d.split("|");
+            return mediaId
+              ? <button key={d} className="tag" onClick={() => openDoc(label)} disabled={busy === `doc:${label}`} title="Opens a private link valid for 15 minutes">📄 {label} · View</button>
+              : <span key={d} className="tag">📄 {label}</span>;
+          })}
         </div>
       ) : <p className="small muted" style={{ marginTop: 10 }}>No documents uploaded.</p>}
 

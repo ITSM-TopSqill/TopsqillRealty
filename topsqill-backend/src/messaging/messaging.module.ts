@@ -4,9 +4,10 @@ import { MessagingController } from "./messaging.controller";
 import { RealtimeGateway } from "./realtime.gateway";
 import { MediaModule } from "../media/media.module";
 import { AuthModule } from "../auth/auth.module";
+import { LeadsModule } from "../leads/leads.module";
 
 @Module({
-  imports: [MediaModule, AuthModule],
+  imports: [MediaModule, AuthModule, LeadsModule],
   providers: [MessagingService, RealtimeGateway],
   controllers: [MessagingController],
   exports: [MessagingService, RealtimeGateway],

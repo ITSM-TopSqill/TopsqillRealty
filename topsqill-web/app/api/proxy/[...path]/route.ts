@@ -18,7 +18,9 @@ async function forward(req: NextRequest, path: string, token: string | null) {
   return fetch(`${API_URL}/${path}${url.search}`, {
     method: req.method,
     headers: {
-      "content-type": req.headers.get("content-type") ?? "application/json",
+      // Only say there is JSON when there is a body: the API rejects an empty
+      // body labelled as JSON, which broke Like, Connect and Message.
+      ...(body ? { "content-type": req.headers.get("content-type") ?? "application/json" } : {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       // The visitor's real IP, for the API's rate limits (never the raw header).
       ...visitorHeaders(req.headers),

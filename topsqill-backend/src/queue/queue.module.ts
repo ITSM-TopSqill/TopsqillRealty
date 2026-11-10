@@ -32,9 +32,13 @@ export class QueueService implements OnModuleDestroy {
    * BullMQ reserves ":" in job ids, so it is replaced here rather than relying
    * on every caller to remember.
    */
-  add(name: QueueName, job: string, data: unknown, jobId?: string) {
+  add(name: QueueName, job: string, data: unknown, jobId?: string, opts: { delay?: number } = {}) {
     const safeId = jobId?.replace(/:/g, "-");
-    return this.queue(name).add(job, data, safeId ? { jobId: safeId } : undefined);
+    return this.queue(name).add(job, data, {
+      ...(safeId ? { jobId: safeId } : {}), ...opts,
+      // Finished jobs are dropped so Redis does not fill up over time.
+      removeOnComplete: 1000, removeOnFail: 5000,
+    });
   }
 
   async onModuleDestroy() { for (const q of this.queues.values()) await q.close().catch(() => {}); }

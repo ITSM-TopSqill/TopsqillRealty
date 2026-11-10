@@ -57,6 +57,7 @@ export type Job = {
   expMin: number; expMax: number; salaryMin?: string | null; salaryMax?: string | null;
   incentives: boolean; skills: string[]; summary?: string | null;
   responsibilities: string[]; requirements: string[]; applicantCount: number; createdAt: string;
+  ownerId?: string;
 };
 
 export type Notification = {

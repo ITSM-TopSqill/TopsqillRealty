@@ -330,6 +330,7 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   convoIdx: index("messages_convo_idx").on(t.conversationId, t.createdAt.desc(), t.id.desc()),
+  unreadIdx: index("messages_unread_idx").on(t.conversationId, t.senderId).where(sql`${t.readAt} is null`),
 }));
 
 export const notifications = pgTable("notifications", {
@@ -343,7 +344,10 @@ export const notifications = pgTable("notifications", {
   targetId: varchar("target_id", { length: 36 }),
   readAt: timestamp("read_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({ userIdx: index("notifications_user_idx").on(t.userId, t.createdAt.desc()) }));
+}, (t) => ({
+  userIdx: index("notifications_user_idx").on(t.userId, t.createdAt.desc()),
+  unreadIdx: index("notifications_unread_idx").on(t.userId).where(sql`${t.readAt} is null`),
+}));
 
 export const pushTokens = pgTable("push_tokens", {
   token: varchar("token", { length: 255 }).primaryKey(),

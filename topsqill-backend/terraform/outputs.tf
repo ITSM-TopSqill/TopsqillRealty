@@ -4,11 +4,11 @@ output "load_balancer_ip" {
 }
 output "api_url" { value = google_cloud_run_v2_service.api.uri }
 output "database_private_ip" {
-  value = google_sql_database_instance.postgres.private_ip_address
+  value     = google_sql_database_instance.postgres.private_ip_address
   sensitive = true
 }
 output "redis_host" {
-  value = google_redis_instance.cache.host
+  value     = google_redis_instance.cache.host
   sensitive = true
 }
 output "uploads_bucket" { value = google_storage_bucket.uploads.name }

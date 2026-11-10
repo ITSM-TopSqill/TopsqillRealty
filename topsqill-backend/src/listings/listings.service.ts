@@ -10,7 +10,7 @@ import { newId, encodeCursor, decodeCursor } from "../common/ids";
 export type SearchQuery = {
   city?: string; locality?: string; purpose?: "sale" | "rent"; kind?: string;
   bhk?: number; minPrice?: number; maxPrice?: number; possession?: string;
-  cursor?: string; limit?: number;
+  ownerId?: string; cursor?: string; limit?: number;
 };
 
 /** The listing fields an owner may edit after publishing. */
@@ -37,7 +37,7 @@ export class ListingsService {
   async search(q: SearchQuery) {
     // Identical searches are common (the same city and filters from many users),
     // so the whole result is cached for 30 seconds. The CDN caches it too.
-    const key = `search:${JSON.stringify([q.city, q.locality, q.purpose, q.kind, q.bhk, q.minPrice, q.maxPrice, q.possession, q.cursor, q.limit])}`;
+    const key = `search:${JSON.stringify([q.city, q.locality, q.purpose, q.kind, q.bhk, q.minPrice, q.maxPrice, q.possession, q.ownerId, q.cursor, q.limit])}`;
     return this.cache.wrap(key, 30, () => this.searchUncached(q));
   }
 
@@ -54,6 +54,7 @@ export class ListingsService {
     if (q.minPrice) where.push(gte(listings.priceInr, q.minPrice));
     if (q.maxPrice) where.push(lte(listings.priceInr, q.maxPrice));
     if (q.possession) where.push(eq(listings.possession, q.possession));
+    if (q.ownerId) where.push(eq(listings.ownerId, q.ownerId));
     if (cur) {
       where.push(or(
         lt(listings.publishedAt, new Date(cur.t)),
@@ -141,7 +142,14 @@ export class ListingsService {
 
   async create(userId: string, input: Partial<typeof listings.$inferInsert> & { mediaIds?: string[] }) {
     const id = newId();
-    const { mediaIds = [], ...rest } = input;
+    const { mediaIds: requested = [], ...rest } = input;
+    // Only the member's own, public photos and videos: never someone else's
+    // files, and never a private verification document.
+    const owned = requested.length
+      ? await this.read.select({ id: media.id, ownerId: media.ownerId, groupName: media.groupName }).from(media).where(inArray(media.id, requested))
+      : [];
+    const allowed = new Set(owned.filter((m) => m.ownerId === userId && m.groupName !== "private").map((m) => m.id));
+    const mediaIds = requested.filter((m) => allowed.has(m));
     const row = await this.db.transaction(async (tx) => {
       const [created] = await tx.insert(listings).values({
         ...rest, id, ownerId: userId,
