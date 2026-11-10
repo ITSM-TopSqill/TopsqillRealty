@@ -63,3 +63,43 @@ export type Notification = {
   id: string; kind: string; title: string; body?: string | null;
   targetType?: string | null; targetId?: string | null; readAt?: string | null; createdAt: string;
 };
+
+export type MyListing = {
+  id: string; title: string; status: string; purpose: "sale" | "rent"; kind: string;
+  bhk?: number | null; areaSqft?: number | null; priceInr?: number | null;
+  city: string; locality: string; viewCount: number; leadCount: number;
+};
+
+export type CampaignPlan = {
+  personas: { name: string; share: number; why: string; signals: string[] }[];
+  pincodes: { pin: string; area: string; tier: string; reason: string }[];
+  radiusKm: number; intentKeywords: string[]; negativeKeywords: string[]; exclusions: string[];
+  languages: string[]; channels: { channel: string; budgetPct: number; format: string }[];
+  schedule: string; qualification: { questions: string[]; otp: boolean; bot: boolean; minScore: number };
+  compliance: string[];
+};
+
+export type CampaignCreatives = {
+  headlines?: string[]; primaryTexts?: string[]; hinglish?: string;
+  carousel?: { title: string; sub: string }[]; reel?: { caption: string; sub: string }[];
+  googleAd?: { headlines: string[]; descriptions: string[] }; whatsappTemplate?: string;
+};
+
+export type Campaign = {
+  id: string; name: string; goal: string; budgetInr: number; days: number; status: string;
+  listingId?: string | null; plan?: CampaignPlan | null; creatives?: CampaignCreatives | null;
+  forecast?: { reach: number; clicks: number; leads: number; qualified: number; qualifiedRatePct: number; costPerLead: number; costPerQualifiedLead: number } | null;
+  spendInr: number; leadsCount: number; qualifiedCount: number; launchedAt?: string | null; createdAt: string;
+};
+
+export type Project = {
+  id: string; ownerId: string; sourceUrl?: string | null; name: string; builder?: string | null;
+  city: string; locality: string; reraNumber?: string | null; status: string; possession?: string | null;
+  acres?: string | null; towers?: number | null; floors?: number | null; units?: number | null;
+  openArea?: number | null; paymentPlan?: string | null; facing: string[]; amenities: string[]; specs: string[];
+  configs: { bhk: number; sbua: number; carpet: number; price: number; estimated?: boolean }[];
+  nearby: { name: string; km: number; icon: string }[]; usps: string[];
+  summary?: string | null; verdict?: string | null;
+  risk?: { score: number; level: string; factors: { label: string; level: string; note: string }[] } | null;
+  priceEstimated: boolean; aiSource: string; published: boolean; createdAt: string;
+};

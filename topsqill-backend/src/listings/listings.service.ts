@@ -129,6 +129,16 @@ export class ListingsService {
     });
   }
 
+  async mine(userId: string) {
+    const rows = await this.read.select({
+      id: listings.id, title: listings.title, status: listings.status, purpose: listings.purpose,
+      kind: listings.kind, bhk: listings.bhk, areaSqft: listings.areaSqft, priceInr: listings.priceInr,
+      city: listings.city, locality: listings.locality, publishedAt: listings.publishedAt,
+      viewCount: listings.viewCount, leadCount: listings.leadCount,
+    }).from(listings).where(eq(listings.ownerId, userId)).orderBy(desc(listings.createdAt)).limit(100);
+    return { items: rows };
+  }
+
   async create(userId: string, input: Partial<typeof listings.$inferInsert> & { mediaIds?: string[] }) {
     const id = newId();
     const { mediaIds = [], ...rest } = input;

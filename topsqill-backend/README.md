@@ -80,7 +80,7 @@ npm run db:migrate && npm run db:seed     # once the database is up
 npm install
 cp .env.example .env            # set DATABASE_URL, REDIS_URL, JWT_SECRET
 npm run db:migrate
-npm run db:seed                 # 1,000 members, listings, connections and posts
+npm run db:seed                 # demo data: members, listings, chats, leads, campaigns
 npm run build && npm start      # API on http://localhost:8080
 node dist/worker/main.js        # workers, in another terminal
 ```
@@ -127,6 +127,41 @@ curl localhost:8080/v1/me -H "authorization: Bearer <accessToken>"
 
 After that, every push to `main` builds both images, runs the tests, applies migrations and
 rolls out the new version.
+
+### Demo data
+
+`npm run db:seed` fills every screen with believable data: 150 members across seven cities,
+about 270 listings with photos, requirements with matches, jobs and applicants, posts, comments
+and likes, three published projects, and an admin queue. It is wired around one real account
+(`SEED_OWNER_EMAIL`, default `contact@topsqill.com`), which gets connections and invitations,
+chats with unread messages, alerts, a full lead board, lead sources, six listings, two
+campaigns, a draft project and saved homes. The account is created if it does not exist.
+
+| Setting | Meaning |
+|---|---|
+| `SEED_OWNER_EMAIL` | The account to build the demo around |
+| `SEED_OWNER_ADMIN=true` | Also make that account an admin |
+| `DEMO_MEMBERS` | How many demo members (default 150) |
+| `SEED_RESET_ONLY=true` | Remove the demo data and add nothing |
+
+It is safe to run again: each run first removes the previous demo data exactly (every row is
+recorded in `_demo_seed`). Real members' own data is never touched. Demo members have unverified
+`@demo.topsqill.ai` addresses, so nobody can sign in as them.
+
+**On staging**, after a `gcloud builds submit` (the seed ships in the API image):
+
+```bash
+gcloud run jobs deploy topsqill-staging-seed \
+  --image asia-south1-docker.pkg.dev/topsqill/topsqill/api:$(git rev-parse --short HEAD) \
+  --region asia-south1 --vpc-connector topsqill-staging-vpc-con \
+  --service-account topsqill-staging-app@topsqill.iam.gserviceaccount.com \
+  --set-secrets DATABASE_URL=topsqill-staging-database-url:latest \
+  --set-env-vars JWT_SECRET=seed-only-placeholder-value,SEED_OWNER_EMAIL=contact@topsqill.com,SEED_OWNER_ADMIN=true \
+  --command node --args dist/scripts/seed.js \
+  --project topsqill --execute-now --wait
+```
+
+To remove it later, run the same command with `SEED_RESET_ONLY=true` added to `--set-env-vars`.
 
 ---
 

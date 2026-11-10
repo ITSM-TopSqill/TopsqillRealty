@@ -5,7 +5,6 @@ import { DB, DB_READ, type Database } from "../db/db.module";
 import { leadSources, ingestEvents } from "../db/schema";
 import { LeadsService } from "./leads.service";
 import { newId } from "../common/ids";
-import { env } from "../common/env";
 import { parseBudget } from "./parse";
 
 type Normalised = {
@@ -35,7 +34,9 @@ export class IngestService {
     const [row] = await this.db.insert(leadSources).values({
       id, ownerId, source: source as never, name, config, ingestKey, assignRule,
     }).returning();
-    return { ...row, webhookUrl: `${env.CDN_BASE_URL ? "https://api.topsqill.ai" : "http://localhost:8080"}/v1/ingest/${row.source}/${ingestKey}` };
+    // A path, not a full URL: the API does not know its own public address
+    // (staging and production differ), so the web app adds it.
+    return { ...row, webhookUrl: `/v1/ingest/${row.source}/${ingestKey}` };
   }
 
   async listSources(ownerId: string) {

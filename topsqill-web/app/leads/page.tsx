@@ -29,7 +29,7 @@ export default async function LeadsPage() {
         </div>
         <div className="row">
           <Link href="/leads/sources" className="btn btn-o">Connect sources</Link>
-          <Link href="/campaigns/new" className="btn btn-ai">Create campaign</Link>
+          <Link href="/campaigns" className="btn btn-ai">Campaigns</Link>
         </div>
       </div>
 

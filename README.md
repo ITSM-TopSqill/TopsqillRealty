@@ -61,8 +61,8 @@ docker run -d -p 6379:6379 redis:7-alpine
 DATABASE_URL="postgres://USER:PASSWORD@localhost:5432/topsqill" bash setup.sh
 ```
 
-It installs both projects, writes their `.env` files, creates the schema, loads 1,000 demo
-members and listings, and builds everything.
+It installs both projects, writes their `.env` files, creates the schema, loads demo data (150
+members with listings, photos, chats, leads and campaigns), and builds everything.
 
 **4. Start the two services**
 

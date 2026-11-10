@@ -69,6 +69,10 @@ export class ListingsController {
   @ApiOperation({ summary: "Search listings" })
   search(@Query() q: SearchDto) { return this.svc.search(q); }
 
+  /** My own listings, in every state, for the campaign studio and my profile tools. */
+  @Get("mine")
+  mine(@CurrentUser() user: AuthUser) { return this.svc.mine(user.id); }
+
   @Public() @Get(":id") @Header("cache-control", "public, max-age=30, s-maxage=60, stale-while-revalidate=300")
   getOne(@Param("id") id: string) { return this.svc.getById(id); }
 

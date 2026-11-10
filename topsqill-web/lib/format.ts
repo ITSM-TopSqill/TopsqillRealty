@@ -47,3 +47,6 @@ export const STAGE_LABEL: Record<string, string> = {
   new: "New", contacted: "Contacted", site_visit: "Site visit",
   negotiation: "Negotiation", booked: "Booked", lost: "Lost",
 };
+export const CAMPAIGN_COLOR: Record<string, string> = {
+  draft: "#8D8AA3", scheduled: "#2F7FE6", active: "#12B76A", paused: "#E08A00", completed: "#6A3FE0",
+};

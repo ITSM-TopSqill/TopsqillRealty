@@ -88,7 +88,7 @@ export default async function ListingsPage({ searchParams }: { searchParams: Pro
               </h1>
               <p className="muted small">{results.items.length}{results.nextCursor ? "+" : ""} results</p>
             </div>
-            {user ? <Link href="/listings/new" className="btn btn-ai">+ Add listing</Link> : null}
+            {user ? <><Link href="/projects/new" className="btn btn-o">Import a project</Link> <Link href="/listings/new" className="btn btn-ai">+ Add listing</Link></> : null}
           </div>
 
           {results.items.length ? (
