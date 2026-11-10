@@ -13,9 +13,13 @@ const TABS = [
   { href: "/notifications", label: "Alerts", icon: "🔔" },
 ];
 
-/** Top bar and mobile tab bar. Rendered on the server, so it needs no JavaScript. */
+/**
+ * Top bar and mobile tab bar. Rendered on the server, so it needs no JavaScript.
+ * `user` is undefined while a page is loading: the member's own links are left
+ * out rather than flashing "Sign in" at someone who is signed in.
+ */
 export function Shell({ user, current, unread, children }: {
-  user: SessionUser | null; current: string; unread?: { messages?: number; notifications?: number };
+  user: SessionUser | null | undefined; current: string; unread?: { messages?: number; notifications?: number };
   children: React.ReactNode;
 }) {
   return (
@@ -53,7 +57,7 @@ export function Shell({ user, current, unread, children }: {
                 <Avatar person={user} media={user.avatar as never} size={24} />
                 <span>Me</span>
               </Link>
-            ) : (
+            ) : user === undefined ? null : (
               <>
                 <Link href="/signin" className="btn btn-g" style={{ alignSelf: "center", marginLeft: 8 }}>Sign in</Link>
                 <Link href="/signup" className="btn btn-ai" style={{ alignSelf: "center", marginLeft: 6 }}>Join</Link>

@@ -151,3 +151,8 @@ img{max-width:100%}
     font-size:10.5px;font-weight:700;color:var(--ink2);position:relative}
   .bbar a.on{color:var(--mag)}
 }
+
+/* Placeholder blocks shown while a page loads. */
+.skel{background:var(--chip);border-radius:10px;animation:skel 1.2s ease-in-out infinite}
+@keyframes skel{50%{opacity:.5}}
+@media (prefers-reduced-motion:reduce){.skel{animation:none}}
