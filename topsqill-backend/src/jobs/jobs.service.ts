@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException, ForbiddenException, ConflictException } from "@nestjs/common";
+import { Injectable, Inject, NotFoundException, ForbiddenException, ConflictException, BadRequestException } from "@nestjs/common";
 import { and, desc, eq, lt, or, sql, inArray } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { jobs, jobApplications, users } from "../db/schema";
@@ -63,6 +63,19 @@ Use realistic Indian salary ranges. Company: ${company}. City: ${city}. Request:
     return row;
   }
 
+  async update(userId: string, id: string, patch: Record<string, unknown>) {
+    const job = await this.get(id);
+    if (job.ownerId !== userId) throw new ForbiddenException("You can only edit your own job posts.");
+    const allowed = ["title", "category", "city", "company", "locality", "employment", "workMode", "openings", "expMin", "expMax",
+      "salaryMin", "salaryMax", "incentives", "skills", "summary", "responsibilities", "requirements", "status"];
+    const data: Record<string, unknown> = {};
+    for (const k of allowed) if (patch[k] !== undefined) data[k] = patch[k];
+    if (!Object.keys(data).length) return job;
+    for (const k of ["salaryMin", "salaryMax"]) if (k in data) data[k] = data[k] == null ? null : String(data[k]);
+    const [row] = await this.db.update(jobs).set(data as Partial<typeof jobs.$inferInsert>).where(eq(jobs.id, id)).returning();
+    return row;
+  }
+
   async list(q: { city?: string; category?: string; search?: string; cursor?: string; limit?: number }) {
     const limit = Math.min(Math.max(q.limit ?? 20, 1), 50);
     const cur = decodeCursor(q.cursor);
@@ -109,6 +122,7 @@ Use realistic Indian salary ranges. Company: ${company}. City: ${city}. Request:
   async apply(userId: string, jobId: string, input: { note?: string; phone?: string; email?: string; yearsExperience?: number; noticePeriod?: string }) {
     const job = await this.get(jobId);
     if (job.ownerId === userId) throw new ForbiddenException("You can’t apply to your own job post.");
+    if (job.status !== "open") throw new BadRequestException("This job is no longer taking applications.");
     const { score } = await this.fit(userId, jobId);
     try {
       const [row] = await this.db.insert(jobApplications).values({

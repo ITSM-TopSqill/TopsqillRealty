@@ -6,6 +6,7 @@ import { getUser } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { Avatar, TypePill, Verified } from "@/components/ui";
 import { ContactOwner } from "@/components/ContactOwner";
+import { ListingOwnerBar } from "@/components/ListingOwnerBar";
 import { Gallery } from "@/components/Gallery";
 import { inr, sqft, imageUrl, timeAgo } from "@/lib/format";
 import type { Listing } from "@/lib/types";
@@ -37,6 +38,9 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   if (!listing) notFound();
 
   const rent = listing.purpose === "rent";
+  const ownerId = listing.owner?.id ?? listing.ownerId ?? "";
+  const mine = !!user && user.id === ownerId;
+  const status = (listing.status ?? "active") as "active" | "sold" | "archived";
   const rate = listing.priceInr && listing.areaSqft ? Math.round(listing.priceInr / listing.areaSqft) : null;
 
   // Structured data, so Google can show the price and location in results.
@@ -58,6 +62,12 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     <Shell user={user} current="/listings">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
+      {status !== "active" ? (
+        <div className="card pad" role="status" style={{ marginBottom: 12, background: "var(--soft)", fontWeight: 700 }}>
+          {status === "sold" ? (rent ? "🔑 This home has been rented." : "🤝 This property has been sold.") : "This listing is no longer on the market."}
+          {mine ? <span className="small muted" style={{ fontWeight: 400 }}> Only you can still find it from your profile. Relist it below to put it back on the market.</span> : null}
+        </div>
+      ) : null}
       <div className="card" style={{ overflow: "hidden", marginBottom: 16 }}>
         <Gallery media={listing.media ?? (listing.cover ? [listing.cover] : [])} title={listing.title} />
         <div className="pad">
@@ -139,7 +149,9 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
             <div className="small muted">{listing.owner?.headline}</div>
           </div>
         </div>
-        <ContactOwner listingId={listing.id} ownerId={listing.owner?.id ?? listing.ownerId ?? ""} signedIn={!!user} title={listing.title} />
+        {mine
+          ? <ListingOwnerBar id={listing.id} ownerId={ownerId} status={status} rent={rent} />
+          : status === "active" ? <ContactOwner listingId={listing.id} ownerId={ownerId} signedIn={!!user} title={listing.title} /> : null}
       </div>
     </Shell>
   );

@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
+import Link from "next/link";
 import { MediaUploader, type UploadedItem } from "./MediaUploader";
+import { refreshPages } from "@/lib/refresh";
+import type { Listing } from "@/lib/types";
 
 const KINDS = ["Apartment", "Builder floor", "Villa", "Plot", "Office", "Shop"];
 const CITIES = ["Gurgaon", "Noida", "Greater Noida", "Delhi", "Faridabad", "Mumbai", "Pune", "Bengaluru", "Hyderabad"];
@@ -20,12 +23,27 @@ const EMPTY: Form = {
   description: "", amenities: "", usps: "",
 };
 
-/** Add a listing, with an AI assist that fills the form from one sentence. */
-export function NewListingForm({ defaultCity }: { defaultCity: string }) {
+function fromListing(l: Listing): Form {
+  return {
+    title: l.title, purpose: l.purpose, kind: l.kind, bhk: l.bhk != null ? String(l.bhk) : "",
+    areaSqft: l.areaSqft != null ? String(l.areaSqft) : "", priceInr: l.priceInr != null ? String(l.priceInr) : "",
+    city: l.city, locality: l.locality, possession: l.possession ?? "Ready to move", furnishing: l.furnishing ?? "Unfurnished",
+    facing: l.facing ?? "", description: l.description ?? "", amenities: (l.amenities ?? []).join(", "), usps: (l.usps ?? []).join("\n"),
+  };
+}
+
+/**
+ * Add a listing, with an AI assist that fills the form from one sentence.
+ * Given an existing `listing`, the same form edits it instead.
+ */
+export function NewListingForm({ defaultCity, listing }: { defaultCity: string; listing?: Listing }) {
   const router = useRouter();
+  const editing = !!listing;
   const [raw, setRaw] = useState("");
-  const [form, setForm] = useState<Form>({ ...EMPTY, city: defaultCity });
-  const [media, setMedia] = useState<UploadedItem[]>([]);
+  const [form, setForm] = useState<Form>(listing ? fromListing(listing) : { ...EMPTY, city: defaultCity });
+  const [media, setMedia] = useState<UploadedItem[]>(() =>
+    (listing?.media ?? []).map((m) => ({ mediaId: m.id, name: m.label ?? "Photo", progress: 100, status: "ready" as const, media: m })));
+  const cities = CITIES.includes(form.city) || !form.city ? CITIES : [form.city, ...CITIES];
   const [busy, setBusy] = useState<"ai" | "save" | null>(null);
   const [error, setError] = useState("");
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -51,25 +69,30 @@ export function NewListingForm({ defaultCity }: { defaultCity: string }) {
 
   async function save() {
     if (!form.title || !form.city || !form.locality || !form.priceInr) {
-      setError("Add a title, city, locality and price before publishing.");
+      setError(`Add a title, city, locality and price before ${editing ? "saving" : "publishing"}.`);
       return;
     }
     setBusy("save"); setError("");
     try {
-      const created = await clientApi<{ id: string }>("/v1/listings", {
-        method: "POST",
-        body: {
-          title: form.title, purpose: form.purpose, kind: form.kind,
-          bhk: Number(form.bhk) || undefined, areaSqft: Number(form.areaSqft) || undefined,
-          priceInr: Number(form.priceInr), city: form.city, locality: form.locality,
-          possession: form.possession, furnishing: form.furnishing, facing: form.facing || undefined,
-          description: form.description || undefined,
-          amenities: form.amenities.split(",").map((s) => s.trim()).filter(Boolean),
-          usps: form.usps.split("\n").map((s) => s.trim()).filter(Boolean),
-          // Only files that finished processing are attached.
-          mediaIds: media.filter((m) => m.status === "ready").map((m) => m.mediaId),
-        },
-      });
+      const body = {
+        title: form.title, purpose: form.purpose, kind: form.kind,
+        bhk: Number(form.bhk) || undefined, areaSqft: Number(form.areaSqft) || undefined,
+        priceInr: Number(form.priceInr), city: form.city, locality: form.locality,
+        possession: form.possession, furnishing: form.furnishing, facing: form.facing || (editing ? "" : undefined),
+        description: form.description || (editing ? "" : undefined),
+        amenities: form.amenities.split(",").map((s) => s.trim()).filter(Boolean),
+        usps: form.usps.split("\n").map((s) => s.trim()).filter(Boolean),
+        // Only files that finished processing are attached.
+        mediaIds: media.filter((m) => m.status === "ready").map((m) => m.mediaId),
+      };
+      if (listing) {
+        await clientApi(`/v1/listings/${listing.id}`, { method: "PATCH", body });
+        await refreshPages([`/listings/${listing.id}`, "/listings", `/profile/${listing.ownerId}`]);
+        router.push(`/listings/${listing.id}`);
+        router.refresh();
+        return;
+      }
+      const created = await clientApi<{ id: string }>("/v1/listings", { method: "POST", body });
       router.push(`/listings/${created.id}`);
     } catch (e) { setError((e as Error).message); setBusy(null); }
   }
@@ -110,7 +133,7 @@ export function NewListingForm({ defaultCity }: { defaultCity: string }) {
             <input id="price" type="number" value={form.priceInr} onChange={set("priceInr")} placeholder="16500000" />
           </div>
           <div className="field"><label htmlFor="city">City</label>
-            <select id="city" value={form.city} onChange={set("city")}>{CITIES.map((c) => <option key={c}>{c}</option>)}</select>
+            <select id="city" value={form.city} onChange={set("city")}>{cities.map((c) => <option key={c}>{c}</option>)}</select>
           </div>
           <div className="field"><label htmlFor="locality">Locality</label>
             <input id="locality" value={form.locality} onChange={set("locality")} placeholder="Sector 150" />
@@ -139,7 +162,7 @@ export function NewListingForm({ defaultCity }: { defaultCity: string }) {
           </div>
           <div className="field" style={{ gridColumn: "1 / -1" }}>
             <label>Photos and videos</label>
-            <MediaUploader items={media} onChange={setMedia} max={20} />
+            <MediaUploader items={media} onChange={setMedia} max={20} coverFirst />
             {media.some((m) => m.status !== "ready" && m.status !== "failed")
               ? <p className="small muted">Your photos are still processing. You can publish once they are ready.</p>
               : null}
@@ -148,8 +171,9 @@ export function NewListingForm({ defaultCity }: { defaultCity: string }) {
 
         {error ? <p className="error" style={{ marginTop: 12 }}>{error}</p> : null}
         <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
+          {editing ? <Link href={`/listings/${listing!.id}`} className="btn btn-g">Cancel</Link> : null}
           <button className="btn btn-ai" onClick={save} disabled={busy !== null || media.some((m) => m.status === "uploading" || m.status === "processing")}>
-            {busy === "save" ? "Publishing…" : "Publish listing"}
+            {busy === "save" ? (editing ? "Saving…" : "Publishing…") : editing ? "Save changes" : "Publish listing"}
           </button>
         </div>
       </div>

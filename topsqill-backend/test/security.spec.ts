@@ -66,9 +66,11 @@ describe("listing edits", () => {
     const db = {
       select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ ownerId: "u1", publishedAt: new Date() }] }) }) }),
       update: () => ({ set: (d: Record<string, unknown>) => { written = d; return { where: () => ({ returning: async () => [d] }) }; } }),
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(db),
     };
     const cache = { invalidate: async () => {} };
-    const svc = new ListingsService(db as never, db as never, cache as never, {} as never, {} as never);
+    const queue = { add: async () => {} };
+    const svc = new ListingsService(db as never, db as never, cache as never, queue as never, queue as never);
     await svc.update("u1", "l1", {
       title: "New title", priceInr: 9_000_000,
       verified: true, hidden: false, ownerId: "attacker", viewCount: 99999,
@@ -76,6 +78,34 @@ describe("listing edits", () => {
     expect(written.title).toBe("New title");
     expect(written.priceInr).toBe(9_000_000);
     for (const k of ["verified", "hidden", "ownerId", "viewCount"]) expect(written).not.toHaveProperty(k);
+  });
+
+  it("only attaches the owner's own public photos when photos are changed", async () => {
+    const { ListingsService } = await import("../src/listings/listings.service");
+    let attached: { mediaId: string }[] = [];
+    let written: Record<string, unknown> = {};
+    const mediaRows = [
+      { id: "mine", ownerId: "u1", groupName: "listing" },
+      { id: "theirs", ownerId: "u2", groupName: "listing" },
+      { id: "kyc", ownerId: "u1", groupName: "private" },
+    ];
+    let call = 0;
+    const db = {
+      select: () => ({ from: () => ({ where: () => {
+        call++;
+        // First read: the listing itself. Second: the requested media.
+        return call === 1 ? { limit: async () => [{ ownerId: "u1", publishedAt: new Date(), status: "active" }] } : Promise.resolve(mediaRows);
+      } }) }),
+      update: () => ({ set: (d: Record<string, unknown>) => { written = d; return { where: () => ({ returning: async () => [{ ...d, status: "active" }] }) }; } }),
+      delete: () => ({ where: async () => [] }),
+      insert: () => ({ values: async (v: { mediaId: string }[]) => { attached = v; } }),
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(db),
+    };
+    const queue = { add: async () => {} };
+    const svc = new ListingsService(db as never, db as never, { invalidate: async () => {} } as never, queue as never, queue as never);
+    await svc.update("u1", "l1", { mediaIds: ["theirs", "kyc", "mine"] });
+    expect(attached.map((a) => a.mediaId)).toEqual(["mine"]);
+    expect(written.coverMediaId).toBe("mine");
   });
 });
 
@@ -104,7 +134,7 @@ describe("connection requests", () => {
       }),
     };
     const db = { transaction: async (fn: (t: unknown) => Promise<unknown>) => fn(tx) };
-    const svc = new ProfilesService(db as never, db as never, { invalidate: async () => {} } as never, {} as never);
+    const svc = new ProfilesService(db as never, db as never, { invalidate: async () => {} } as never, {} as never, {} as never);
     await expect(svc.respond("u1", "u2", true)).rejects.toThrow(/no pending request/i);
     expect(countsBumped).toBe(false);
   });
@@ -119,7 +149,7 @@ describe("profile saves", () => {
       select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ email: "aman@example.com", emailVerified: true, phone: null }] }) }) }),
       update: () => ({ set: (d: Record<string, unknown>) => { written = d; return { where: async () => [] }; } }),
     };
-    const svc = new ProfilesService(db as never, db as never, { invalidate: async () => {} } as never, {} as never);
+    const svc = new ProfilesService(db as never, db as never, { invalidate: async () => {} } as never, {} as never, {} as never);
     svc.getProfile = (async () => ({})) as never;
     return { svc, written: () => written };
   }

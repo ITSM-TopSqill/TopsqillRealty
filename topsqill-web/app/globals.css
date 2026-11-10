@@ -210,3 +210,7 @@ img{max-width:100%}
 .dpeer b{margin-top:4px}
 @media (max-width:860px){.dock{display:none}}
 @media (min-width:861px){.toasts{bottom:66px}}
+
+/* Small menus (post options) */
+.pmi{display:block;width:100%;text-align:left;padding:8px 10px;border-radius:8px;font-weight:700;font-size:13.5px}
+.pmi:hover{background:var(--soft)}

@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException, BadRequestException } from "@nestjs/common";
+import { Injectable, Inject, NotFoundException, BadRequestException, ForbiddenException } from "@nestjs/common";
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { posts, postLikes, postComments, connections, follows, users, media } from "../db/schema";
@@ -187,6 +187,45 @@ export class FeedService {
     const name = await this.notifs.nameOf(userId);
     await this.notifs.create({ userId: post.authorId, kind: "comment", title: `${name} commented on your post`, body: excerpt(text), actorId: userId, targetType: "post", targetId: postId });
     return { ...row, commentCount };
+  }
+
+  /** The author changes the text of their post. */
+  async editPost(userId: string, postId: string, body: string) {
+    const text = body.trim();
+    if (!text) throw new BadRequestException("A post can’t be empty.");
+    const post = await this.postOrFail(postId);
+    if (post.authorId !== userId) throw new ForbiddenException("You can only edit your own posts.");
+    const [row] = await this.db.update(posts).set({ body: text }).where(eq(posts.id, postId)).returning();
+    return row;
+  }
+
+  /**
+   * The author deletes their post, with its likes and comments. Feeds that still
+   * list its id skip it, because only existing posts are shown.
+   */
+  async deletePost(userId: string, postId: string) {
+    const post = await this.postOrFail(postId);
+    if (post.authorId !== userId) throw new ForbiddenException("You can only delete your own posts.");
+    await this.db.transaction(async (tx) => {
+      await tx.delete(postLikes).where(eq(postLikes.postId, postId));
+      await tx.delete(postComments).where(eq(postComments.postId, postId));
+      await tx.delete(posts).where(eq(posts.id, postId));
+    });
+    await this.cache.redis.zrem(FEED_KEY(userId), postId).catch(() => 0);
+    return { ok: true };
+  }
+
+  /** A comment can be removed by whoever wrote it, or by the author of the post (as on LinkedIn). */
+  async deleteComment(userId: string, postId: string, commentId: string) {
+    const post = await this.postOrFail(postId);
+    const [c] = await this.read.select({ authorId: postComments.authorId }).from(postComments)
+      .where(and(eq(postComments.id, commentId), eq(postComments.postId, postId))).limit(1);
+    if (!c) throw new NotFoundException("That comment is already gone.");
+    if (c.authorId !== userId && post.authorId !== userId) throw new ForbiddenException("You can only delete your own comments.");
+    await this.db.delete(postComments).where(eq(postComments.id, commentId));
+    const [{ commentCount }] = await this.db.update(posts).set({ commentCount: sql`greatest(${posts.commentCount} - 1, 0)` })
+      .where(eq(posts.id, postId)).returning({ commentCount: posts.commentCount });
+    return { ok: true, commentCount };
   }
 
   async comments(postId: string, limit = 20) {

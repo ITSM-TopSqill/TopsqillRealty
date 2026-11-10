@@ -5,17 +5,30 @@ import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
 import { inr } from "@/lib/format";
 import { CITIES, KINDS } from "@/lib/options";
+import { refreshPages } from "@/lib/refresh";
+import type { Requirement } from "@/lib/types";
 
 const TIMELINES = ["Immediately", "Within 1 month", "1 to 3 months", "3 to 6 months", "Just exploring"];
 
 /** "3 BHK in Sector 150 under 1.8 Cr" becomes a requirement that dealers can match. */
-export function RequirementForm({ defaultCity, defaultLocalities }: { defaultCity: string; defaultLocalities: string[] }) {
+export function RequirementForm({ defaultCity, defaultLocalities, requirement }: {
+  defaultCity: string; defaultLocalities: string[];
+  /** Given, the form edits this requirement instead of posting a new one. */
+  requirement?: Requirement;
+}) {
   const router = useRouter();
-  const [f, setF] = useState({
+  const r = requirement;
+  const num = (v?: number | null) => (v != null ? String(v) : "");
+  const [f, setF] = useState(r ? {
+    purpose: r.purpose, kind: r.kind, bhk: num(r.bhk), city: r.city,
+    localities: r.localities.join(", "), minPrice: num(r.minPrice), maxPrice: num(r.maxPrice), minArea: num(r.minArea),
+    timeline: r.timeline ?? "1 to 3 months", needsLoan: !!r.needsLoan, note: r.note ?? "",
+  } : {
     purpose: "sale" as "sale" | "rent", kind: "Apartment", bhk: "3", city: defaultCity,
     localities: defaultLocalities.join(", "), minPrice: "", maxPrice: "", minArea: "",
     timeline: "1 to 3 months", needsLoan: false, note: "",
   });
+  const cities = CITIES.includes(f.city) ? CITIES : [f.city, ...CITIES];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -32,16 +45,21 @@ export function RequirementForm({ defaultCity, defaultLocalities }: { defaultCit
     }
     setBusy(true); setError("");
     try {
-      await clientApi("/v1/requirements", {
-        method: "POST",
-        body: {
-          purpose: f.purpose, kind: f.kind, city: f.city, localities,
-          bhk: Number(f.bhk) || undefined,
-          minPrice: Number(f.minPrice) || undefined, maxPrice: Number(f.maxPrice) || undefined,
-          minArea: Number(f.minArea) || undefined, timeline: f.timeline, needsLoan: f.needsLoan,
-          note: f.note.trim() || undefined,
-        },
-      });
+      // When editing, an emptied field is sent as null so it is cleared.
+      const none = r ? null : undefined;
+      const body = {
+        purpose: f.purpose, kind: f.kind, city: f.city, localities,
+        bhk: Number(f.bhk) || none,
+        minPrice: Number(f.minPrice) || none, maxPrice: Number(f.maxPrice) || none,
+        minArea: Number(f.minArea) || none, timeline: f.timeline, needsLoan: f.needsLoan,
+        note: f.note.trim() || none,
+      };
+      if (r) {
+        await clientApi(`/v1/requirements/${r.id}`, { method: "PATCH", body });
+        await refreshPages(["/requirements"]);
+      } else {
+        await clientApi("/v1/requirements", { method: "POST", body });
+      }
       router.push("/requirements");
       router.refresh();
     } catch (err) { setError((err as Error).message); setBusy(false); }
@@ -62,7 +80,7 @@ export function RequirementForm({ defaultCity, defaultLocalities }: { defaultCit
           </select>
         </div>
         <div className="field"><label htmlFor="city">City</label>
-          <select id="city" value={f.city} onChange={set("city")}>{CITIES.map((c) => <option key={c}>{c}</option>)}</select>
+          <select id="city" value={f.city} onChange={set("city")}>{cities.map((c) => <option key={c}>{c}</option>)}</select>
         </div>
         <div className="field" style={{ gridColumn: "1 / -1" }}><label htmlFor="localities">Localities (comma separated)</label>
           <input id="localities" value={f.localities} onChange={set("localities")} placeholder="Sector 150, Sector 128" />
@@ -91,7 +109,8 @@ export function RequirementForm({ defaultCity, defaultLocalities }: { defaultCit
       </div>
       {error ? <p className="error" style={{ marginTop: 12 }}>{error}</p> : null}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
-        <button className="btn btn-ai" disabled={busy}>{busy ? "Posting…" : "Post requirement"}</button>
+        {r ? <button type="button" className="btn btn-g" onClick={() => router.push("/requirements")}>Cancel</button> : null}
+        <button className="btn btn-ai" disabled={busy}>{busy ? (r ? "Saving…" : "Posting…") : r ? "Save changes" : "Post requirement"}</button>
       </div>
     </form>
   );

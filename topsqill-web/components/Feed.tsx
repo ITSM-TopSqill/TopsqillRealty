@@ -78,6 +78,34 @@ export function PostCard({ post, meId, startOpen = false }: { post: Post; meId: 
   const [showComments, setShowComments] = useState(startOpen);
   const [note, setNote] = useState("");
   const [, startTransition] = useTransition();
+  const mine = !!meId && meId === post.authorId;
+  const [body, setBody] = useState(post.body);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [menu, setMenu] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [gone, setGone] = useState(false);
+
+  async function saveEdit() {
+    const text = (editing ?? "").trim();
+    if (!text) { flash("A post can’t be empty"); return; }
+    setSaving(true);
+    try {
+      await clientApi(`/v1/posts/${post.id}`, { method: "PATCH", body: { body: text } });
+      setBody(text); setEditing(null); flash("Saved");
+    } catch (e) { flash((e as Error).message); }
+    finally { setSaving(false); }
+  }
+
+  async function remove() {
+    setMenu(false);
+    if (!confirm("Delete this post? Its likes and comments are deleted too. This can’t be undone.")) return;
+    try {
+      await clientApi(`/v1/posts/${post.id}`, { method: "DELETE" });
+      setGone(true);
+      if (window.location.pathname.startsWith("/posts/")) router.push("/");
+      else router.refresh();
+    } catch (e) { flash((e as Error).message); }
+  }
 
   function flash(text: string) { setNote(text); setTimeout(() => setNote(""), 2500); }
 
@@ -107,6 +135,7 @@ export function PostCard({ post, meId, startOpen = false }: { post: Post; meId: 
     } catch { /* closed the share sheet */ }
   }
 
+  if (gone) return null;
   const image = post.media?.length ? imageUrl(post.media[0], "large") : null;
   const listingLink = post.kind === "listing" && post.refId ? `/listings/${post.refId}` : null;
 
@@ -124,9 +153,29 @@ export function PostCard({ post, meId, startOpen = false }: { post: Post; meId: 
           </div>
           <Link href={`/posts/${post.id}`} className="small muted">{timeAgo(post.createdAt)}</Link>
         </div>
+        {mine ? (
+          <div style={{ position: "relative" }}>
+            <button className="btn btn-g sm" aria-label="Post options" aria-expanded={menu} onClick={() => setMenu((v) => !v)}>⋯</button>
+            {menu ? (
+              <div className="card" role="menu" style={{ position: "absolute", right: 0, top: 36, zIndex: 5, minWidth: 150, padding: 4 }}>
+                <button role="menuitem" className="pmi" onClick={() => { setMenu(false); setEditing(body); }}>✏️ Edit post</button>
+                <button role="menuitem" className="pmi" style={{ color: "var(--red)" }} onClick={remove}>🗑 Delete post</button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </header>
 
-      <p className="body">{post.body}</p>
+      {editing !== null ? (
+        <div style={{ marginTop: 10 }}>
+          <textarea value={editing} onChange={(e) => setEditing(e.target.value)} rows={4} maxLength={5000} aria-label="Edit your post" autoFocus
+            style={{ width: "100%", border: "1.5px solid var(--line)", borderRadius: 12, padding: 10, background: "var(--card)", font: "inherit" }} />
+          <div className="row" style={{ justifyContent: "flex-end", gap: 6, marginTop: 6 }}>
+            <button className="btn btn-g sm" onClick={() => setEditing(null)} disabled={saving}>Cancel</button>
+            <button className="btn btn-p sm" onClick={saveEdit} disabled={saving || !editing.trim()}>{saving ? "Saving…" : "Save"}</button>
+          </div>
+        </div>
+      ) : <p className="body">{body}</p>}
       {image ? (
         listingLink
           ? <Link href={listingLink}><img src={image} alt="" loading="lazy" style={{ width: "100%", borderRadius: 12, marginTop: 12 }} /></Link>
@@ -147,14 +196,16 @@ export function PostCard({ post, meId, startOpen = false }: { post: Post; meId: 
         <button className="pa" onClick={share}>↗ Share</button>
       </div>
 
-      {showComments ? <Comments postId={post.id} meId={meId} onAdded={() => setComments((n) => n + 1)} /> : null}
+      {showComments ? <Comments postId={post.id} meId={meId} postAuthorId={post.authorId} onCount={(n) => setComments(n)} onAdded={() => setComments((n) => n + 1)} /> : null}
     </article>
   );
 }
 
 type CommentRow = { id: string; body: string; authorId: string; authorName: string; authorType?: string; createdAt: string };
 
-function Comments({ postId, meId, onAdded }: { postId: string; meId: string | null; onAdded: () => void }) {
+function Comments({ postId, meId, postAuthorId, onAdded, onCount }: {
+  postId: string; meId: string | null; postAuthorId: string; onAdded: () => void; onCount: (n: number) => void;
+}) {
   const [items, setItems] = useState<CommentRow[] | null>(null);
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
@@ -181,6 +232,16 @@ function Comments({ postId, meId, onAdded }: { postId: string; meId: string | nu
     finally { setBusy(false); }
   }
 
+  /** Your own comments, and any comment on your own post, can be removed. */
+  async function removeComment(id: string) {
+    if (!confirm("Delete this comment?")) return;
+    try {
+      const res = await clientApi<{ commentCount: number }>(`/v1/posts/${postId}/comments/${id}`, { method: "DELETE" });
+      setItems((xs) => (xs ?? []).filter((c) => c.id !== id));
+      onCount(res.commentCount);
+    } catch (e) { setError((e as Error).message); }
+  }
+
   return (
     <div style={{ borderTop: "1px solid var(--line)", paddingTop: 12, marginTop: 4 }}>
       {meId ? (
@@ -200,6 +261,9 @@ function Comments({ postId, meId, onAdded }: { postId: string; meId: string | nu
             <div style={{ flex: 1, background: "var(--soft)", borderRadius: "0 12px 12px 12px", padding: "8px 12px" }}>
               {c.authorId && c.authorName !== "You" ? <Link href={`/profile/${c.authorId}`} className="small" style={{ fontWeight: 800 }}>{c.authorName}</Link> : <b className="small">{c.authorName}</b>}
               <span className="small muted"> · {timeAgo(c.createdAt)}</span>
+              {meId && (c.authorId === meId || postAuthorId === meId) ? (
+                <button className="linklike small" style={{ marginLeft: 8, color: "var(--ink3)" }} onClick={() => removeComment(c.id)} aria-label="Delete comment">Delete</button>
+              ) : null}
               <div className="small">{c.body}</div>
             </div>
           </div>

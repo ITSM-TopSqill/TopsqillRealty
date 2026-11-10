@@ -16,6 +16,7 @@ export type Listing = {
   coverMediaId?: string | null; cover?: Media | null; media?: Media[];
   owner?: PersonCard | null; ownerId?: string;
   projectSourceId?: string | null; reraNumber?: string | null;
+  status?: "draft" | "pending" | "active" | "sold" | "archived";
 };
 
 export type Paged<T> = { items: T[]; nextCursor: string | null };
@@ -30,6 +31,7 @@ export type Requirement = {
   id: string; purpose: "sale" | "rent"; kind: string; bhk?: number | null;
   city: string; localities: string[]; minPrice?: number | null; maxPrice?: number | null;
   timeline?: string | null; needsLoan?: boolean; matchCount: number; createdAt: string;
+  minArea?: number | null; note?: string | null; status?: "active" | "matched" | "closed";
   userId?: string; userName?: string; userType?: string; userHeadline?: string | null;
 };
 
@@ -57,7 +59,7 @@ export type Job = {
   expMin: number; expMax: number; salaryMin?: string | null; salaryMax?: string | null;
   incentives: boolean; skills: string[]; summary?: string | null;
   responsibilities: string[]; requirements: string[]; applicantCount: number; createdAt: string;
-  ownerId?: string;
+  ownerId?: string; status?: "draft" | "open" | "closed";
 };
 
 export type Notification = {
@@ -69,6 +71,7 @@ export type MyListing = {
   id: string; title: string; status: string; purpose: "sale" | "rent"; kind: string;
   bhk?: number | null; areaSqft?: number | null; priceInr?: number | null;
   city: string; locality: string; viewCount: number; leadCount: number;
+  possession?: string | null; cover?: Media | null; ownerId?: string; publishedAt?: string | null;
 };
 
 export type CampaignPlan = {

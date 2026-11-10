@@ -6,6 +6,7 @@ import { getUser, getToken } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { ApplyPanel } from "@/components/ApplyPanel";
 import { Applicants, type Applicant } from "@/components/Applicants";
+import { JobOwnerActions } from "@/components/JobOwnerActions";
 import { timeAgo } from "@/lib/format";
 import type { Job } from "@/lib/types";
 
@@ -26,6 +27,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const [{ id }, user, token] = await Promise.all([params, getUser(), getToken()]);
   const job = await api<Job>(`/v1/jobs/${id}`, { revalidate: 60 }).catch(() => null);
   if (!job) notFound();
+  const open = (job.status ?? "open") === "open";
   const mine = !!user && job.ownerId === user.id;
   const applicants = mine
     ? await api<{ items: Applicant[] }>(`/v1/jobs/${id}/applicants`, { token }).catch(() => ({ items: [] as Applicant[] }))
@@ -46,6 +48,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     <Shell user={user} current="/jobs">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <div className="card pad" style={{ marginBottom: 16 }}>
+        {!open ? <span className="tag" style={{ marginBottom: 8, display: "inline-block" }}>Closed</span> : null}
         <h1 style={{ fontSize: 26 }}>{job.title}</h1>
         <p style={{ margin: "6px 0" }}><b>{job.company}</b> · {job.locality ? `${job.locality}, ` : ""}{job.city}</p>
         <p className="small muted">Posted {timeAgo(job.createdAt)} · {job.applicantCount} applicants</p>
@@ -55,7 +58,9 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
           <span className="tag">{job.expMin}–{job.expMax} yrs</span>
           {job.incentives ? <span className="tag">Incentives</span> : null}
         </div>
-        {mine ? <p className="small" style={{ margin: 0 }}>This is your job post. Applicants are listed below.</p> : <ApplyPanel jobId={job.id} signedIn={!!user} />}
+        {mine
+          ? <JobOwnerActions id={job.id} open={open} />
+          : open ? <ApplyPanel jobId={job.id} signedIn={!!user} /> : <p className="small muted" style={{ margin: 0 }}>This job is closed and no longer taking applications.</p>}
       </div>
 
       {applicants ? <Applicants items={applicants.items} /> : null}

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Patch } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import { IsIn, IsInt, IsOptional, IsString, IsArray, IsBoolean, MaxLength, Min, Max } from "class-validator";
 import { Type } from "class-transformer";
@@ -28,6 +28,27 @@ class CreateJobDto {
   @IsOptional() @IsString() summary?: string;
   @IsOptional() @IsArray() responsibilities?: string[];
   @IsOptional() @IsArray() requirements?: string[];
+}
+class UpdateJobDto {
+  @IsOptional() @IsString() @MaxLength(120) title?: string;
+  @IsOptional() @IsIn(JOB_CATEGORIES as unknown as string[]) category?: string;
+  @IsOptional() @IsString() city?: string;
+  @IsOptional() @IsString() company?: string;
+  @IsOptional() @IsString() locality?: string | null;
+  @IsOptional() @IsString() employment?: string;
+  @IsOptional() @IsString() workMode?: string;
+  @IsOptional() @IsInt() @Min(1) openings?: number;
+  @IsOptional() @IsInt() @Min(0) expMin?: number;
+  @IsOptional() @IsInt() @Min(0) expMax?: number;
+  @IsOptional() salaryMin?: number | null;
+  @IsOptional() salaryMax?: number | null;
+  @IsOptional() @IsBoolean() incentives?: boolean;
+  @IsOptional() @IsArray() skills?: string[];
+  @IsOptional() @IsString() summary?: string;
+  @IsOptional() @IsArray() responsibilities?: string[];
+  @IsOptional() @IsArray() requirements?: string[];
+  /** Close a filled role (it leaves the jobs board), or reopen it. */
+  @IsOptional() @IsIn(["open", "closed"]) status?: "open" | "closed";
 }
 class ApplyDto {
   @IsOptional() @IsString() @MaxLength(2000) note?: string;
@@ -66,6 +87,9 @@ export class JobsController {
 
   @Post()
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateJobDto) { return this.svc.create(user.id, dto as never); }
+
+  @Patch(":id") @ApiOperation({ summary: "Edit, close or reopen my job post" })
+  update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateJobDto) { return this.svc.update(user.id, id, dto as Record<string, unknown>); }
 
   @Get(":id/fit") @ApiOperation({ summary: "How well I match this role" })
   fit(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.fit(user.id, id); }

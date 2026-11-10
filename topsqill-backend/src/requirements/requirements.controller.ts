@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Delete } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Delete, Patch } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import { IsOptional, IsString, IsInt, IsIn, IsArray, IsBoolean, Min, Max } from "class-validator";
 import { Type } from "class-transformer";
@@ -17,6 +17,21 @@ class CreateRequirementDto {
   @IsOptional() @IsString() timeline?: string;
   @IsOptional() @IsBoolean() needsLoan?: boolean;
   @IsOptional() @IsString() note?: string;
+}
+class UpdateRequirementDto {
+  @IsOptional() @IsIn(["sale", "rent"]) purpose?: "sale" | "rent";
+  @IsOptional() @IsString() city?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) localities?: string[];
+  @IsOptional() @IsString() kind?: string;
+  @IsOptional() @IsInt() @Min(0) @Max(10) bhk?: number | null;
+  @IsOptional() @IsInt() minPrice?: number | null;
+  @IsOptional() @IsInt() maxPrice?: number | null;
+  @IsOptional() @IsInt() minArea?: number | null;
+  @IsOptional() @IsString() timeline?: string;
+  @IsOptional() @IsBoolean() needsLoan?: boolean;
+  @IsOptional() @IsString() note?: string | null;
+  /** Reopen a closed requirement. Closing is DELETE. */
+  @IsOptional() @IsIn(["active", "closed"]) status?: "active" | "closed";
 }
 class ListDto {
   @IsOptional() @IsString() city?: string;
@@ -45,6 +60,9 @@ export class RequirementsController {
 
   @Post(":id/rematch")
   rematch(@Param("id") id: string) { return this.svc.recompute(id); }
+
+  @Patch(":id") @ApiOperation({ summary: "Edit my requirement (matches are found again)" })
+  update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateRequirementDto) { return this.svc.update(user.id, id, dto as Record<string, unknown>); }
 
   @Delete(":id")
   close(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.close(user.id, id); }

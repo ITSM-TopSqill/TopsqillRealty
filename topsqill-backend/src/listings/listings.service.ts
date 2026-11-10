@@ -136,20 +136,35 @@ export class ListingsService {
       kind: listings.kind, bhk: listings.bhk, areaSqft: listings.areaSqft, priceInr: listings.priceInr,
       city: listings.city, locality: listings.locality, publishedAt: listings.publishedAt,
       viewCount: listings.viewCount, leadCount: listings.leadCount,
+      possession: listings.possession, coverMediaId: listings.coverMediaId, ownerId: listings.ownerId,
     }).from(listings).where(eq(listings.ownerId, userId)).orderBy(desc(listings.createdAt)).limit(100);
-    return { items: rows };
+    const covers = await this.coversFor(rows.map((r) => r.coverMediaId).filter(Boolean) as string[]);
+    return { items: rows.map((r) => ({ ...r, cover: r.coverMediaId ? covers.get(r.coverMediaId) ?? null : null })) };
+  }
+
+  /** Everything the edit screen needs, in any state. Only for the owner. */
+  async forEdit(userId: string, id: string) {
+    const [row] = await this.read.select().from(listings).where(eq(listings.id, id)).limit(1);
+    if (!row) throw new NotFoundException("That listing is no longer available.");
+    if (row.ownerId !== userId) throw new ForbiddenException("You can only edit your own listings.");
+    const mediaRows = await this.read.select({ m: media }).from(listingMedia)
+      .innerJoin(media, eq(media.id, listingMedia.mediaId))
+      .where(eq(listingMedia.listingId, id)).orderBy(listingMedia.position);
+    return { ...row, media: mediaRows.map((r) => this.mediaSvc.publicView(r.m)) };
+  }
+
+  /** Only the member's own, public photos and videos: never someone else's files, and never a private document. */
+  private async ownMedia(userId: string, requested: string[]) {
+    if (!requested.length) return [];
+    const owned = await this.read.select({ id: media.id, ownerId: media.ownerId, groupName: media.groupName }).from(media).where(inArray(media.id, requested));
+    const allowed = new Set(owned.filter((m) => m.ownerId === userId && m.groupName !== "private").map((m) => m.id));
+    return [...new Set(requested.filter((m) => allowed.has(m)))];
   }
 
   async create(userId: string, input: Partial<typeof listings.$inferInsert> & { mediaIds?: string[] }) {
     const id = newId();
     const { mediaIds: requested = [], ...rest } = input;
-    // Only the member's own, public photos and videos: never someone else's
-    // files, and never a private verification document.
-    const owned = requested.length
-      ? await this.read.select({ id: media.id, ownerId: media.ownerId, groupName: media.groupName }).from(media).where(inArray(media.id, requested))
-      : [];
-    const allowed = new Set(owned.filter((m) => m.ownerId === userId && m.groupName !== "private").map((m) => m.id));
-    const mediaIds = requested.filter((m) => allowed.has(m));
+    const mediaIds = await this.ownMedia(userId, requested);
     const row = await this.db.transaction(async (tx) => {
       const [created] = await tx.insert(listings).values({
         ...rest, id, ownerId: userId,
@@ -168,8 +183,8 @@ export class ListingsService {
     return row;
   }
 
-  async update(userId: string, id: string, patch: ListingPatch) {
-    const [existing] = await this.db.select({ ownerId: listings.ownerId, publishedAt: listings.publishedAt })
+  async update(userId: string, id: string, patch: ListingPatch & { mediaIds?: string[] }) {
+    const [existing] = await this.db.select({ ownerId: listings.ownerId, publishedAt: listings.publishedAt, status: listings.status })
       .from(listings).where(eq(listings.id, id)).limit(1);
     if (!existing) throw new NotFoundException("That listing is no longer available.");
     if (existing.ownerId !== userId) throw new ForbiddenException("You can only edit your own listings.");
@@ -181,8 +196,24 @@ export class ListingsService {
     if (data.status === "active" && !existing.publishedAt) data.publishedAt = new Date();
     data.updatedAt = new Date();
 
-    const [row] = await this.db.update(listings).set(data as Partial<typeof listings.$inferInsert>).where(eq(listings.id, id)).returning();
+    // Photos: the list sent replaces the old one, in that order; the first is the cover.
+    const mediaIds = patch.mediaIds ? await this.ownMedia(userId, patch.mediaIds) : null;
+    if (mediaIds) data.coverMediaId = mediaIds[0] ?? null;
+
+    const row = await this.db.transaction(async (tx) => {
+      const [updated] = await tx.update(listings).set(data as Partial<typeof listings.$inferInsert>).where(eq(listings.id, id)).returning();
+      if (mediaIds) {
+        await tx.delete(listingMedia).where(eq(listingMedia.listingId, id));
+        if (mediaIds.length) await tx.insert(listingMedia).values(mediaIds.map((mediaId, position) => ({ listingId: id, mediaId, position })));
+      }
+      return updated;
+    });
     await this.cache.invalidate(`listing:${id}`);
+    // A live listing whose price, place or size changed may now suit different buyers.
+    const rematch = ["priceInr", "city", "locality", "bhk", "areaSqft", "purpose", "kind", "possession"].some((k) => k in data);
+    if (row.status === "active" && (rematch || existing.status !== "active")) {
+      await this.queue.add(QUEUES.ai, "match:listing", { listingId: id }, `matchl-${id}-${Date.now()}`);
+    }
     return row;
   }
 

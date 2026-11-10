@@ -4,6 +4,7 @@ import { getUser, getToken } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { Avatar, TypePill, Empty } from "@/components/ui";
 import { MatchesButton } from "@/components/MatchesButton";
+import { RequirementActions } from "@/components/RequirementActions";
 import { inr, timeAgo } from "@/lib/format";
 import type { Paged, Requirement } from "@/lib/types";
 
@@ -17,6 +18,10 @@ export default async function RequirementsPage({ searchParams }: { searchParams:
   const [{ city }, user, token] = await Promise.all([searchParams, getUser(), getToken()]);
   const list = await api<Paged<Requirement>>(`/v1/requirements?limit=30${city ? `&city=${encodeURIComponent(city)}` : ""}`, { revalidate: 30 })
     .catch(() => ({ items: [], nextCursor: null }));
+  // Your own requirements, open and closed, so you can edit, close or reopen them.
+  const mine = user
+    ? await api<{ items: Requirement[] }>("/v1/requirements/mine", { token }).catch(() => ({ items: [] as Requirement[] }))
+    : { items: [] as Requirement[] };
 
   const cities = ["Gurgaon", "Noida", "Delhi", "Mumbai", "Pune", "Bengaluru", "Hyderabad"];
 
@@ -30,6 +35,26 @@ export default async function RequirementsPage({ searchParams }: { searchParams:
         </p>
         <Link href="/requirements/new" className="btn" style={{ background: "#fff", color: "#1F1D33" }}>+ Post a requirement</Link>
       </div>
+
+      {mine.items.length ? (
+        <section className="card pad" style={{ marginBottom: 16 }}>
+          <h2 style={{ fontSize: 18, marginBottom: 8 }}>Your requirements</h2>
+          <div className="col" style={{ gap: 0 }}>
+            {mine.items.map((r) => (
+              <div key={r.id} className="spread" style={{ padding: "10px 0", borderTop: "1px solid var(--line)", gap: 10, flexWrap: "wrap", opacity: r.status === "closed" ? 0.65 : 1 }}>
+                <div style={{ minWidth: 0 }}>
+                  <b>{r.bhk ? `${r.bhk} BHK ` : ""}{r.kind.toLowerCase()} to {r.purpose === "rent" ? "rent" : "buy"} in {r.city}</b>
+                  <div className="small muted">
+                    {r.localities.join(", ")} · {inr(r.minPrice, r.purpose === "rent")} to {inr(r.maxPrice, r.purpose === "rent")}
+                    {r.status === "closed" ? " · closed" : ` · ${r.matchCount} matches`}
+                  </div>
+                </div>
+                <RequirementActions id={r.id} closed={r.status === "closed"} />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <div className="row" style={{ flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
         <Link href="/requirements" className={`chip ${!city ? "on" : ""}`}>All cities</Link>
@@ -68,7 +93,10 @@ export default async function RequirementsPage({ searchParams }: { searchParams:
                 </div>
                 <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                   <span className="small muted">{r.matchCount} matching listings</span>
-                  <MatchesButton requirementId={r.id} />
+                  <span className="row" style={{ gap: 6 }}>
+                    {user && r.userId === user.id ? <RequirementActions id={r.id} /> : null}
+                    <MatchesButton requirementId={r.id} />
+                  </span>
                 </div>
               </div>
             </article>

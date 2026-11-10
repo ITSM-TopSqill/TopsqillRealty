@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import { IsOptional, IsString, IsArray, IsIn, MaxLength, IsInt, Min, Max } from "class-validator";
 import { Type } from "class-transformer";
@@ -11,6 +11,7 @@ class CreatePostDto {
   @IsOptional() @IsString() refId?: string;
   @IsOptional() @IsArray() mediaIds?: string[];
 }
+class EditPostDto { @IsString() @MaxLength(5000) body: string; }
 class CommentDto { @IsString() @MaxLength(1000) body: string; }
 class FeedQueryDto {
   @IsOptional() @IsString() cursor?: string;
@@ -29,6 +30,17 @@ export class FeedController {
 
   @Post("posts")
   create(@CurrentUser() user: AuthUser, @Body() dto: CreatePostDto) { return this.svc.createPost(user.id, dto); }
+
+  @Patch("posts/:id")
+  edit(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: EditPostDto) { return this.svc.editPost(user.id, id, dto.body); }
+
+  @Delete("posts/:id")
+  remove(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.deletePost(user.id, id); }
+
+  @Delete("posts/:id/comments/:commentId")
+  removeComment(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("commentId") commentId: string) {
+    return this.svc.deleteComment(user.id, id, commentId);
+  }
 
   @Post("posts/:id/like")
   like(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.like(user.id, id, true); }

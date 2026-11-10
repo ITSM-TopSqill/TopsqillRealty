@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException } from "@nestjs/common";
+import { Injectable, Inject, NotFoundException, BadRequestException } from "@nestjs/common";
 import { and, desc, eq, gte, lte, sql, lt, or } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { requirements, requirementMatches, listings, users } from "../db/schema";
@@ -127,6 +127,19 @@ export class RequirementsService {
       for (const h of hits) await this.cache.invalidate(`matches:${h.requirementId}`);
     }
     return { matched: hits.length };
+  }
+
+  /** Owner edits. Matches are worked out again straight away, since the budget or place may have changed. */
+  async update(userId: string, id: string, patch: Record<string, unknown>) {
+    const allowed = ["purpose", "city", "localities", "kind", "bhk", "minPrice", "maxPrice", "minArea", "timeline", "needsLoan", "note", "status"];
+    const data: Record<string, unknown> = { updatedAt: new Date() };
+    for (const k of allowed) if (patch[k] !== undefined) data[k] = patch[k];
+    if (Array.isArray(data.localities) && !(data.localities as string[]).length) throw new BadRequestException("Add at least one locality.");
+    const [row] = await this.db.update(requirements).set(data as Partial<typeof requirements.$inferInsert>)
+      .where(and(eq(requirements.id, id), eq(requirements.userId, userId))).returning();
+    if (!row) throw new NotFoundException("That requirement could not be found.");
+    const { matched } = await this.recompute(id);
+    return { ...row, matchCount: matched };
   }
 
   async close(userId: string, id: string) {

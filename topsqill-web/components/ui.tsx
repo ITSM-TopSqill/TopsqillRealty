@@ -37,8 +37,8 @@ export function ListingCard({ listing }: { listing: Listing }) {
         {url
           ? <img src={url} alt={listing.title} loading="lazy" />
           : <div style={{ width: "100%", height: "100%", background: "var(--brand)", opacity: 0.15 }} />}
-        <span className="pill" style={{ position: "absolute", left: 12, top: 12, background: "rgba(255,255,255,.94)", color: "#1F1D33" }}>
-          {rent ? "For rent" : "For sale"}
+        <span className="pill" style={{ position: "absolute", left: 12, top: 12, background: listing.status && listing.status !== "active" ? "#1F1D33" : "rgba(255,255,255,.94)", color: listing.status && listing.status !== "active" ? "#fff" : "#1F1D33" }}>
+          {listing.status === "sold" ? (rent ? "Rented" : "Sold") : listing.status === "archived" ? "Unlisted" : listing.status === "draft" ? "Draft" : rent ? "For rent" : "For sale"}
         </span>
       </div>
       <div className="lb">

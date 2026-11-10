@@ -37,9 +37,13 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
   const profile = await api<Profile>(`/v1/profiles/${id}`, token ? { token } : { revalidate: 60 }).catch(() => null);
   if (!profile) notFound();
 
-  // Only this member's listings (the API filters by owner).
-  const listings = await api<Paged<Listing>>(`/v1/listings?ownerId=${encodeURIComponent(id)}&limit=24`, { revalidate: 30 })
-    .catch(() => ({ items: [], nextCursor: null }));
+  // Only this member's listings (the API filters by owner). On your own
+  // profile, sold and unlisted ones are shown too, so you can edit or relist them.
+  const own = !!user && user.id === id;
+  const listings = own
+    ? await api<{ items: Listing[] }>("/v1/listings/mine", { token }).catch(() => ({ items: [] as Listing[] }))
+    : await api<Paged<Listing>>(`/v1/listings?ownerId=${encodeURIComponent(id)}&limit=24`, { revalidate: 30 })
+      .catch(() => ({ items: [], nextCursor: null }));
 
   const cover = imageUrl(profile.cover, "large");
   const isMe = profile.relation === "self";

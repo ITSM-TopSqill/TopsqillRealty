@@ -16,8 +16,10 @@ export type UploadedItem = { mediaId: string; name: string; progress: number; st
 
 const MAX = { image: 25e6, video: 500e6, document: 25e6 } as const;
 
-export function MediaUploader({ items, onChange, max = 20, accept = "image/*,video/*,application/pdf", privateFiles = false, title, hint }: {
+export function MediaUploader({ items, onChange, max = 20, accept = "image/*,video/*,application/pdf", privateFiles = false, title, hint, coverFirst = false }: {
   items: UploadedItem[]; onChange: (items: UploadedItem[]) => void; max?: number; accept?: string;
+  /** The first photo is the cover: it is marked, and any other can be made the cover. */
+  coverFirst?: boolean;
   /** Documents for verification: stored privately, never published. */
   privateFiles?: boolean; title?: string; hint?: string;
 }) {
@@ -120,7 +122,7 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
 
       {items.length ? (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(120px,1fr))", gap: 10, marginTop: 12 }}>
-          {items.map((it) => (
+          {items.map((it, i) => (
             <figure key={it.mediaId} style={{ margin: 0, position: "relative", borderRadius: 12, overflow: "hidden", background: "var(--chip)", aspectRatio: "4/3" }}>
               {(it.previewUrl || imageUrl(it.media, "thumb")) ? (
                 <img src={imageUrl(it.media, "thumb") ?? it.previewUrl} alt={it.name}
@@ -140,6 +142,16 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
                 <figcaption style={{ position: "absolute", inset: "auto 0 0 0", background: "rgba(20,16,40,.6)", color: "#fff", fontSize: 11, padding: "4px 6px" }}>
                   {it.media.label}
                 </figcaption>
+              ) : null}
+
+              {coverFirst && items.length > 1 ? (
+                i === 0
+                  ? <span style={{ position: "absolute", top: 4, left: 4, background: "var(--vio)", color: "#fff", fontSize: 10.5, fontWeight: 800, borderRadius: 6, padding: "2px 6px" }}>Cover</span>
+                  : <button type="button" aria-label={`Make ${it.name} the cover photo`}
+                      onClick={() => commit([it, ...latest.current.filter((x) => x.mediaId !== it.mediaId)])}
+                      style={{ position: "absolute", top: 4, left: 4, background: "rgba(255,255,255,.92)", fontSize: 10.5, fontWeight: 800, borderRadius: 6, padding: "2px 6px" }}>
+                      Make cover
+                    </button>
               ) : null}
 
               <button type="button" aria-label={`Remove ${it.name}`}

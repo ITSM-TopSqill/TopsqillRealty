@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
 import { CITIES, JOB_CATEGORIES } from "@/lib/options";
+import { refreshPages } from "@/lib/refresh";
+import type { Job } from "@/lib/types";
 
 type Draft = {
   title: string; category: string; employment: string; workMode: string; openings: number;
@@ -14,14 +16,25 @@ type Draft = {
 const lines = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
 
 /** One line in, a complete job post out, editable before it goes live. */
-export function JobForm({ defaultCity, defaultCompany }: { defaultCity: string; defaultCompany: string }) {
+export function JobForm({ defaultCity, defaultCompany, job }: {
+  defaultCity: string; defaultCompany: string;
+  /** Given, the form edits this job post instead of writing a new one. */
+  job?: Job;
+}) {
   const router = useRouter();
   const [request, setRequest] = useState("");
-  const [company, setCompany] = useState(defaultCompany);
-  const [city, setCity] = useState(defaultCity);
-  const [locality, setLocality] = useState("");
-  const [d, setD] = useState<Draft | null>(null);
-  const [text, setText] = useState({ skills: "", responsibilities: "", requirements: "" });
+  const [company, setCompany] = useState(job?.company ?? defaultCompany);
+  const [city, setCity] = useState(job?.city ?? defaultCity);
+  const [locality, setLocality] = useState(job?.locality ?? "");
+  const [d, setD] = useState<Draft | null>(job ? {
+    title: job.title, category: job.category, employment: job.employment, workMode: job.workMode, openings: job.openings,
+    expMin: job.expMin, expMax: job.expMax, salaryMin: Number(job.salaryMin) || 0, salaryMax: Number(job.salaryMax) || 0,
+    incentives: job.incentives, skills: job.skills, summary: job.summary ?? "", responsibilities: job.responsibilities, requirements: job.requirements,
+  } : null);
+  const [text, setText] = useState(job
+    ? { skills: job.skills.join(", "), responsibilities: job.responsibilities.join("\n"), requirements: job.requirements.join("\n") }
+    : { skills: "", responsibilities: "", requirements: "" });
+  const cities = CITIES.includes(city) ? CITIES : [city, ...CITIES];
   const [busy, setBusy] = useState<"ai" | "save" | null>(null);
   const [error, setError] = useState("");
 
@@ -44,43 +57,55 @@ export function JobForm({ defaultCity, defaultCompany }: { defaultCity: string; 
     if (!d.title.trim()) { setError("Add a job title."); return; }
     setBusy("save"); setError("");
     try {
-      const job = await clientApi<{ id: string }>("/v1/jobs", {
-        method: "POST",
-        body: {
-          ...d, company, city, locality: locality || undefined,
-          openings: Number(d.openings) || 1, expMin: Number(d.expMin) || 0, expMax: Number(d.expMax) || 0,
-          salaryMin: Number(d.salaryMin) || undefined, salaryMax: Number(d.salaryMax) || undefined,
-          skills: text.skills.split(",").map((s) => s.trim()).filter(Boolean),
-          responsibilities: lines(text.responsibilities), requirements: lines(text.requirements),
-        },
-      });
-      router.push(`/jobs/${job.id}`);
+      const none = job ? null : undefined;
+      const body = {
+        ...d, company, city, locality: locality || none,
+        openings: Number(d.openings) || 1, expMin: Number(d.expMin) || 0, expMax: Number(d.expMax) || 0,
+        salaryMin: Number(d.salaryMin) || none, salaryMax: Number(d.salaryMax) || none,
+        skills: text.skills.split(",").map((s) => s.trim()).filter(Boolean),
+        responsibilities: lines(text.responsibilities), requirements: lines(text.requirements),
+      };
+      if (job) {
+        await clientApi(`/v1/jobs/${job.id}`, { method: "PATCH", body });
+        await refreshPages([`/jobs/${job.id}`, "/jobs"]);
+        router.push(`/jobs/${job.id}`);
+        router.refresh();
+        return;
+      }
+      const created = await clientApi<{ id: string }>("/v1/jobs", { method: "POST", body });
+      router.push(`/jobs/${created.id}`);
     } catch (e) { setError((e as Error).message); setBusy(null); }
   }
 
   return (
     <div className="col">
-      <div className="card pad" style={{ border: "2px solid var(--vio)" }}>
-        <h2 style={{ fontSize: 17, marginBottom: 4 }}>✨ Who are you hiring?</h2>
-        <p className="small muted" style={{ marginBottom: 10 }}>
-          For example: “Need 2 sales managers with 4+ years in luxury residential, 8 to 12 LPA plus incentives”.
-        </p>
-        <textarea rows={2} value={request} onChange={(e) => setRequest(e.target.value)} maxLength={600}
-          style={{ width: "100%", border: "1.5px solid var(--line)", borderRadius: 12, padding: 10, background: "var(--card)" }} />
+      <div className="card pad" style={job ? undefined : { border: "2px solid var(--vio)" }}>
+        {job ? <h2 style={{ fontSize: 17, marginBottom: 4 }}>Company and location</h2> : (
+          <>
+            <h2 style={{ fontSize: 17, marginBottom: 4 }}>✨ Who are you hiring?</h2>
+            <p className="small muted" style={{ marginBottom: 10 }}>
+              For example: “Need 2 sales managers with 4+ years in luxury residential, 8 to 12 LPA plus incentives”.
+            </p>
+            <textarea rows={2} value={request} onChange={(e) => setRequest(e.target.value)} maxLength={600}
+              style={{ width: "100%", border: "1.5px solid var(--line)", borderRadius: 12, padding: 10, background: "var(--card)" }} />
+          </>
+        )}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 12, marginTop: 10 }}>
           <div className="field"><label htmlFor="company">Company</label>
             <input id="company" value={company} onChange={(e) => setCompany(e.target.value)} />
           </div>
           <div className="field"><label htmlFor="city">City</label>
-            <select id="city" value={city} onChange={(e) => setCity(e.target.value)}>{CITIES.map((c) => <option key={c}>{c}</option>)}</select>
+            <select id="city" value={city} onChange={(e) => setCity(e.target.value)}>{cities.map((c) => <option key={c}>{c}</option>)}</select>
           </div>
           <div className="field"><label htmlFor="locality">Office locality</label>
             <input id="locality" value={locality} onChange={(e) => setLocality(e.target.value)} placeholder="Golf Course Road" />
           </div>
         </div>
-        <button className="btn btn-ai sm" style={{ marginTop: 12 }} onClick={draft} disabled={busy !== null}>
-          {busy === "ai" ? "Writing…" : d ? "Write it again" : "Write the job post"}
-        </button>
+        {job ? null : (
+          <button className="btn btn-ai sm" style={{ marginTop: 12 }} onClick={draft} disabled={busy !== null}>
+            {busy === "ai" ? "Writing…" : d ? "Write it again" : "Write the job post"}
+          </button>
+        )}
         {!d && error ? <p className="error" style={{ marginTop: 10 }}>{error}</p> : null}
       </div>
 
@@ -138,7 +163,10 @@ export function JobForm({ defaultCity, defaultCompany }: { defaultCity: string; 
           </div>
           {error ? <p className="error" style={{ marginTop: 12 }}>{error}</p> : null}
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
-            <button className="btn btn-ai" onClick={publish} disabled={busy !== null}>{busy === "save" ? "Publishing…" : "Publish job"}</button>
+            {job ? <button className="btn btn-g" onClick={() => router.push(`/jobs/${job.id}`)}>Cancel</button> : null}
+            <button className="btn btn-ai" onClick={publish} disabled={busy !== null}>
+              {busy === "save" ? (job ? "Saving…" : "Publishing…") : job ? "Save changes" : "Publish job"}
+            </button>
           </div>
         </div>
       ) : null}

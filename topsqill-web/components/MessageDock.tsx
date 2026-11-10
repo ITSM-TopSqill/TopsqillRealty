@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { clientApi } from "@/lib/api";
+import { clientApi, ApiException } from "@/lib/api";
 import { Avatar } from "./ui";
 import { timeAgo } from "@/lib/format";
 import { refreshCounts, useLiveCount } from "./Live";
@@ -188,6 +188,9 @@ function ChatWindow({ win, me, convo }: { win: Win; me: string; convo: Conversat
         });
         if (incoming || first) markRead();
       } catch (e) {
+        // A chat that no longer exists (or is not yours) closes itself rather
+        // than sitting on the bar as an error after every page load.
+        if (first && e instanceof ApiException && (e.status === 404 || e.status === 403)) { closeChat(win.id); return; }
         if (first && alive) setError((e as Error).message || "Could not load this chat.");
       }
     };

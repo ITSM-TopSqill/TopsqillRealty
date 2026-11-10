@@ -59,6 +59,8 @@ class UpdateListingDto {
   @IsOptional() @IsArray() amenities?: string[];
   @IsOptional() @IsArray() usps?: string[];
   @IsOptional() @IsIn(["active", "sold", "archived"]) status?: "active" | "sold" | "archived";
+  /** The full photo list, in order; replaces the old one. The first is the cover. */
+  @IsOptional() @IsArray() @IsString({ each: true }) mediaIds?: string[];
 }
 
 @ApiTags("listings")
@@ -74,6 +76,9 @@ export class ListingsController {
   /** My own listings, in every state, for the campaign studio and my profile tools. */
   @Get("mine")
   mine(@CurrentUser() user: AuthUser) { return this.svc.mine(user.id); }
+
+  @Get(":id/edit") @ApiOperation({ summary: "My listing, with everything the edit screen needs" })
+  forEdit(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.forEdit(user.id, id); }
 
   @Public() @Get(":id") @Header("cache-control", "public, max-age=30, s-maxage=60, stale-while-revalidate=300")
   getOne(@Param("id") id: string) { return this.svc.getById(id); }
