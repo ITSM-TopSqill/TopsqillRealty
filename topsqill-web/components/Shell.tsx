@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Avatar } from "./ui";
 import type { SessionUser } from "@/lib/session";
 import { LiveBadge, LiveAlerts } from "./Live";
+import { Suspense } from "react";
+import { SearchBox } from "./SearchBox";
 
 const TABS = [
   { href: "/", label: "Home", icon: "🏠" },
@@ -32,10 +34,7 @@ export function Shell({ user, current, unread, children }: {
             <span className="logo-word">Topsqill.ai</span>
           </Link>
 
-          <form action="/listings" style={{ flex: 1, maxWidth: 320 }}>
-            <input name="q" placeholder="Search listings, people, localities" aria-label="Search"
-              style={{ width: "100%", height: 38, borderRadius: 999, border: "1.5px solid var(--line)", background: "var(--soft)", padding: "0 16px" }} />
-          </form>
+          <Suspense fallback={<div className="searchbox" />}><SearchBox /></Suspense>
 
           <nav className="tabs">
             {TABS.map((t) => {
