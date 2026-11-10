@@ -167,15 +167,46 @@ export class ProfilesService {
     return { ok: true, status: accept ? "connected" : "ignored" };
   }
 
-  async listConnections(userId: string, status: "accepted" | "pending" = "accepted", limit = 30) {
+  /**
+   * "accepted": my connections. "pending": invitations waiting for my answer.
+   * "sent": invitations I sent that are not answered yet. Each request is
+   * stored on both sides, so the direction comes from who requested it;
+   * without that, invitations I sent showed up as if I had to accept them.
+   */
+  async listConnections(userId: string, status: "accepted" | "pending" | "sent" = "accepted", limit = 30) {
+    const where = status === "accepted"
+      ? and(eq(connections.userId, userId), eq(connections.status, "accepted"))
+      : and(eq(connections.userId, userId), eq(connections.status, "pending"),
+          status === "sent" ? eq(connections.requestedBy, userId) : sql`${connections.requestedBy} <> ${userId}`);
     const rows = await this.read.select({
       id: users.id, name: users.name, type: users.type, headline: users.headline,
       city: users.city, avatarMediaId: users.avatarMediaId, kycVerified: users.kycVerified,
     }).from(connections)
       .innerJoin(users, eq(users.id, connections.peerId))
-      .where(and(eq(connections.userId, userId), eq(connections.status, status), eq(users.status, "active")))
+      .where(and(where, eq(users.status, "active")))
       .orderBy(desc(connections.createdAt))
       .limit(Math.min(limit, 100));
+    return { items: rows };
+  }
+
+  /**
+   * People you may know: active members I have no connection or request with,
+   * ranked by shared connections, then same city and type of work, then how
+   * established they are.
+   */
+  async suggestions(userId: string, limit = 12) {
+    const [me] = await this.read.select({ city: users.city }).from(users).where(eq(users.id, userId)).limit(1);
+    const res = await this.read.execute(sql`
+      with mine as (select peer_id from connections where user_id = ${userId} and status = 'accepted')
+      select u.id, u.name, u.type, u.headline, u.city, u.avatar_media_id as "avatarMediaId",
+             u.kyc_verified as "kycVerified", u.rera_verified as "reraVerified",
+             (select count(*)::int from connections c where c.user_id = u.id and c.status = 'accepted' and c.peer_id in (select peer_id from mine)) as mutual
+      from users u
+      where u.status = 'active' and u.id <> ${userId}
+        and not exists (select 1 from connections c where c.user_id = ${userId} and c.peer_id = u.id)
+      order by mutual desc, (u.city is not distinct from ${me?.city ?? null}) desc, u.connection_count desc, u.created_at desc
+      limit ${Math.min(limit, 50)}`);
+    const rows = (Array.isArray(res) ? res : (res as { rows: unknown[] }).rows) as Record<string, unknown>[];
     return { items: rows };
   }
 }

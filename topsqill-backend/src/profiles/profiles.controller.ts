@@ -43,7 +43,10 @@ export class ProfilesController {
   ignore(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.respond(user.id, id, false); }
 
   @Get("connections")
-  list(@CurrentUser() user: AuthUser, @Query("status") status?: "accepted" | "pending") {
-    return this.svc.listConnections(user.id, status === "pending" ? "pending" : "accepted");
+  list(@CurrentUser() user: AuthUser, @Query("status") status?: string, @Query("limit") limit?: string) {
+    return this.svc.listConnections(user.id, status === "pending" || status === "sent" ? status : "accepted", Math.min(Math.max(Number(limit) || 30, 1), 100));
   }
+
+  @Get("connections/suggestions") @ApiOperation({ summary: "People you may know" })
+  suggestions(@CurrentUser() user: AuthUser) { return this.svc.suggestions(user.id); }
 }
