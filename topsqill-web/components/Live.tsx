@@ -71,6 +71,11 @@ export function LiveBadge({ kind, initial }: { kind: keyof Counts; initial?: num
   return <span className="badge-dot">{value > 9 ? "9+" : value}</span>;
 }
 
+/** The live count as a hook, for components that react to new messages or alerts. */
+export function useLiveCount(kind: keyof Counts) {
+  return useSyncExternalStore(subscribe, () => counts?.[kind] ?? 0, () => 0);
+}
+
 /** Runs the poll and shows pop-ups. Rendered once, by the page frame, for signed-in members. */
 export function LiveAlerts() {
   const pathname = usePathname();

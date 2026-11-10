@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
+import { openChat } from "./MessageDock";
 import { refreshCounts } from "./Live";
 
 export type Relation = "self" | "connected" | "pending" | "incoming" | "none";
@@ -39,7 +40,7 @@ export function ConnectButton({ peerId, relation, signedIn, compact = false }: {
     setBusy("message"); setError("");
     try {
       const convo = await clientApi<{ id: string }>(`/v1/conversations/with/${peerId}`, { method: "POST" });
-      router.push(`/messages?c=${convo.id}`);
+      if (openChat(convo.id)) setBusy(null); else router.push(`/messages?c=${convo.id}`);
     } catch (e) { setError((e as Error).message); setBusy(null); }
   }
 

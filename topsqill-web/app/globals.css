@@ -180,3 +180,33 @@ img{max-width:100%}
 .sr-text small{font-size:12px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sr-all{justify-content:center;font-weight:800;color:var(--vio);border-top:1px solid var(--line);border-radius:0 0 10px 10px;margin-top:4px}
 .sr-note{padding:12px;color:var(--ink2);font-size:13px}
+
+/* Messaging bar, bottom right (desktop) */
+.ell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dock{position:fixed;right:20px;bottom:0;z-index:70;display:flex;flex-direction:row-reverse;align-items:flex-end;gap:12px;pointer-events:none}
+.dock>*{pointer-events:auto}
+.dpanel{width:300px;background:var(--card);border:1px solid var(--line);border-bottom:0;border-radius:12px 12px 0 0;
+  box-shadow:0 -2px 24px -10px rgba(31,29,51,.35);display:flex;flex-direction:column;overflow:hidden}
+.dpanel.open{height:min(560px,calc(100vh - 90px))}
+.dwin{width:330px}
+.dwin.open{height:min(450px,calc(100vh - 90px))}
+.dhead{display:flex;align-items:center;gap:8px;padding:8px 8px 8px 12px;min-height:50px;cursor:pointer;user-select:none;flex:none}
+.dhead>b{flex:1;min-width:0;font-size:14px}
+.dhead b{font-size:14px}
+.dhead:hover{background:var(--soft)}
+.open>.dhead{border-bottom:1px solid var(--line)}
+.dbtn{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--ink2);font-size:17px;flex:none;text-decoration:none}
+.dbtn:hover{background:var(--chip);color:var(--ink)}
+.dcount{min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--red);color:#fff;font-size:11px;font-weight:800;display:grid;place-items:center;flex:none}
+.donline{position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;border-radius:50%;background:var(--grn);border:2px solid var(--card)}
+.dsearch{width:100%;height:34px;border-radius:8px;border:1px solid var(--line);background:var(--soft);padding:0 10px;font:inherit;font-size:13px;color:var(--ink)}
+.dlist{flex:1;overflow:auto}
+.dci{padding:10px 12px;align-items:center}
+.dwin .msgs{padding:12px;gap:6px}
+.dwin .bub{max-width:85%;font-size:13.5px}
+.dwin .composer{padding:8px;align-items:flex-end}
+.dwin .composer textarea{min-height:38px}
+.dpeer{display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;padding:6px 0 12px;margin-bottom:4px;border-bottom:1px solid var(--line);text-decoration:none;color:inherit}
+.dpeer b{margin-top:4px}
+@media (max-width:860px){.dock{display:none}}
+@media (min-width:861px){.toasts{bottom:66px}}

@@ -4,6 +4,7 @@ import type { SessionUser } from "@/lib/session";
 import { LiveBadge, LiveAlerts } from "./Live";
 import { Suspense } from "react";
 import { SearchBox } from "./SearchBox";
+import { MessageDock } from "./MessageDock";
 
 const TABS = [
   { href: "/", label: "Home", icon: "🏠" },
@@ -69,6 +70,7 @@ export function Shell({ user, current, unread, children }: {
 
       <main className="wrap">{children}</main>
       {user ? <LiveAlerts /> : null}
+      {user ? <MessageDock me={{ id: user.id, name: user.name, type: user.type, avatar: user.avatar }} /> : null}
 
       <nav className="bbar" aria-label="Main">
         {[TABS[0], TABS[1], TABS[2], TABS[5], TABS[6]].map((t) => (

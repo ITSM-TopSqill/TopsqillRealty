@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
+import { openChat } from "./MessageDock";
 
 /**
  * Contacting the seller opens a real conversation and, on the seller's side,
@@ -28,7 +29,7 @@ export function ContactOwner({ listingId, ownerId, signedIn, title }: {
         method: "POST",
         body: { body: `Hi, I’m interested in ${title}. Is it still available? I’d like to arrange a site visit.`, refType: "listing", refId: listingId },
       });
-      router.push(`/messages?c=${convo.id}`);
+      if (openChat(convo.id)) setBusy(false); else router.push(`/messages?c=${convo.id}`);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
