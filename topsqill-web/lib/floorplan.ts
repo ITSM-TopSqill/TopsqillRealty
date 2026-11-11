@@ -19,7 +19,7 @@ export type FloorPlan = {
   width: number; depth: number; carpetSqft: number; bhk: number;
   /** Where a visitor starts (just inside the main door) and the rooms to tour, in order. */
   start: { x: number; y: number };
-  tour: { x: number; y: number; room: string }[];
+  tour: { x: number; y: number; room: string; pause?: boolean; look?: number }[];
 };
 
 /** Kinds of property a layout makes sense for. */
@@ -54,13 +54,14 @@ export function buildPlan(bhkIn: number, areaSqft: number): FloorPlan {
   const kitchenW = r1(Math.max(8, Math.min(width * 0.28, 12)));
   const livingW = r1(width - kitchenW);
   const hallY = r1(front + hall / 2);
+  const entryY = r1(Math.max(2.5, front - 2.5));
 
   const rooms: Room[] = [];
   const doors: Door[] = [];
   rooms.push({ id: "living", kind: "living", name: "Living & dining", x: 0, y: 0, w: livingW, d: front });
   rooms.push({ id: "kitchen", kind: "kitchen", name: "Kitchen", x: livingW, y: 0, w: kitchenW, d: front });
   rooms.push({ id: "hall", kind: "living", name: "Passage", x: 0, y: front, w: width, d: hall });
-  doors.push({ x: 0, y: r1(front * 0.55), axis: "v", width: 3.5, main: true });
+  doors.push({ x: 0, y: entryY, axis: "v", width: 3.5, main: true });
   doors.push({ x: livingW, y: r1(front * 0.6), axis: "v", width: 4 });
   // The passage is open to the living room.
   doors.push({ x: r1(livingW / 2), y: front, axis: "h", width: livingW });
@@ -72,9 +73,10 @@ export function buildPlan(bhkIn: number, areaSqft: number): FloorPlan {
 
   // Bedrooms side by side off the passage, the first (master) a little wider; a common bathroom at the end.
   const bedSpace = bedsW;
-  const tour: FloorPlan["tour"] = [{ x: 3, y: r1(front * 0.55), room: "Entrance" }];
+  const tour: FloorPlan["tour"] = [{ x: 3, y: entryY, room: "Entrance" }];
   const living = { x: r1(livingW / 2), y: r1(front / 2), room: "Living & dining" };
-  tour.push(living, { x: living.x, y: -2.5, room: "Balcony" }, living);
+  // At each stop the camera faces the room's best view (look: 0 = +x, π/2 = towards the back, π = −x, −π/2 = the front).
+  tour.push({ ...living, pause: true, look: Math.PI }, { x: living.x, y: -2.5, room: "Balcony", pause: true, look: -Math.PI / 2 }, living);
   let x = 0;
   for (let i = 0; i < bhk; i++) {
     const w = widths[i];
@@ -92,7 +94,7 @@ export function buildPlan(bhkIn: number, areaSqft: number): FloorPlan {
       openD = back - bd;
     }
     tour.push({ x: living.x, y: hallY, room: "Passage" }, { x: doorX, y: hallY, room: name }, { x: doorX, y: r1(backY + 2), room: name },
-      { x: r1(x + w / 2), y: r1(backY + openD / 2 + 0.5), room: name }, { x: doorX, y: r1(backY + 2), room: name }, { x: doorX, y: hallY, room: "Passage" });
+      { x: r1(x + w / 2), y: r1(backY + 2.3), room: name, pause: true, look: Math.PI / 2 }, { x: doorX, y: r1(backY + 2), room: name }, { x: doorX, y: hallY, room: "Passage" });
     x += w;
   }
   const cbx = r1(bedSpace);
@@ -103,13 +105,13 @@ export function buildPlan(bhkIn: number, areaSqft: number): FloorPlan {
     rooms.push({ id: "study", kind: "study", name: "Study", x: sx, y: backY, w: studyW, d: back });
     doors.push({ x: r1(sx + 2.5), y: backY, axis: "h", width: 3 });
     tour.push({ x: living.x, y: hallY, room: "Passage" }, { x: r1(sx + 2.5), y: hallY, room: "Study" }, { x: r1(sx + 2.5), y: r1(backY + 2), room: "Study" },
-      { x: r1(sx + studyW / 2), y: r1(backY + back / 2), room: "Study" }, { x: r1(sx + 2.5), y: r1(backY + 2), room: "Study" }, { x: r1(sx + 2.5), y: hallY, room: "Passage" });
+      { x: r1(sx + studyW / 2), y: r1(backY + 2.5), room: "Study", pause: true, look: Math.PI / 2 }, { x: r1(sx + 2.5), y: r1(backY + 2), room: "Study" }, { x: r1(sx + 2.5), y: hallY, room: "Passage" });
   }
   tour.push({ x: living.x, y: hallY, room: "Passage" }, living, { x: r1(livingW - 2.5), y: r1(front * 0.6), room: "Kitchen" },
-    { x: r1(livingW + kitchenW / 2), y: r1(front * 0.6), room: "Kitchen" });
+    { x: r1(livingW + kitchenW / 2), y: r1(front * 0.6), room: "Kitchen", pause: true, look: 0.35 });
 
   const walls = wallsFor(rooms, doors);
-  return { rooms, walls, doors, width, depth, carpetSqft: Math.round(carpet), bhk, start: { x: 3, y: r1(front * 0.55) }, tour };
+  return { rooms, walls, doors, width, depth, carpetSqft: Math.round(carpet), bhk, start: { x: 3, y: entryY }, tour };
 }
 
 /**

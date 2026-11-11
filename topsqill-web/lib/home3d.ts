@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { labelSpot, ROOM_COLOURS, type FloorPlan, type Wall } from "./floorplan";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { type FloorPlan, type Wall } from "./floorplan";
+import { buildHome } from "./home3d-build";
 
 /**
  * The 3D home built from an illustrative floor plan (see floorplan.ts), as a
@@ -8,123 +10,7 @@ import { labelSpot, ROOM_COLOURS, type FloorPlan, type Wall } from "./floorplan"
  * hologram (glowing wireframe, or four views for a phone-top pyramid).
  * Loaded only when someone opens one of those views.
  */
-const WALL_H = 10, LOW_H = 3.4, WALL_T = 0.4, EYE = 5.4, RADIUS = 0.9, SPEED = 7;
-
-type Style = "real" | "holo";
-
-function buildHome(plan: FloorPlan, style: Style) {
-  const g = new THREE.Group();
-  const ox = -plan.width / 2, oz = -plan.depth / 2;
-  const holo = style === "holo";
-  const wallMat = holo
-    ? new THREE.MeshBasicMaterial({ color: 0x3ff0ff, transparent: true, opacity: 0.07, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
-    : new THREE.MeshStandardMaterial({ color: 0xf4f0e8, roughness: 0.9 });
-  const lowMat = holo ? wallMat : new THREE.MeshStandardMaterial({ color: 0xbfc6c9, roughness: 0.4, metalness: 0.3 });
-  const edgeMat = new THREE.LineBasicMaterial({ color: 0x5ff6ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending });
-
-  const add = (mesh: THREE.Mesh) => {
-    if (holo) {
-      const lines = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), edgeMat);
-      lines.position.copy(mesh.position); lines.rotation.copy(mesh.rotation); lines.scale.copy(mesh.scale);
-      g.add(lines);
-    } else { mesh.castShadow = true; mesh.receiveShadow = true; }
-    g.add(mesh);
-    return mesh;
-  };
-  const box = (w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-    m.position.set(ox + x, y + h / 2, oz + z);
-    return add(m);
-  };
-
-  // Floors
-  for (const r of plan.rooms) {
-    const mat = holo
-      ? new THREE.MeshBasicMaterial({ color: 0x1aa7c0, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
-      : new THREE.MeshStandardMaterial({ color: ROOM_COLOURS[r.kind].floor, roughness: r.kind === "bedroom" ? 0.7 : 0.5 });
-    const f = new THREE.Mesh(new THREE.PlaneGeometry(r.w, r.d), mat);
-    f.rotation.x = -Math.PI / 2;
-    f.position.set(ox + r.x + r.w / 2, r.kind === "bath" ? 0.03 : r.kind === "balcony" ? -0.2 : 0.01, oz + r.y + r.d / 2);
-    add(f);
-  }
-
-  // Walls, with lintels over the doorways
-  for (const w of plan.walls) {
-    const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
-    const h = w.low ? LOW_H : WALL_H;
-    const horizontal = w.y1 === w.y2;
-    box(horizontal ? len + WALL_T : WALL_T, h, horizontal ? WALL_T : len + WALL_T, (w.x1 + w.x2) / 2, w.low ? -0.2 : 0, (w.y1 + w.y2) / 2, w.low ? lowMat : wallMat);
-  }
-  for (const d of plan.doors) {
-    if (d.width > 7) continue;
-    const h = d.axis === "h";
-    box(h ? d.width : WALL_T, WALL_H - 7.2, h ? WALL_T : d.width, d.x, 7.2, d.y, wallMat);
-  }
-
-  // A few pieces of furniture, so the rooms read at a glance
-  const wood = holo ? wallMat : new THREE.MeshStandardMaterial({ color: 0x8a6446, roughness: 0.6 });
-  const fabric = holo ? wallMat : new THREE.MeshStandardMaterial({ color: 0x6f7fa8, roughness: 0.95 });
-  const linen = holo ? wallMat : new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.95 });
-  const stone = holo ? wallMat : new THREE.MeshStandardMaterial({ color: 0x3d3f45, roughness: 0.3 });
-  const white = holo ? wallMat : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
-  for (const r of plan.rooms) {
-    if (r.kind === "bedroom") {
-      const bw = 5.5, bl = 6.5;
-      const bx = r.x + Math.min(r.w / 2, r.w - 4.5) - 1, bz = r.y + r.d - (plan.rooms.some((b) => b.kind === "bath" && b.y > r.y && b.x >= r.x && b.x < r.x + r.w) ? 9.5 : 1.5) - bl / 2;
-      box(bw, 1.6, bl, bx, 0, bz, wood);
-      box(bw - 0.3, 0.6, bl - 0.6, bx, 1.6, bz + 0.1, linen);
-      box(bw, 3.2, 0.3, bx, 0, bz + bl / 2, wood);
-      box(2.5, 7, 1.8, r.x + 1.5, 0, r.y + r.d - 1.2 - (r.d > 12 ? 0 : 0), wood);
-    } else if (r.kind === "living" && r.id === "living") {
-      box(7, 1.4, 2.8, r.x + 5, 0, r.y + r.d - 2.2, fabric);
-      box(7, 2.8, 0.7, r.x + 5, 0, r.y + r.d - 0.95, fabric);
-      box(3.5, 1.3, 2, r.x + 5, 0, r.y + r.d - 6, wood);
-      if (r.w > 16) { box(5, 2.5, 3, r.x + r.w - 5, 0, r.y + r.d / 2, wood); }
-      box(6, 1.8, 1.2, r.x + 5, 0, r.y + 1, wood);
-    } else if (r.kind === "kitchen") {
-      box(2, 3, r.d - 2, r.x + r.w - 1.2, 0, r.y + r.d / 2, stone);
-      box(r.w - 3, 3, 2, r.x + (r.w - 2) / 2, 0, r.y + 1.2, stone);
-    } else if (r.kind === "bath" && r.w >= 4) {
-      box(1.6, 1.4, 2.2, r.x + 1.2, 0, r.y + r.d - 1.4, white);
-      box(1.8, 2.8, 1.4, r.x + r.w - 1.3, 0, r.y + r.d - 1, white);
-    }
-  }
-
-  // Room names
-  const labels: THREE.Sprite[] = [];
-  for (const r of plan.rooms) {
-    if (r.id === "hall") continue;
-    const s = label(r.name, holo);
-    const at = labelSpot(plan, r);
-    s.position.set(ox + at.x, r.kind === "bath" ? 7 : 8, oz + at.y);
-    g.add(s);
-    labels.push(s);
-  }
-  return { group: g, ox, oz, labels };
-}
-
-function label(text: string, holo: boolean) {
-  const c = document.createElement("canvas");
-  c.width = 512; c.height = 128;
-  const x = c.getContext("2d")!;
-  x.font = "600 54px system-ui, sans-serif";
-  const w = Math.min(500, x.measureText(text).width + 48);
-  if (!holo) { x.fillStyle = "rgba(20,16,40,.72)"; roundRect(x, (512 - w) / 2, 22, w, 84, 40); x.fill(); }
-  x.fillStyle = holo ? "#7ff8ff" : "#fff";
-  x.textAlign = "center"; x.textBaseline = "middle";
-  x.fillText(text, 256, 66);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthTest: false }));
-  s.scale.set(10, 2.5, 1);
-  s.renderOrder = 10;
-  return s;
-}
-
-function roundRect(x: CanvasRenderingContext2D, l: number, t: number, w: number, h: number, r: number) {
-  x.beginPath(); x.moveTo(l + r, t); x.arcTo(l + w, t, l + w, t + h, r); x.arcTo(l + w, t + h, l, t + h, r);
-  x.arcTo(l, t + h, l, t, r); x.arcTo(l, t, l + w, t, r); x.closePath();
-}
+const EYE = 5.3, RADIUS = 0.9, SPEED = 7;
 
 function disposeAll(scene: THREE.Object3D) {
   scene.traverse((o) => {
@@ -133,6 +19,52 @@ function disposeAll(scene: THREE.Object3D) {
     const mats = Array.isArray(m.material) ? m.material : m.material ? [m.material] : [];
     for (const mat of mats) { (mat as THREE.SpriteMaterial).map?.dispose(); mat.dispose(); }
   });
+}
+
+/** Trees around the plot and a few neighbouring towers in the distance, so windows and the balcony look out on something. */
+function surroundings(span: number) {
+  const g = new THREE.Group();
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const trunk = new THREE.MeshStandardMaterial({ color: 0x6b4a33, roughness: 0.9 });
+  const leaves = [0x4f7d3a, 0x5d8c43, 0x3f6b33].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 }));
+  const trunkGeo = new THREE.CylinderGeometry(0.35, 0.5, 6, 8);
+  const crownGeo = new THREE.IcosahedronGeometry(3.4, 1);
+  for (let i = 0; i < 22; i++) {
+    const a = (i / 22) * Math.PI * 2 + rnd() * 0.2, r = span * (0.95 + rnd() * 0.55);
+    const t = new THREE.Group();
+    t.position.set(Math.cos(a) * r, -0.3, Math.sin(a) * r * 0.85);
+    const s = 0.8 + rnd() * 0.6;
+    t.scale.setScalar(s);
+    const tr = new THREE.Mesh(trunkGeo, trunk); tr.position.y = 3; tr.castShadow = true;
+    const cr = new THREE.Mesh(crownGeo, leaves[i % 3]); cr.position.y = 8; cr.scale.set(1, 1.15, 1); cr.castShadow = true;
+    t.add(tr, cr);
+    g.add(t);
+  }
+  const towerMat = [0xd9d2c5, 0xc7ccd1, 0xe3dccf].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 }));
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0x8fb3cc, roughness: 0.15, metalness: 0.4 });
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2 + 0.3, r = span * (2.2 + rnd() * 0.6);
+    const w = 18 + rnd() * 16, h = 40 + rnd() * 90;
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, w * 0.8), towerMat[i % 3]);
+    b.position.set(Math.cos(a) * r, h / 2 - 0.3, Math.sin(a) * r);
+    b.lookAt(0, h / 2, 0);
+    g.add(b);
+    for (let f = 6; f < h - 4; f += 10) {
+      const band = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 3, w * 0.8 + 0.2), glassMat);
+      band.position.copy(b.position); band.position.y = f; band.rotation.copy(b.rotation);
+      g.add(band);
+    }
+  }
+  return g;
+}
+
+/** The shortest turn from angle a to angle b. */
+function angleDiff(a: number, b: number) {
+  let d = b - a;
+  while (d > Math.PI) d -= 2 * Math.PI;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  return d;
 }
 
 /** Is a point at least RADIUS from every wall? Doorways are gaps, so they let you through. */
@@ -159,32 +91,53 @@ export function mountWalkthrough(el: HTMLElement, plan: FloorPlan, onRoom: (name
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
   renderer.domElement.style.display = "block";
   renderer.domElement.style.touchAction = "none";
   el.appendChild(renderer.domElement);
 
+  const span0 = () => Math.max(plan.width, plan.depth);
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xdfe7ee);
-  scene.fog = new THREE.Fog(0xdfe7ee, 120, 260);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xb9a88f, 1.6));
-  const sun = new THREE.DirectionalLight(0xfff4e0, 2.2);
-  sun.position.set(30, 60, 25);
+  // Sky: a soft gradient; light: a studio environment for natural reflections, plus the sun for shadows.
+  const sky = document.createElement("canvas"); sky.width = 2; sky.height = 256;
+  const sx = sky.getContext("2d")!; const grad = sx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, "#6fa8dc"); grad.addColorStop(0.55, "#cfe3f3"); grad.addColorStop(1, "#eef3ee");
+  sx.fillStyle = grad; sx.fillRect(0, 0, 2, 256);
+  const skyTex = new THREE.CanvasTexture(sky); skyTex.colorSpace = THREE.SRGBColorSpace;
+  scene.background = skyTex;
+  scene.fog = new THREE.Fog(0xdde9f2, span0() * 2.2, span0() * 5);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environment = envTex;
+  scene.environmentIntensity = 0.55;
+  const hemi = new THREE.HemisphereLight(0xeaf4ff, 0x8a7a63, 0.7);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
+  sun.position.set(-35, 70, -30);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03; sun.shadow.radius = 3;
   const span = Math.max(plan.width, plan.depth);
-  Object.assign(sun.shadow.camera, { left: -span, right: span, top: span, bottom: -span, near: 1, far: 200 });
+  Object.assign(sun.shadow.camera, { left: -span * 0.8, right: span * 0.8, top: span * 0.8, bottom: -span * 0.8, near: 1, far: 250 });
   scene.add(sun);
-  const ground = new THREE.Mesh(new THREE.CircleGeometry(span * 2.5, 48), new THREE.MeshStandardMaterial({ color: 0xc9d3c0, roughness: 1 }));
-  ground.rotation.x = -Math.PI / 2; ground.position.y = -0.25; ground.receiveShadow = true;
+  const { group, ox, oz, labels, ceilings, grass } = buildHome(plan, "real");
+  if (grass) { grass.repeat.set(span * 1.2, span * 1.2); }
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(span * 6, 64), new THREE.MeshStandardMaterial({ map: grass, color: 0xffffff, roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2; ground.position.y = -0.3; ground.receiveShadow = true;
   scene.add(ground);
-  const { group, ox, oz, labels } = buildHome(plan, "real");
+  const plinth = new THREE.Mesh(new THREE.BoxGeometry(plan.width + 3, 0.5, plan.depth + 9), new THREE.MeshStandardMaterial({ color: 0xd9d4cb, roughness: 0.9 }));
+  plinth.position.set(0, -0.46, -2); plinth.receiveShadow = true;
+  scene.add(plinth);
   scene.add(group);
+  for (const c of ceilings) c.visible = false;
+  scene.add(surroundings(span));
 
-  const camera = new THREE.PerspectiveCamera(55, 1, 0.3, 600);
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.3, 1200);
   const orbit = new OrbitControls(camera, renderer.domElement);
   orbit.enableDamping = true;
   orbit.maxPolarAngle = Math.PI * 0.47;
-  orbit.minDistance = 12; orbit.maxDistance = span * 3;
+  orbit.minDistance = 12; orbit.maxDistance = span * 2;
   orbit.autoRotate = true; orbit.autoRotateSpeed = 0.6;
   orbit.addEventListener("start", () => { orbit.autoRotate = false; });
 
@@ -194,18 +147,22 @@ export function mountWalkthrough(el: HTMLElement, plan: FloorPlan, onRoom: (name
   const keys = new Set<string>();
   let steerF = 0, steerT = 0;
   let tourIdx = 0, tourRoom = "";
+  const PAUSE = 5.5;
+  let pauseLeft = 0, pauseYaw = 0, pauseFrom = 0, speed = 0;
   let dragging: { x: number; y: number } | null = null;
 
   const dollhouse = () => {
     camera.fov = 55;
-    camera.position.set(0, span * 0.72, span * 0.62);
+    camera.position.set(-span * 0.32, span * 0.68, -span * 0.62);
     orbit.target.set(0, 0, 0);
     orbit.enabled = true; orbit.autoRotate = true;
     orbit.update();
   };
+  let bob = 0;
   const toEye = () => {
-    camera.fov = 72;
-    camera.position.set(ox + px, EYE, oz + py);
+    camera.fov = mode === "tour" ? 64 : 72;
+    camera.updateProjectionMatrix();
+    camera.position.set(ox + px, EYE + Math.sin(bob) * 0.035, oz + py);
     const dir = new THREE.Vector3(Math.cos(yaw) * Math.cos(pitch), Math.sin(pitch), Math.sin(yaw) * Math.cos(pitch));
     camera.lookAt(camera.position.clone().add(dir));
   };
@@ -266,28 +223,43 @@ export function mountWalkthrough(el: HTMLElement, plan: FloorPlan, onRoom: (name
       if (keys.has("KeyD") || keys.has("ArrowRight")) t += 1;
       yaw += t * dt * 1.8;
       const step = Math.max(-1, Math.min(1, f)) * SPEED * dt;
+      bob += Math.abs(step) * 1.7;
       const nx = px + Math.cos(yaw) * step, ny = py + Math.sin(yaw) * step;
       if (clear(plan.walls, nx, py)) px = nx;
       if (clear(plan.walls, px, ny)) py = ny;
       toEye();
       room(roomAt(px, py));
     } else {
-      // Guided tour: glide from point to point, turning to face the way ahead.
+      // Guided tour: glide from point to point, easing in and out and turning to face the way ahead;
+      // in each room it stops and slowly looks around before moving on.
       const target = plan.tour[tourIdx];
       const dx = target.x - px, dy = target.y - py, dist = Math.hypot(dx, dy);
-      if (dist < 0.3) {
-        tourIdx = (tourIdx + 1) % plan.tour.length;
-        if (tourIdx === 0) { px = plan.start.x; py = plan.start.y; }
+      if (pauseLeft > 0) {
+        // Turn to the room's best view, then pan slowly left and right across it.
+        pauseLeft -= dt;
+        const t = 1 - pauseLeft / PAUSE;
+        const turn = Math.min(1, t * 3.5), ease = turn * turn * (3 - 2 * turn);
+        yaw = pauseFrom + angleDiff(pauseFrom, pauseYaw) * ease + Math.sin(Math.max(0, t - 0.28) / 0.72 * Math.PI * 2) * 0.55 * (t > 0.28 ? 1 : 0);
+        if (pauseLeft <= 0) tourIdx = (tourIdx + 1) % plan.tour.length;
+      } else if (dist < 0.25) {
+        if (target.pause) { pauseLeft = PAUSE; pauseFrom = yaw; pauseYaw = target.look ?? yaw; }
+        else {
+          tourIdx = (tourIdx + 1) % plan.tour.length;
+          if (tourIdx === 0) { px = plan.start.x; py = plan.start.y; }
+        }
       } else {
         const want = Math.atan2(dy, dx);
         let diff = want - yaw;
         while (diff > Math.PI) diff -= 2 * Math.PI;
         while (diff < -Math.PI) diff += 2 * Math.PI;
-        yaw += diff * Math.min(1, dt * 3);
-        const go = Math.min(dist, 4.5 * dt * (Math.abs(diff) > 0.8 ? 0.25 : 1));
+        yaw += diff * Math.min(1, dt * 2.6);
+        const turning = Math.min(1, Math.abs(diff) / 0.9);
+        speed += ((Math.min(4.2, 0.9 + dist * 1.4) * (1 - turning * 0.85)) - speed) * Math.min(1, dt * 2.5);
+        const go = Math.min(dist, speed * dt);
         px += (dx / dist) * go; py += (dy / dist) * go;
+        bob += go * 1.7;
       }
-      pitch *= 0.9;
+      pitch += (-0.06 - pitch) * Math.min(1, dt * 2);
       toEye();
       room(target.room === "Passage" ? roomAt(px, py) : target.room);
     }
@@ -300,10 +272,15 @@ export function mountWalkthrough(el: HTMLElement, plan: FloorPlan, onRoom: (name
       mode = m;
       // Names float over the dollhouse; walking, the current room shows in the corner instead.
       for (const l of labels) l.visible = m === "dollhouse";
+      // Inside, there's a ceiling with lights and more light from the room; the dollhouse is open-topped.
+      for (const c of ceilings) c.visible = m !== "dollhouse";
+      scene.environmentIntensity = m === "dollhouse" ? 0.55 : 0.85;
+      hemi.intensity = m === "dollhouse" ? 0.7 : 0.95;
+      renderer.toneMappingExposure = m === "dollhouse" ? 1.05 : 0.95;
       keys.clear(); steerF = 0; steerT = 0;
       if (m === "dollhouse") { dollhouse(); onRoom(""); tourRoom = ""; return; }
       orbit.enabled = false;
-      px = plan.start.x; py = plan.start.y; yaw = 0; pitch = 0; tourIdx = 0; tourRoom = "";
+      px = plan.start.x; py = plan.start.y; yaw = 0; pitch = 0; tourIdx = 0; tourRoom = ""; pauseLeft = 0; speed = 0;
       toEye();
     },
     steer(f, t) { steerF = f; steerT = t; },
@@ -314,6 +291,7 @@ export function mountWalkthrough(el: HTMLElement, plan: FloorPlan, onRoom: (name
       window.removeEventListener("keyup", keyGate);
       orbit.dispose();
       disposeAll(scene);
+      envTex.dispose(); pmrem.dispose(); skyTex.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     },
