@@ -6,6 +6,7 @@ import { ProjectsService } from "./projects.service";
 import { AssistantService } from "./assistant.service";
 import { ListingChatService } from "./listing-chat.service";
 import { ListingImportService } from "./listing-import.service";
+import { GuidedVideoService } from "./guided-video.service";
 import { Type } from "class-transformer";
 import { ValidateNested, ArrayMaxSize } from "class-validator";
 import { CurrentUser, AuthUser, Public } from "../auth/public.decorator";
@@ -57,7 +58,11 @@ export class AiController {
     private readonly assistant: AssistantService,
     private readonly listingChat: ListingChatService,
     private readonly importer: ListingImportService,
+    private readonly video: GuidedVideoService,
   ) {}
+
+  @Public() @Get("listings/:id/video-script") @ApiOperation({ summary: "The narration for a listing's guided video, from its facts only" })
+  videoScript(@Param("id") id: string) { return this.video.script(id); }
 
   @Post("listings/import") @ApiOperation({ summary: "Draft a listing from another listing or project page (nothing is published)" })
   importListing(@CurrentUser() user: AuthUser, @Body() dto: ListingImportDto) { return this.importer.preview(user.id, dto); }

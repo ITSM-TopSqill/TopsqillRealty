@@ -11,6 +11,7 @@ import { ListingAsk } from "@/components/ListingAsk";
 import { Gallery } from "@/components/Gallery";
 import { ListingExtras } from "@/components/ListingExtras";
 import { HomeViews } from "@/components/HomeViews";
+import { GuidedVideo } from "@/components/GuidedVideo";
 import { inr, sqft, imageUrl, timeAgo } from "@/lib/format";
 import type { Listing } from "@/lib/types";
 
@@ -139,6 +140,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         </div>
       </div>
 
+      <GuidedVideo listing={listing} />
       <HomeViews title={listing.title} kind={listing.kind} bhk={listing.bhk} areaSqft={listing.areaSqft} facing={listing.facing} />
       <ListingExtras title={listing.title} videoUrl={listing.videoUrl} tourUrl={listing.tourUrl} lat={listing.lat} lng={listing.lng} locality={`${listing.locality}, ${listing.city}`} />
 
