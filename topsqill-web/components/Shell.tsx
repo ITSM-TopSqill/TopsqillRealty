@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { Avatar } from "./ui";
 import type { SessionUser } from "@/lib/session";
 import { LiveBadge, LiveAlerts } from "./Live";
 import { Suspense } from "react";
 import { SearchBox } from "./SearchBox";
 import { MessageDock } from "./MessageDock";
+import { MeMenu } from "./MeMenu";
 
 const TABS = [
   { href: "/", label: "Home", icon: "🏠" },
@@ -58,18 +58,14 @@ export function Shell({ user, current, unread, children }: {
                 <span aria-hidden>🛡</span><span>Admin</span>
               </Link>
             ) : null}
-            {user ? (
-              <Link href={`/profile/${user.id}`} className={`tab ${current.startsWith("/profile") ? "on" : ""}`}>
-                <Avatar person={user} media={user.avatar as never} size={24} />
-                <span>Me</span>
-              </Link>
-            ) : user === undefined ? null : (
-              <>
-                <Link href="/signin" className="btn btn-g" style={{ alignSelf: "center", marginLeft: 8 }}>Sign in</Link>
-                <Link href="/signup" className="btn btn-ai" style={{ alignSelf: "center", marginLeft: 6 }}>Join</Link>
-              </>
-            )}
           </nav>
+          {/* Outside the tabs, so it stays on phones, where the tabs are hidden. */}
+          {user ? <MeMenu user={user} current={current} /> : user === undefined ? null : (
+            <div className="row" style={{ gap: 6, flex: "none" }}>
+              <Link href="/signin" className="btn btn-g">Sign in</Link>
+              <Link href="/signup" className="btn btn-ai nav-join">Join</Link>
+            </div>
+          )}
         </div>
       </header>
 

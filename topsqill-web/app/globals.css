@@ -245,3 +245,29 @@ img{max-width:100%}
 .tbl th{text-align:left;font-size:12px;color:var(--ink3);font-weight:800;padding:12px 14px;border-bottom:1px solid var(--line);white-space:nowrap}
 .tbl td{padding:11px 14px;border-bottom:1px solid var(--line);white-space:nowrap}
 .tbl tr:last-child td{border-bottom:0}
+
+/* "Me" menu in the top bar */
+.me{position:relative;flex:none}
+.me-btn{background:none;border-top:0;border-left:0;border-right:0;cursor:pointer;font:inherit}
+.me-pop{position:absolute;right:0;top:calc(100% + 4px);width:280px;z-index:80;padding:0 0 6px;box-shadow:0 10px 30px rgba(20,16,40,.18)}
+.me-item{display:flex;align-items:center;gap:8px;width:100%;padding:9px 14px;background:none;border:0;text-align:left;font:inherit;color:var(--ink);text-decoration:none;cursor:pointer}
+.me-item:hover,.me-item:focus-visible{background:var(--soft);text-decoration:none}
+.me-item:disabled{opacity:.6;cursor:default}
+.me-sep{height:1px;background:var(--line);margin:4px 0}
+.me-phone{display:none}
+@media (max-width:860px){
+  .me-phone{display:block}
+  .me-btn{min-width:0;height:44px;padding:0 4px}
+  .me-label{display:none}
+  .me-pop{position:fixed;right:10px;left:auto;top:62px;width:min(300px,calc(100vw - 20px))}
+  .nav-join{display:none}
+}
+/* Narrower desktops: tighter tabs so the top bar (with Admin and Me) fits. */
+@media (max-width:1180px) and (min-width:861px){
+  .nav-in{gap:10px}
+  .tab{min-width:58px;font-size:11px}
+}
+@media (max-width:1000px) and (min-width:861px){
+  .logo-word{display:none}
+  .tab{min-width:52px}
+}
