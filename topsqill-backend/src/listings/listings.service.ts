@@ -148,7 +148,9 @@ export class ListingsService {
           .where(eq(listingMedia.listingId, id)).orderBy(listingMedia.position),
         this.ownersFor([row.ownerId]),
       ]);
-      return { ...row, media: mediaRows.map((r) => this.mediaSvc.publicView(r.m)), owner: owner.get(row.ownerId) ?? null };
+      // Where an imported listing came from is kept for audit, never shown publicly.
+      const { sourceUrl: _source, ...pub } = row;
+      return { ...pub, media: mediaRows.map((r) => this.mediaSvc.publicView(r.m)), owner: owner.get(row.ownerId) ?? null };
     });
   }
 

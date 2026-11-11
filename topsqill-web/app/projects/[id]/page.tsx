@@ -153,7 +153,6 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             </section>
           ) : null}
 
-          {p.sourceUrl ? <a href={p.sourceUrl} target="_blank" rel="noopener noreferrer nofollow" className="small muted">Source: {new URL(p.sourceUrl).hostname}</a> : null}
           {mine ? <Link href={`/campaigns/new`} className="btn btn-o">Promote with a campaign</Link> : null}
         </div>
       </div>

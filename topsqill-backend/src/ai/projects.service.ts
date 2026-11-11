@@ -9,6 +9,7 @@ import { extractProject, estimatePrices, type Extracted } from "./extract";
 import { newId } from "../common/ids";
 import { cleanUrl } from "../common/safe-fetch";
 import { PageFetcher } from "./page-fetcher.service";
+import { scrubList, scrubSources } from "../common/sources";
 
 @Injectable()
 export class ProjectsService {
@@ -58,6 +59,12 @@ Text: """${input.text.slice(0, 12000)}"""`;
       merged = this.merge(base, data);
     }
 
+    // Nothing published may name or link the site it came from.
+    merged.name = scrubSources(merged.name) || "New project";
+    merged.builder = scrubSources(merged.builder);
+    merged.locality = scrubSources(merged.locality);
+    merged.amenities = scrubList(merged.amenities);
+
     const stats = await this.search.localityStats(merged.locality || merged.city, merged.city);
     const rate = Number((stats as Record<string, unknown> | null)?.avgRatePerSqft ?? 0) || 7000;
     const configs = estimatePrices(merged.configs, rate);
@@ -75,7 +82,7 @@ Text: """${input.text.slice(0, 12000)}"""`;
       acres: merged.acres ? String(merged.acres) : null, towers: merged.towers || null, floors: merged.floors || null,
       units: merged.units || null, openArea: merged.openArea || null, paymentPlan: merged.paymentPlan || null,
       facing: merged.facing, amenities: merged.amenities, specs: merged.specs,
-      configs, nearby: merged.nearby, usps: insights.usps, summary: insights.summary, verdict: insights.verdict,
+      configs, nearby: merged.nearby, usps: scrubList(insights.usps), summary: scrubSources(insights.summary), verdict: scrubSources(insights.verdict),
       risk, priceEstimated, aiSource,
     }).returning();
     return row;
@@ -149,7 +156,9 @@ Never promise returns. Use only these facts: ${JSON.stringify({ name: p.name, bu
   async get(id: string) {
     const [row] = await this.read.select().from(projects).where(eq(projects.id, id)).limit(1);
     if (!row) throw new NotFoundException("That project could not be found.");
-    return row;
+    // Where it was imported from is kept for audit, never shown publicly.
+    const { sourceUrl: _source, ...pub } = row;
+    return pub;
   }
 
   async mine(userId: string) {

@@ -6,6 +6,7 @@ import { readPage, type PageImage, type ReadPage } from "./page-reader";
 import { safeFetch, cleanUrl } from "../common/safe-fetch";
 import { PageFetcher } from "./page-fetcher.service";
 import { portalFacts } from "./apish";
+import { PORTAL_HOST, scrubList, scrubSources } from "../common/sources";
 import { videoEmbed, tourEmbed } from "../common/embeds";
 import { money } from "./query";
 
@@ -78,8 +79,10 @@ export class ListingImportService {
     }
     if (!draft.priceInr) draft.notes.push("The page doesn’t state a price. Add the price you are offering before publishing.");
     if (!draft.reraNumber && draft.purpose === "sale") draft.notes.push("No RERA number found on the page. Add it if the project is registered.");
-    if (draft.images.length) draft.notes.push("Use only photos you have the right to publish, such as the builder’s marketing material shared with you as a channel partner.");
-    return draft;
+    if (draft.images.length && PORTAL_HOST.test(new URL(url).hostname)) {
+      draft.notes.push("Photos on property portals usually carry the portal’s watermark, so none are selected. Upload your own original photos instead, or pick only ones without a watermark.");
+    } else if (draft.images.length) draft.notes.push("Use only photos you have the right to publish, such as the builder’s marketing material shared with you as a channel partner.");
+    return scrubDraft(draft);
   }
 
   /** A limit per member per day, so the importer can't be used to crawl other sites. */
@@ -335,3 +338,13 @@ type AiDraft = {
   possession: string; possessionDate: string; furnishing: string; facing: string; reraNumber: string;
   amenities: string[]; usps: string[]; description: string; notes: string[];
 };
+
+/** Takes other sites' names and links out of everything that would be published. */
+export function scrubDraft(d: ImportDraft): ImportDraft {
+  for (const k of ["title", "description", "projectName", "builder", "locality", "facing", "possession", "furnishing"] as const) d[k] = scrubSources(d[k]);
+  d.amenities = scrubList(d.amenities);
+  d.usps = scrubList(d.usps);
+  d.configs = d.configs.map((c) => ({ ...c, label: scrubSources(c.label) || c.label }));
+  d.images = d.images.map((i) => ({ ...i, alt: scrubSources(i.alt) }));
+  return d;
+}

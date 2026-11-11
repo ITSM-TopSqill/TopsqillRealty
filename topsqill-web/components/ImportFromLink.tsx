@@ -49,7 +49,8 @@ export function ImportFromLink({ onDraft, onConfig, onPhotos, room }: {
     try {
       const d = await clientApi<ImportDraft>("/v1/ai/listings/import", { method: "POST", body: { url: url.trim(), text: text.trim() || undefined } });
       setDraft(d); setConfig(0); setRights(false);
-      setPicked(new Set(d.images.slice(0, Math.min(room, 12)).map((i) => i.url)));
+      // Portal photos usually carry the portal's watermark, so none start selected.
+      setPicked(PORTAL_HOST.test(d.site) ? new Set() : new Set(d.images.slice(0, Math.min(room, 12)).map((i) => i.url)));
       onDraft(d);
     } catch (err) {
       setError((err as Error).message);
@@ -179,3 +180,5 @@ export function ImportFromLink({ onDraft, onConfig, onPhotos, room }: {
 }
 
 const inr = (n: number) => (n >= 1e7 ? `₹${(n / 1e7).toFixed(2).replace(/\.?0+$/, "")} Cr` : `₹${Math.round(n / 1e5)} L`);
+
+const PORTAL_HOST = /(^|\.)?(99acres|magicbricks|nobroker|housing|squareyards|commonfloor|proptiger|makaan|nestaway|quikr|olx|sulekha|roofandfloor)\./i;
