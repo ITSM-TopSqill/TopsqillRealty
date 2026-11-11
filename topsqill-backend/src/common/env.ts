@@ -61,6 +61,9 @@ const schema = z.object({
   // api.sh: reads 99acres, MagicBricks and NoBroker listings as clean fields,
   // and any other page. Used instead of Bright Data when both are set.
   APISH_API_KEY: z.string().optional(),
+  // On Google Cloud: the secret holding the api.sh keys (one per line). It is
+  // re-read every 5 minutes, so keys can be added or changed without a deploy.
+  APISH_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof schema>;

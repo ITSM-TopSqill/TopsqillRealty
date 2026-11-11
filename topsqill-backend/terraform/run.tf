@@ -298,6 +298,15 @@ resource "google_cloud_run_v2_service" "api" {
           }
         }
       }
+      # The API also re-reads this secret every 5 minutes, so api.sh keys
+      # (one per line) can be added or changed without a deploy.
+      dynamic "env" {
+        for_each = var.apish_enabled ? [google_secret_manager_secret.apish.secret_id] : []
+        content {
+          name  = "APISH_SECRET"
+          value = env.value
+        }
+      }
       # Bright Data, only once its key is stored (brightdata_enabled).
       dynamic "env" {
         for_each = var.brightdata_enabled ? ["BRIGHTDATA_API_KEY"] : []

@@ -1,6 +1,6 @@
 import { checkUrl, FetchError } from "../common/safe-fetch";
 import { videoEmbed, tourEmbed } from "../common/embeds";
-import { env } from "../common/env";
+import { apishKeys, type KeyPool } from "../common/key-pool";
 import type { ReadPage, PageImage } from "./page-reader";
 
 /**
@@ -23,30 +23,45 @@ export function apishEndpointFor(raw: string): { path: string; portal: string | 
   return { path: "/web/v1/page", portal: null };
 }
 
-export async function apishGet(path: string, params: Record<string, string>, opts: { fetchImpl?: typeof fetch; timeoutMs?: number } = {}) {
+/**
+ * One GET to api.sh, trying each usable key in turn: a refused key or one
+ * out of credits is set aside and the next is tried (api.sh doesn't charge
+ * for those refusals). Any other answer is final.
+ */
+export async function apishGet(path: string, params: Record<string, string>, opts: { fetchImpl?: typeof fetch; timeoutMs?: number; keys?: KeyPool } = {}) {
+  const pool = opts.keys ?? apishKeys;
+  const keys = await pool.usable();
+  if (!keys.length) {
+    throw new FetchError((await pool.all()).length
+      ? "Every api.sh key is out of credits or was refused. Add a working key, then use Reload keys on Admin → AI."
+      : "No api.sh key is set.");
+  }
   const q = new URLSearchParams({ ...params, raw: "0" });
-  const res = await (opts.fetchImpl ?? fetch)(`${BASE}${path}?${q}`, {
-    headers: { "x-api-key": env.APISH_API_KEY ?? "", accept: "application/json" },
-    signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
-  });
-  const body = await res.json().catch(() => ({})) as Record<string, unknown>;
-  if (res.ok && body.success !== false) return { data: body, credits: Number(res.headers.get("x-credits-used") ?? body.credits_used ?? 1) };
-  const why = typeof body.error === "string" ? body.error.slice(0, 160) : "";
-  if (res.status === 401) throw new FetchError("api.sh refused the API key. Check APISH_API_KEY.");
-  if (res.status === 402) throw new FetchError("api.sh credits are used up (or a spend limit was reached).");
-  if (res.status === 403) throw new FetchError(`api.sh doesn’t allow this key to call ${path}.`);
-  if (res.status === 404) throw new FetchError("api.sh says that listing doesn’t exist or isn’t public.");
-  if (res.status === 429 || res.status === 503) throw new FetchError("api.sh is busy. Try again in a minute.");
-  throw new FetchError(`api.sh couldn’t read the page (${res.status}${why ? `: ${why}` : ""}).`);
+  let last: FetchError | null = null;
+  for (const key of keys) {
+    const res = await (opts.fetchImpl ?? fetch)(`${BASE}${path}?${q}`, {
+      headers: { "x-api-key": key, accept: "application/json" },
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
+    });
+    const body = await res.json().catch(() => ({})) as Record<string, unknown>;
+    if (res.ok && body.success !== false) return { data: body, credits: Number(res.headers.get("x-credits-used") ?? body.credits_used ?? 1), key: `…${key.slice(-4)}` };
+    const why = typeof body.error === "string" ? body.error.slice(0, 160) : "";
+    if (res.status === 401 || res.status === 403) { pool.setAside(key, "rejected", why || `HTTP ${res.status}`); last = new FetchError("api.sh refused the API key."); continue; }
+    if (res.status === 402) { pool.setAside(key, "no-credits", why || "out of credits"); last = new FetchError("api.sh credits are used up (or a spend limit was reached)."); continue; }
+    if (res.status === 404) throw new FetchError("api.sh says that listing doesn’t exist or isn’t public.");
+    if (res.status === 429 || res.status === 503) throw new FetchError("api.sh is busy. Try again in a minute.");
+    throw new FetchError(`api.sh couldn’t read the page (${res.status}${why ? `: ${why}` : ""}).`);
+  }
+  throw new FetchError(`${last?.message ?? "api.sh failed."} No other key worked either.`);
 }
 
 /** Fetches one link through api.sh and turns the answer into what the importer reads. */
-export async function readViaApish(url: string, opts: { fetchImpl?: typeof fetch } = {}) {
+export async function readViaApish(url: string, opts: { fetchImpl?: typeof fetch; keys?: KeyPool } = {}) {
   checkUrl(url);
   const { path, portal } = apishEndpointFor(url);
   const params: Record<string, string> = path === "/web/v1/page" ? { url, format: "text", country: "IN" } : { url };
-  const { data, credits } = await apishGet(path, params, opts);
-  return { page: pageFromApish(data, url), data: portal ? data : null, portal, credits };
+  const { data, credits, key } = await apishGet(path, params, opts);
+  return { page: pageFromApish(data, url), data: portal ? data : null, portal, credits, key };
 }
 
 /** api.sh's JSON as a ReadPage: title, text (every field as "name: value" for portals), photos, map, video and tours. */

@@ -7,6 +7,7 @@ import { NotificationsService } from "../notifications/notifications.service";
 import { MediaService } from "../media/media.service";
 import { ClaudeService } from "../ai/claude.service";
 import { env } from "../common/env";
+import { apishKeys } from "../common/key-pool";
 import { newId } from "../common/ids";
 
 type Decision = "approved" | "rejected" | "info";
@@ -25,6 +26,14 @@ export class AdminService {
   /* --------------------------------- AI --------------------------------- */
 
   /** Calls, failures and tokens per AI feature over the last 7 days, and today. */
+  /** Re-reads the api.sh keys on this server now (the others pick changes up within 5 minutes). */
+  async reloadScraperKeys(adminId: string) {
+    apishKeys.reload();
+    const status = await apishKeys.status();
+    await this.db.insert(auditLog).values({ id: newId(), actorId: adminId, action: "scraper.keys.reload", targetType: "settings", meta: { keys: status.keys.length, source: status.source } }).catch(() => {});
+    return status;
+  }
+
   async aiUsage() {
     const res = await this.read.execute(sql`
       select feature,
@@ -50,7 +59,9 @@ export class AdminService {
       // Imports from sites that block servers (99acres, Housing.com...).
       brightdata: { configured: !!env.BRIGHTDATA_API_KEY && !!env.BRIGHTDATA_ZONE, zone: env.BRIGHTDATA_ZONE ?? null, dailyLimitPerMember: Number(process.env.SCRAPER_DAILY_LIMIT_PER_MEMBER ?? process.env.BRIGHTDATA_DAILY_LIMIT_PER_MEMBER ?? 20) },
       // Which reader opens protected sites: api.sh wins when both are set.
-      scraper: env.APISH_API_KEY ? "api.sh" : env.BRIGHTDATA_API_KEY && env.BRIGHTDATA_ZONE ? "Bright Data" : null,
+      scraper: apishKeys.configured ? "api.sh" : env.BRIGHTDATA_API_KEY && env.BRIGHTDATA_ZONE ? "Bright Data" : null,
+      // Each key by its last four characters only, with whether it is working.
+      apishKeys: apishKeys.configured ? await apishKeys.status() : null,
       features: features.map((f) => ({ ...f, inputTokens: Number(f.inputTokens), outputTokens: Number(f.outputTokens) })),
       daily: Array.isArray(daily) ? daily : (daily as { rows: unknown[] }).rows,
     };

@@ -16,6 +16,7 @@ import { ListingImportService, homeCards, pickCity } from "../src/ai/listing-imp
 import { cleanLinks } from "../src/listings/listings.service";
 import { unlock, PageFetcher } from "../src/ai/page-fetcher.service";
 import { apishEndpointFor, pageFromApish, portalFacts, readViaApish } from "../src/ai/apish";
+import { KeyPool, parseKeys } from "../src/common/key-pool";
 
 describe("safe fetching of pasted links", () => {
   it("refuses private, loopback and cloud-metadata addresses", () => {
@@ -210,8 +211,9 @@ describe("api.sh", () => {
     expect(key).toBe("ash_test_key");
     expect(r.portal).toBe("99acres");
     const fail = (status: number) => (async () => new Response(JSON.stringify({ success: false, error: "x" }), { status })) as unknown as typeof fetch;
-    await expect(readViaApish(ACRES.url, { fetchImpl: fail(401) })).rejects.toThrow(/refused the API key/);
-    await expect(readViaApish(ACRES.url, { fetchImpl: fail(402) })).rejects.toThrow(/credits are used up/);
+    const fresh = () => new KeyPool("test", () => "ash_test_key", () => undefined);
+    await expect(readViaApish(ACRES.url, { fetchImpl: fail(401), keys: fresh() })).rejects.toThrow(/refused the API key/);
+    await expect(readViaApish(ACRES.url, { fetchImpl: fail(402), keys: fresh() })).rejects.toThrow(/credits are used up/);
     await expect(readViaApish("http://169.254.169.254/latest", { fetchImpl: ok })).rejects.toThrow(/private address/);
   });
   it("turns a portal listing into photos, a map pin and exact facts", () => {
@@ -232,5 +234,39 @@ describe("api.sh", () => {
   });
   it("is preferred over Bright Data when both keys are set", () => {
     expect(new PageFetcher({} as never, {} as never).provider).toBe("apish");
+  });
+});
+
+describe("several api.sh keys", () => {
+  it("reads one key per line, or comma separated, without duplicates", () => {
+    expect(parseKeys("ash_live_aaaa1111\n ash_live_bbbb2222 , ash_live_aaaa1111\n\n# old: ash_x")).toEqual(["ash_live_aaaa1111", "ash_live_bbbb2222"]);
+  });
+  it("moves to the next key when one is refused or out of credits, and remembers it", async () => {
+    const pool = new KeyPool("test", () => "ash_live_key1111\nash_live_key2222\nash_live_key3333", () => undefined);
+    const used: string[] = [];
+    const answers: Record<string, number> = { ash_live_key1111: 402, ash_live_key2222: 401, ash_live_key3333: 200 };
+    const fake = (async (_u: string, init: RequestInit) => {
+      const k = (init.headers as Record<string, string>)["x-api-key"]; used.push(k);
+      return new Response(JSON.stringify(answers[k] === 200 ? ACRES : { success: false, error: "nope" }), { status: answers[k] });
+    }) as unknown as typeof fetch;
+    const r = await readViaApish(ACRES.url, { fetchImpl: fake, keys: pool });
+    expect(r.key).toBe("…3333");
+    expect(used).toEqual(["ash_live_key1111", "ash_live_key2222", "ash_live_key3333"]);
+    const status = await pool.status();
+    expect(status.keys.map((k) => k.state)).toEqual(["no-credits", "rejected", "ok"]);
+    expect(JSON.stringify(status)).not.toContain("ash_live_key1111");   // never shown in full
+    // The next call goes straight to the working key.
+    used.length = 0;
+    await readViaApish(ACRES.url, { fetchImpl: fake, keys: pool });
+    expect(used).toEqual(["ash_live_key3333"]);
+    // Reload gives them all another chance.
+    pool.reload();
+    expect((await pool.usable()).length).toBe(3);
+  });
+  it("says so when every key has failed", async () => {
+    const pool = new KeyPool("test", () => "ash_live_only1111", () => undefined);
+    const fake = (async () => new Response(JSON.stringify({ success: false }), { status: 402 })) as unknown as typeof fetch;
+    await expect(readViaApish(ACRES.url, { fetchImpl: fake, keys: pool })).rejects.toThrow(/credits are used up/);
+    await expect(readViaApish(ACRES.url, { fetchImpl: fake, keys: pool })).rejects.toThrow(/Every api.sh key is out of credits/);
   });
 });

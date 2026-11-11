@@ -41,6 +41,9 @@ export class AdminController {
   @Get("ai") @ApiOperation({ summary: "AI usage by feature, and whether AI is configured" })
   ai() { return this.svc.aiUsage(); }
 
+  @Post("scraper/reload") @ApiOperation({ summary: "Re-read the api.sh keys now and forget which ones failed" })
+  reloadScraperKeys(@CurrentUser() user: AuthUser) { return this.svc.reloadScraperKeys(user.id); }
+
   @Get("ai/brief") @ApiOperation({ summary: "Today's AI-written brief for the admin" })
   brief(@CurrentUser() user: AuthUser, @Query("refresh") refresh?: string) { return this.svc.aiBrief(user.id, refresh === "1"); }
 

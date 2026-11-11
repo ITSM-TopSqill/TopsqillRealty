@@ -7,6 +7,7 @@ import { readPage, type ReadPage } from "./page-reader";
 import { newId } from "../common/ids";
 import { env } from "../common/env";
 import { apishEndpointFor, readViaApish } from "./apish";
+import { apishKeys } from "../common/key-pool";
 
 export type FetchedPage = {
   page: ReadPage | null; via: "direct" | "brightdata" | "apish" | null; error: string;
@@ -39,7 +40,7 @@ export class PageFetcher {
 
   /** Which paid reader is set up, if any. */
   get provider(): "apish" | "brightdata" | null {
-    if (env.APISH_API_KEY) return "apish";
+    if (apishKeys.configured) return "apish";
     if (env.BRIGHTDATA_API_KEY && env.BRIGHTDATA_ZONE) return "brightdata";
     return null;
   }

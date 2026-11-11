@@ -1,11 +1,13 @@
 import { api } from "@/lib/api";
 import { getToken } from "@/lib/session";
 import { RefreshBrief } from "@/components/admin/RefreshBrief";
+import { ReloadKeys } from "@/components/admin/ReloadKeys";
 
 type Usage = {
   configured: boolean; model: string; dailyLimitPerMember: number;
   brightdata?: { configured: boolean; zone: string | null; dailyLimitPerMember: number };
   scraper?: "api.sh" | "Bright Data" | null;
+  apishKeys?: { source: "secret" | "env" | "none"; keys: { hint: string; state: "ok" | "rejected" | "no-credits"; until?: string; reason?: string }[] } | null;
   features: { feature: string; calls: number; failed: number; today: number; inputTokens: number; outputTokens: number; avgMs: number; members: number }[];
   daily: { day: string; calls: number }[];
 };
@@ -73,6 +75,36 @@ export default async function AdminAi() {
         </div>
         <div className="card pad"><div className="small muted" style={{ fontWeight: 700 }}>Limit per member</div><div style={{ fontWeight: 800, fontSize: 26 }}>{usage.dailyLimitPerMember}<span className="small muted"> / day</span></div></div>
       </div>
+
+      {usage.apishKeys ? (
+        <section className="card pad" style={{ marginBottom: 16 }}>
+          <div className="spread" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+            <h2 style={{ fontSize: 18 }}>api.sh keys</h2>
+            <ReloadKeys />
+          </div>
+          <p className="small muted" style={{ margin: "0 0 10px" }}>
+            {usage.apishKeys.source === "secret" ? "Read from Secret Manager every 5 minutes; add a version with new keys (one per line) and they apply without a deploy."
+              : usage.apishKeys.source === "env" ? "Read from the APISH_API_KEY setting." : "No keys found."}
+            {" "}Keys are tried in order; one that is refused or out of credits is skipped until it recovers or you reload.
+          </p>
+          {usage.apishKeys.keys.length ? (
+            <table className="tbl">
+              <thead><tr><th>Key</th><th>State</th><th>Note</th></tr></thead>
+              <tbody>
+                {usage.apishKeys.keys.map((k, i) => (
+                  <tr key={i}>
+                    <td><code>{k.hint}</code>{i === 0 ? <span className="small muted"> (first)</span> : null}</td>
+                    <td style={{ color: k.state === "ok" ? "var(--grn)" : "var(--red)", fontWeight: 700 }}>
+                      {k.state === "ok" ? "● Working" : k.state === "no-credits" ? "● Out of credits" : "● Refused"}
+                    </td>
+                    <td className="small muted">{k.until ? `Skipped until ${new Date(k.until).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", timeStyle: "short" })}${k.reason ? ` · ${k.reason}` : ""}` : ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+        </section>
+      ) : null}
 
       {!usage.configured ? (
         <div className="card pad" style={{ marginBottom: 16, background: "var(--soft)" }}>
