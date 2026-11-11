@@ -81,6 +81,16 @@ export async function readUpload(objectPath: string): Promise<Buffer> {
   return readFile(localPath("uploads", objectPath));
 }
 
+/** Is there already a public file at this path? (Only on Google Cloud; locally always false.) */
+export async function publicExists(path: string): Promise<boolean> {
+  if (!gcs) return false;
+  const [ok] = await gcs.bucket(env.GCS_BUCKET_PUBLIC!).file(path).exists();
+  return ok;
+}
+
+/** True when files are stored on Google Cloud (and so voice-overs can be made and kept). */
+export const onCloud = () => !!gcs;
+
 export async function writePublic(path: string, body: Buffer, contentType: string) {
   if (gcs) {
     await gcs.bucket(env.GCS_BUCKET_PUBLIC!).file(path).save(body, {

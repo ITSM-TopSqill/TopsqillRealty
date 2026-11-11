@@ -22,3 +22,16 @@ describe("uploaded walkthrough videos", () => {
     expect(await videoChannel("https://youtu.be/x", (async () => { throw new Error("offline"); }) as never)).toBeNull();
   });
 });
+
+import { speakable, voiceKey } from "../src/ai/voice";
+describe("Indian voice-over", () => {
+  it("says prices and sizes the way a presenter would", () => {
+    expect(speakable("A 3 BHK at ₹1.82 Cr, 1,650 sq ft.")).toBe("A 3 B H K at 1.82 crore rupees, 1,650 square feet.");
+    expect(speakable("Rent ₹45 L or ₹22,000/month")).toBe("Rent 45 lakh rupees or 22,000 rupees a month");
+  });
+  it("names each line's audio file by voice and words, so it is made once", () => {
+    expect(voiceKey("en-IN-Neural2-D", "Hello")).toBe(voiceKey("en-IN-Neural2-D", "Hello"));
+    expect(voiceKey("en-IN-Neural2-D", "Hello")).not.toBe(voiceKey("en-IN-Neural2-B", "Hello"));
+    expect(voiceKey("en-IN-Neural2-D", "Hello")).toMatch(/^public\/voice\/[0-9a-f]{24}\.mp3$/);
+  });
+});

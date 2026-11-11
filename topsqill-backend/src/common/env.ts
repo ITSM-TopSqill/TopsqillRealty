@@ -64,6 +64,8 @@ const schema = z.object({
   // On Google Cloud: the secret holding the api.sh keys (one per line). It is
   // re-read every 5 minutes, so keys can be added or changed without a deploy.
   APISH_SECRET: z.string().optional(),
+  /** The guided video's voice (Google Cloud Text-to-Speech). Indian English by default. */
+  TTS_VOICE: z.string().default("en-IN-Neural2-D"),
 });
 
 export type Env = z.infer<typeof schema>;

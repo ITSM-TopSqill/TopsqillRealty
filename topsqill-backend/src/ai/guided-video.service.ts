@@ -3,6 +3,7 @@ import { ClaudeService } from "./claude.service";
 import { ListingsService } from "../listings/listings.service";
 import { inr } from "./query";
 import { scrubList, scrubSources } from "../common/sources";
+import { speakAll } from "./voice";
 
 /**
  * The narration for a listing's guided video: Topsqill's own video, made from
@@ -18,13 +19,15 @@ export type VideoScript = {
   rooms: { living: string; kitchen: string; master: string; bedroom: string; bath: string; balcony: string; study: string };
   highlights: string; location: string; outro: string;
   source: "claude" | "rules";
+  /** Each line spoken by an Indian English voice: { line: mp3 link }. Lines without one use the browser's voice. */
+  audio?: Record<string, string>;
 };
 
 type ListingRow = {
   id: string; title: string; purpose: string; kind: string; bhk?: number | null; areaSqft?: number | null; priceInr?: number | null;
   city: string; locality: string; possession?: string | null; furnishing?: string | null; facing?: string | null;
   description?: string | null; amenities?: string[]; usps?: string[]; reraNumber?: string | null;
-  media?: { kind?: string; label?: string | null }[];
+  media?: { kind?: string; label?: string | null; scenes?: { branded?: boolean; items?: { line?: string }[] } | null }[];
 };
 
 const LINE = 220;
@@ -49,7 +52,7 @@ export class GuidedVideoService {
 
 Rules:
 - Use ONLY these facts. Never invent sizes, views, brands, distances, floors or prices. If a room isn't described in the facts, describe it in general, honest terms ("a separate kitchen with room for a dining table" is fine; "Italian marble" is not unless stated).
-- Warm, confident, plain English, like a good property presenter. Each line 1 or 2 short sentences, at most 200 characters. Prices in Indian style (₹1.2 Cr, ₹85 L).
+- Warm, confident Indian English, like an experienced Indian property presenter on a real estate show (natural, never salesy or cartoonish). Each line 1 or 2 short sentences, at most 200 characters. Prices in Indian style (₹1.2 Cr, ₹85 L).
 - Never name or mention any website, portal, app or YouTube channel, and no links or phone numbers.
 - "photos": one line per photo label given (same order, at most 8); if there are no labels, give 4 general lines about the home.
 - The room lines are spoken as the 3D tour enters that room. Note the 3D layout is illustrative, so describe the room, not exact dimensions.
@@ -61,7 +64,11 @@ Reply with JSON only: {"intro": "...", "photos": ["..."], "rooms": {"living": ".
     const { data, source } = await this.claude.json<Partial<VideoScript>>(prompt, () => ({}), {
       feature: "listing.video", maxTokens: 1500, cacheSeconds: 86_400, effort: "low", timeoutMs: 30_000,
     });
-    return merge(base, data, source);
+    const script = merge(base, data, source);
+    // The voice-over: every line of the script, and the lines AI wrote for the owner's own video.
+    const clipLines = (l.media ?? []).filter((m) => m.kind === "video" && !m.scenes?.branded).flatMap((m) => m.scenes?.items ?? []).map((s) => s.line ?? "");
+    script.audio = await speakAll([script.intro, ...script.photos, ...Object.values(script.rooms), script.highlights, script.location, script.outro, ...clipLines]);
+    return script;
   }
 }
 
