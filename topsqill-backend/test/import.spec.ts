@@ -193,6 +193,14 @@ const ACRES = {
   latitude: 18.6298, longitude: 73.7997, photos: [{ url: "https://imagecdn.99acres.com/media1/1/2/photo1.jpg", caption: "Living room" }, "https://imagecdn.99acres.com/media1/1/2/photo2.webp"],
   amenities: ["LIFT", "SWIMMING_POOL"], description: "Spacious flat posted by the owner.", credits_used: 1, cached: false,
 };
+// As 99acres really answers: a placeholder RERA, the city inside the locality, feature lists, nearby places, and who posted it.
+const ACRES_REAL = {
+  ...ACRES, rera: "RERA", locality: "Chinchwad, Pune", amenities: undefined,
+  internal_features: ["1 Covered Parking", "Gated Society"], external_features: ["Security Guard", "Piped-gas"],
+  usps: ["Vaastu Compliant", "Close to Metro Station"], floor: "5", total_floors: 22,
+  nearby: [{ name: "City clinic", category: "Clinic", distance: "0.2 km" }, { name: "Chinchwad metro station", category: "Metro Station", distance: "0.9 km" }, { name: "Elpro City Square", category: "Shopping", distance: "1.2 km" }],
+  advertiser: { type: "Owner", name: "Ramesh Testname", photo: "https://static.99acres.com/images/owner_pnava.png", phone: "9800000000" },
+};
 
 describe("api.sh", () => {
   it("sends portal listings to their own endpoints, and other links to the page reader", () => {
@@ -231,6 +239,21 @@ describe("api.sh", () => {
     expect(d).toMatchObject({ bhk: 3, areaSqft: 1216, priceInr: 18200000, city: "Pune", locality: "Chinchwad" });
     expect(d.title).toBe("3 BHK apartment in Chinchwad");
     expect(d.description).not.toContain("posted by the owner");
+  });
+  it("never takes in who posted the listing", () => {
+    const p = pageFromApish(ACRES_REAL, ACRES_REAL.url);
+    expect(p.text).not.toMatch(/Ramesh|Testname|9800000000/);
+    expect(p.images.some((i) => i.url.includes("owner_"))).toBe(false);
+  });
+  it("ignores a placeholder RERA, keeps the locality short, and uses the portal's own lists", () => {
+    const f = portalFacts(ACRES_REAL);
+    expect(f.reraNumber).toBe("");
+    expect(portalFacts({ ...ACRES_REAL, rera: "UPRERAPRJ123456" }).reraNumber).toBe("UPRERAPRJ123456");
+    expect(f.locality).toBe("Chinchwad");
+    expect(f.amenities).toEqual(["1 Covered Parking", "Gated Society", "Security Guard", "Piped-gas"]);
+    expect(f.usps.slice(0, 2)).toEqual(["Chinchwad Metro Station, 0.9 km", "Elpro City Square, 1.2 km"]);
+    expect(f.usps).not.toContain("City clinic, 0.2 km");
+    expect(f.floor).toBe("5th floor of 22");
   });
   it("is preferred over Bright Data when both keys are set", () => {
     expect(new PageFetcher({} as never, {} as never).provider).toBe("apish");

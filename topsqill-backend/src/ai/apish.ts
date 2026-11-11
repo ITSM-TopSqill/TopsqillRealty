@@ -82,7 +82,8 @@ export function pageFromApish(data: Record<string, unknown>, url: string): ReadP
       const img = str(o.url) || str(o.src) || str(o.image) || str(o.large) || str(o.original);
       if (img && /image|photo|img|picture|gallery/i.test(key) && /^https?:/.test(img)) addImage(img, str(o.alt) || str(o.caption) || str(o.label));
       for (const [k, x] of Object.entries(o)) {
-        if (/^(raw|links|headings|credits_used|cached|fetched_at|success)$/.test(k)) continue;
+        // Who posted it (owner or agent name, photo, phone) is never taken in.
+        if (/^(raw|links|headings|credits_used|cached|fetched_at|success)$/.test(k) || PERSONAL.test(k)) continue;
         walk(x, k, depth + 1);
       }
       return;
@@ -120,6 +121,15 @@ export function pageFromApish(data: Record<string, unknown>, url: string): ReadP
   };
 }
 
+/** Fields about the person who posted a listing: never read, stored or sent to the AI. */
+const PERSONAL = /^(advertiser|owner|owner_name|agent|agents|contact|contacts|seller|dealer|broker|posted_by|poster|user|phone|phones|mobile|email|whatsapp|profile)$/i;
+
+/** A RERA registration number has letters and digits ("UPRERAPRJ123456", "P51800046724"); "RERA" or "Yes" is a placeholder. */
+export function validRera(v: string) {
+  const t = v.replace(/^rera\s*(no\.?|number|id)?\s*[:#-]?\s*/i, "").trim();
+  return /\d{3,}/.test(t) && /^[A-Z0-9/\-]{6,40}$/i.test(t) ? t : "";
+}
+
 /**
  * The facts a portal listing states outright (99acres, MagicBricks, NoBroker),
  * read straight from api.sh's fields. These beat any guess from page text.
@@ -133,6 +143,16 @@ export function portalFacts(d: Record<string, unknown>) {
   const furnishing = s("furnishing").toLowerCase();
   const possession = s("possession", "availability", "transaction");
   const project = d.project && typeof d.project === "object" ? (d.project as Record<string, unknown>) : null;
+  // String lists from several fields, tidied ("SWIMMING_POOL" → "Swimming pool"), without repeats.
+  const list = (...keys: string[]) => {
+    const out: string[] = [];
+    for (const k of keys) if (Array.isArray(d[k])) for (const v of d[k] as unknown[]) {
+      const t = (typeof v === "string" ? v : typeof v === "object" && v && "name" in v ? String((v as { name: unknown }).name) : "").replace(/_/g, " ").trim();
+      const nice = t === t.toUpperCase() ? t.toLowerCase().replace(/^./, (c) => c.toUpperCase()) : t;
+      if (nice && nice.length < 60 && !out.some((o) => o.toLowerCase() === nice.toLowerCase())) out.push(nice);
+    }
+    return out;
+  };
   return {
     purpose,
     kind: /villa/.test(type) ? "Villa" : /plot|land/.test(type) ? "Plot" : /builder floor|independent floor|\bif\b/.test(type) ? "Builder floor"
@@ -141,15 +161,36 @@ export function portalFacts(d: Record<string, unknown>) {
     areaSqft: num("super_builtup_sqft", "builtup_sqft", "carpet_sqft", "covered_area", "carpet_area", "size_sqft", "area_sqft", "plot_area"),
     priceInr: purpose === "rent" ? num("rent", "price") : num("price", "price_min"),
     city: s("city").replace(/^./, (c) => c.toUpperCase()),
-    locality: s("locality", "nb_locality", "location"),
+    // "Sector 49, Noida" → "Sector 49": the city is its own field.
+    locality: s("locality", "nb_locality", "location").replace(new RegExp(`\\s*,\\s*${(s("city") || "#").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "i"), ""),
     furnishing: /^(fully|furnished)/.test(furnishing) ? "Fully furnished" : /semi/.test(furnishing) ? "Semi-furnished" : furnishing ? "Unfurnished" : "",
     facing: s("facing") ? `${s("facing")} facing` : "",
     possession: /ready|immediate|resale/i.test(possession) ? "Ready to move" : possession ? "Under construction" : "",
-    reraNumber: s("rera", "rera_number", "rera_id"),
+    reraNumber: validRera(s("rera", "rera_number", "rera_id")),
     projectName: s("project_name", "society") || (project && typeof project.name === "string" ? project.name : ""),
     builder: s("builder", "developer"),
-    amenities: Array.isArray(d.amenities) ? (d.amenities as unknown[]).map(String).map((a) => a.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase())).slice(0, 15) : [],
+    amenities: list("amenities", "internal_features", "external_features", "features").slice(0, 15),
+    // The nearest places first (exact distances beat "Close to Metro Station"), then the portal's own highlights ("Noida Sector 76 Metro Station, 0.65 km").
+    usps: [...nearest(d.nearby), ...list("usps", "highlights")].filter((u, i, a) => a.findIndex((x) => x.toLowerCase() === u.toLowerCase()) === i).slice(0, 6),
+    floor: num("floor") && num("total_floors") ? `${ordinal(num("floor")!)} floor of ${num("total_floors")}` : s("floors_label"),
   };
 }
+
+/** The two nearest places from a portal's "nearby" list, as short selling points. */
+function nearest(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((n) => n && typeof n === "object" && typeof (n as { name?: unknown }).name === "string")
+    .map((n) => n as { name: string; distance?: string | number; category?: string })
+    // What buyers ask about first: transit, then schools, hospitals and malls; then distance.
+    .map((n) => ({ n, rank: [/metro|rapid|rrts/i, /railway|station|airport/i, /school|college|university/i, /hospital/i, /mall|market|shopping/i]
+      .findIndex((re) => re.test(`${n.category ?? ""} ${n.name}`)) }))
+    .filter((x) => x.rank >= 0)
+    .sort((a, b) => a.rank - b.rank || (parseFloat(String(a.n.distance)) || 99) - (parseFloat(String(b.n.distance)) || 99))
+    .map((x) => x.n)
+    .slice(0, 2)
+    .map((n) => `${n.name.replace(/\b\w/g, (c) => c.toUpperCase())}${n.distance ? `, ${n.distance}` : ""}`.slice(0, 80));
+}
+
+function ordinal(n: number) { const t = n % 100; return `${n}${t >= 11 && t <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th"}`; }
 
 function label(k: string) { return k.replace(/_/g, " "); }

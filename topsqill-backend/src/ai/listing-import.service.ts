@@ -96,7 +96,9 @@ export class ListingImportService {
     // Project and builder only as the portal names them; a guess from the text is often wrong here.
     const out: ImportDraft = { ...d, purpose: f.purpose, kind: f.kind, projectName: f.projectName, builder: f.builder };
     for (const k of ["city", "locality", "furnishing", "facing", "possession", "reraNumber"] as const) if (f[k]) out[k] = f[k];
-    if (f.amenities.length) out.amenities = f.amenities;
+    // The portal's own lists, never a guess from its text (a nearby restaurant isn't an amenity).
+    out.amenities = f.amenities;
+    if (f.usps.length) out.usps = f.usps;
     if (f.bhk || f.areaSqft || f.priceInr) {
       const config: ImportConfig = {
         bhk: f.bhk ?? 0, areaSqft: f.areaSqft ?? 0, priceInr: f.priceInr ?? 0,
@@ -109,7 +111,7 @@ export class ListingImportService {
     // Written from the facts, never the portal's own text (that belongs to whoever posted it).
     out.description = [
       `${f.bhk ? `${f.bhk} BHK ` : ""}${out.kind.toLowerCase()} ${out.purpose === "rent" ? "for rent" : "for sale"}${where ? ` in ${where}` : ""}${out.locality && out.city && !where.includes(out.city) ? `, ${out.city}` : ""}.`,
-      f.areaSqft ? `${f.areaSqft.toLocaleString("en-IN")} sq ft.` : "",
+      f.areaSqft ? `${f.areaSqft.toLocaleString("en-IN")} sq ft${f.floor ? `, ${f.floor.replace(/^./, (c) => c.toLowerCase())}` : ""}.` : "",
       out.furnishing ? `${out.furnishing}.` : "", out.facing ? `${out.facing}.` : "", out.possession ? `${out.possession}.` : "",
       out.amenities.length ? `Amenities include ${out.amenities.slice(0, 6).join(", ").toLowerCase()}.` : "",
     ].filter(Boolean).join(" ");
