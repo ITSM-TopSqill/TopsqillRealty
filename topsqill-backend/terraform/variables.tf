@@ -95,3 +95,16 @@ variable "web_url" {
   default     = "https://topsqill.ai"
   description = "The website's address, used for links in alert emails, e.g. your Vercel URL."
 }
+
+# Bright Data Web Unlocker, for importing listings from sites that block
+# servers (99acres, Housing.com...). Store the key first:
+#   gcloud secrets versions add topsqill-<env>-brightdata-key --data-file=-
+# then set brightdata_enabled = true. Until then the API runs without it.
+variable "brightdata_enabled" {
+  type    = bool
+  default = false
+}
+variable "brightdata_zone" {
+  type    = string
+  default = "topsqill_unlocker"
+}

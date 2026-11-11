@@ -54,6 +54,10 @@ const schema = z.object({
 
   ANTHROPIC_API_KEY: z.string().optional(),
   CLAUDE_MODEL: z.string().default("claude-sonnet-5-5"),
+  // Bright Data Web Unlocker, for importing from sites that block servers
+  // (99acres, Housing.com...). Without a key, those need the page text pasted.
+  BRIGHTDATA_API_KEY: z.string().optional(),
+  BRIGHTDATA_ZONE: z.string().optional(),
 });
 
 export type Env = z.infer<typeof schema>;

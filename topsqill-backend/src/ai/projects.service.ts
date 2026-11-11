@@ -7,8 +7,8 @@ import { SearchService } from "../search/search.service";
 import { ListingsService } from "../listings/listings.service";
 import { extractProject, estimatePrices, type Extracted } from "./extract";
 import { newId } from "../common/ids";
-import { safeFetch, cleanUrl, FetchError } from "../common/safe-fetch";
-import { readPage } from "./page-reader";
+import { cleanUrl } from "../common/safe-fetch";
+import { PageFetcher } from "./page-fetcher.service";
 
 @Injectable()
 export class ProjectsService {
@@ -18,6 +18,7 @@ export class ProjectsService {
     private readonly claude: ClaudeService,
     private readonly search: SearchService,
     private readonly listingsSvc: ListingsService,
+    private readonly pages: PageFetcher,
   ) {}
 
   /**
@@ -30,14 +31,12 @@ export class ProjectsService {
     // With only a link, read the page ourselves (safely). Pasted text still
     // wins: some sites block robots or build the page in the browser.
     if (input.url && (input.text ?? "").trim().length < 200) {
-      try {
-        input = { ...input, url: cleanUrl(input.url) };
-        const res = await safeFetch(input.url!, { maxBytes: 4_000_000, timeoutMs: 15_000 });
-        const page = readPage(res.body.toString("utf8"), res.url);
-        input.text = [page.title, page.description, page.text, input.text].filter(Boolean).join("\n");
-      } catch (e) {
-        if (!input.text) throw new BadRequestException(`${e instanceof FetchError ? e.message : "The page couldn’t be opened."} Copy the page text and paste it below the link.`);
-      }
+      let url: string;
+      try { url = cleanUrl(input.url); } catch (e) { throw new BadRequestException((e as Error).message); }
+      const fetched = await this.pages.fetch(userId, url, { paid: !(input.text ?? "").trim() });
+      input = { ...input, url };
+      if (fetched.page) input.text = [fetched.page.title, fetched.page.description, fetched.page.text, input.text].filter(Boolean).join("\n");
+      else if (!input.text) throw new BadRequestException(`${fetched.error || "The page couldn’t be opened."} Copy the page text and paste it below the link.`);
     }
     const base = extractProject(input.url ?? "", input.text ?? "");
 

@@ -21,3 +21,8 @@ smtp_host  = ""                          # e.g. "smtp.resend.com"
 smtp_port  = 587
 smtp_user  = ""                          # e.g. "resend"
 email_from = ""                          # e.g. "Topsqill.ai <no-reply@topsqill.ai>"
+
+# Imports from 99acres, Housing.com... through Bright Data. Store the key in
+# Secret Manager first (topsqill-<env>-brightdata-key), then turn this on.
+brightdata_enabled = false
+brightdata_zone    = "topsqill_unlocker"

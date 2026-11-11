@@ -132,6 +132,12 @@ resource "google_secret_manager_secret" "anthropic" {
     auto {}
   }
 }
+resource "google_secret_manager_secret" "brightdata" {
+  secret_id = "${local.name}-brightdata-key"
+  replication {
+    auto {}
+  }
+}
 resource "google_secret_manager_secret" "whatsapp" {
   secret_id = "${local.name}-whatsapp-token"
   replication {
@@ -271,6 +277,26 @@ resource "google_cloud_run_v2_service" "api" {
             secret  = google_secret_manager_secret.anthropic.secret_id
             version = "latest"
           }
+        }
+      }
+      # Bright Data, only once its key is stored (brightdata_enabled).
+      dynamic "env" {
+        for_each = var.brightdata_enabled ? ["BRIGHTDATA_API_KEY"] : []
+        content {
+          name = env.value
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.brightdata.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+      dynamic "env" {
+        for_each = var.brightdata_enabled ? [var.brightdata_zone] : []
+        content {
+          name  = "BRIGHTDATA_ZONE"
+          value = env.value
         }
       }
 

@@ -3,13 +3,14 @@ import { ClaudeService } from "./claude.service";
 import { CacheService } from "../redis/redis.module";
 import { extractProject } from "./extract";
 import { readPage, type PageImage, type ReadPage } from "./page-reader";
-import { safeFetch, cleanUrl, FetchError } from "../common/safe-fetch";
+import { safeFetch, cleanUrl } from "../common/safe-fetch";
+import { PageFetcher } from "./page-fetcher.service";
 import { videoEmbed, tourEmbed } from "../common/embeds";
 import { money } from "./query";
 
 export type ImportConfig = { bhk: number; areaSqft: number; priceInr: number; label: string; startingPrice?: boolean };
 export type ImportDraft = {
-  source: "claude" | "rules"; sourceUrl: string; site: string;
+  source: "claude" | "rules"; sourceUrl: string; site: string; fetchedVia?: "direct" | "brightdata" | "pasted";
   title: string; purpose: "sale" | "rent"; kind: string; bhk: number | null; areaSqft: number | null;
   priceInr: number | null; priceOnRequest: boolean;
   city: string; locality: string; possession: string; furnishing: string; facing: string;
@@ -34,38 +35,35 @@ const IMPORTS_PER_DAY = 40;
  */
 @Injectable()
 export class ListingImportService {
-  constructor(private readonly claude: ClaudeService, private readonly cache: CacheService) {}
+  constructor(private readonly claude: ClaudeService, private readonly cache: CacheService, private readonly pages: PageFetcher) {}
 
   async preview(userId: string, input: { url: string; text?: string }): Promise<ImportDraft> {
     let url: string;
     try { url = cleanUrl(input.url); } catch (e) { throw new BadRequestException((e as Error).message); }
     await this.throttle(userId);
 
-    let page: ReadPage | null = null;
-    let fetchError = "";
-    try {
-      const res = await safeFetch(url, { maxBytes: 4_000_000, timeoutMs: 15_000 });
-      if (!/html|xml|text\/plain/.test(res.contentType) && res.contentType) throw new FetchError("That link isn’t a web page.");
-      page = readPage(res.body.toString("utf8"), res.url);
-    } catch (e) {
-      fetchError = e instanceof FetchError ? e.message : "The page couldn’t be opened.";
-    }
     const pasted = (input.text ?? "").trim();
+    // Pasted text is enough on its own, so a paid fetch is only used without it.
+    const fetched = await this.pages.fetch(userId, url, { paid: pasted.length < 600 });
+    const page: ReadPage | null = fetched.page;
+    const fetchError = fetched.page ? "" : fetched.error;
     const text = [page?.title, page?.description, page?.text, pasted].filter(Boolean).join("\n");
     if (text.replace(/\s+/g, " ").length < 200) {
       throw new BadRequestException(fetchError
         ? `${fetchError} Open the page in your browser, copy all of its text, and paste it in the box below the link.`
-        : "That site shows almost nothing to robots. Open it in your browser, copy all of its text, and paste it in the box below the link.");
+        : `That site shows almost nothing to robots${this.pages.unlockerAvailable ? "" : " (it blocks servers or builds the page in the browser)"}. Open it in your browser, copy all of its text, and paste it in the box below the link.`);
     }
 
     const rules = this.rules(url, page, text);
     const notes: string[] = [];
     if (fetchError) notes.push(`${fetchError} The draft uses only the text you pasted.`);
+    if (fetched.via === "brightdata") notes.push("This site blocks servers, so the page was opened through Bright Data. Check the details closely.");
 
     const { data: ai, source } = await this.claude.json<Partial<AiDraft>>(this.prompt(url, page, text), () => ({}), {
       userId, feature: "listing.import", maxTokens: 2500, cacheSeconds: 3600, effort: "medium", timeoutMs: 60_000,
     });
     const draft = this.merge(rules, ai, source);
+    draft.fetchedVia = fetched.via ?? "pasted";
     draft.notes.unshift(...notes);
 
     // Map: the page's own pin when it has one; otherwise the locality's centre.

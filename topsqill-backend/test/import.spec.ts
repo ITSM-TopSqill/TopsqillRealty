@@ -4,6 +4,8 @@ vi.hoisted(() => {
   process.env.DATABASE_URL ??= "postgres://x@localhost/x";
   process.env.JWT_SECRET ??= "test-secret-at-least-16";
   process.env.REDIS_URL ??= "redis://127.0.0.1:1";
+  process.env.BRIGHTDATA_API_KEY = "test-brightdata-key";
+  process.env.BRIGHTDATA_ZONE = "topsqill_unlocker";
 });
 import { isPrivateAddress, checkUrl, cleanUrl, safeFetch } from "../src/common/safe-fetch";
 import { videoEmbed, tourEmbed } from "../src/common/embeds";
@@ -11,6 +13,7 @@ import { readPage, coordsOf } from "../src/ai/page-reader";
 import { sniffImage } from "../src/media/media.service";
 import { ListingImportService, homeCards, pickCity } from "../src/ai/listing-import.service";
 import { cleanLinks } from "../src/listings/listings.service";
+import { unlock, PageFetcher } from "../src/ai/page-fetcher.service";
 
 describe("safe fetching of pasted links", () => {
   it("refuses private, loopback and cloud-metadata addresses", () => {
@@ -102,7 +105,7 @@ describe("reading a property page", () => {
 });
 
 describe("drafting a listing from a page", () => {
-  const svc = new ListingImportService({} as never, {} as never);
+  const svc = new ListingImportService({} as never, {} as never, {} as never);
   const text = "Leafsong Retreat by Hero Homes Greater Noida Sector MU. Premium 3 BHK residences Starting from ₹1.8 Cr*. 4.5 Acres. 3 Towers. 3 BHK + 2T Size 1,650 Sq. Ft. Swimming Pool, Clubhouse, Gym.";
   const page = { ...readPage("<title>Hero Homes DMIC Greater Noida</title>", "https://herohomesproperties.in/"), text };
   const rules = svc.rules("https://herohomesproperties.in/", page, text);
@@ -150,5 +153,30 @@ describe("imported photos", () => {
     expect(sniffImage(Buffer.from([0xff, 0xd8, 0xff, 0xe0, ...new Array(20).fill(0)]))?.mime).toBe("image/jpeg");
     expect(sniffImage(Buffer.concat([Buffer.from("RIFF0000WEBPVP8 "), Buffer.alloc(8)]))?.mime).toBe("image/webp");
     expect(sniffImage(Buffer.from("<html><body>not a photo</body></html>"))).toBeNull();
+  });
+});
+
+describe("Bright Data Web Unlocker", () => {
+  it("sends the zone and link to the direct API, with the key as a bearer token", async () => {
+    let sent: { url: string; init: RequestInit } | null = null;
+    const fake = (async (url: string, init: RequestInit) => { sent = { url, init }; return new Response("<html><body>Flat for sale</body></html>", { status: 200 }); }) as unknown as typeof fetch;
+    const html = await unlock("https://www.99acres.com/some-listing-spid-X123", { fetchImpl: fake });
+    expect(html).toContain("Flat for sale");
+    expect(sent!.url).toBe("https://api.brightdata.com/request");
+    expect((sent!.init.headers as Record<string, string>).authorization).toBe("Bearer test-brightdata-key");
+    expect(JSON.parse(String(sent!.init.body))).toEqual({ zone: "topsqill_unlocker", url: "https://www.99acres.com/some-listing-spid-X123", format: "raw" });
+  });
+  it("explains a bad key, used-up credits and site errors", async () => {
+    const answer = (status: number, headers: Record<string, string> = {}) => (async () => new Response("x", { status, headers })) as unknown as typeof fetch;
+    await expect(unlock("https://housing.com/x", { fetchImpl: answer(401) })).rejects.toThrow(/refused the API key/);
+    await expect(unlock("https://housing.com/x", { fetchImpl: answer(402) })).rejects.toThrow(/credits are used up/);
+    await expect(unlock("https://housing.com/x", { fetchImpl: answer(200, { "x-brd-error": "target site blocked" }) })).rejects.toThrow(/target site blocked/);
+  });
+  it("never sends private addresses to Bright Data", async () => {
+    await expect(unlock("http://169.254.169.254/computeMetadata/v1/", { fetchImpl: (async () => { throw new Error("must not be called"); }) as never })).rejects.toThrow(/private address/);
+    const pages = new PageFetcher({} as never, { redis: { incr: async () => { throw new Error("must not be called"); } } } as never);
+    const r = await pages.fetch("u1", "http://localtest.me/");
+    expect(r.via).toBeNull();
+    expect(r.error).toMatch(/private address/);
   });
 });

@@ -21,6 +21,7 @@ output "next_steps" {
     2. Add your API keys:
        echo -n "sk-ant-..." | gcloud secrets versions add topsqill-${var.environment}-anthropic-key --data-file=-
        echo -n "EAAG..."    | gcloud secrets versions add topsqill-${var.environment}-whatsapp-token --data-file=-
+       Bright Data (optional): add a version to topsqill-${var.environment}-brightdata-key, then set brightdata_enabled = true
     3. Build and deploy: gcloud builds submit --config cloudbuild.yaml
     4. Run the migrations once (from Cloud Shell, connected to the VPC): npm run db:migrate
   EOT

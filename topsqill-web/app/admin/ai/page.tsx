@@ -4,6 +4,7 @@ import { RefreshBrief } from "@/components/admin/RefreshBrief";
 
 type Usage = {
   configured: boolean; model: string; dailyLimitPerMember: number;
+  brightdata?: { configured: boolean; zone: string | null; dailyLimitPerMember: number };
   features: { feature: string; calls: number; failed: number; today: number; inputTokens: number; outputTokens: number; avgMs: number; members: number }[];
   daily: { day: string; calls: number }[];
 };
@@ -15,6 +16,7 @@ const NAMES: Record<string, string> = {
   "write.post": "Post writer", "write.comment": "Comment suggestions", "write.followup": "Lead follow-ups",
   "write.listing": "Listing descriptions", "write.profile": "Profile writer", "jobs.draft": "Job post writer",
   "project.extract": "Project import", "project.insights": "Project report", "campaign.creatives": "Ad creatives", "admin.brief": "Admin brief",
+  "listing.import": "Listing import", "fetch.brightdata": "Bright Data page fetches (paid)",
 };
 
 export default async function AdminAi() {
@@ -57,6 +59,17 @@ export default async function AdminAi() {
         </div>
         <div className="card pad"><div className="small muted" style={{ fontWeight: 700 }}>AI calls, 7 days</div><div style={{ fontWeight: 800, fontSize: 26 }}>{total.toLocaleString("en-IN")}</div></div>
         <div className="card pad"><div className="small muted" style={{ fontWeight: 700 }}>Failed</div><div style={{ fontWeight: 800, fontSize: 26, color: failed ? "var(--red)" : undefined }}>{failed}</div></div>
+        <div className="card pad">
+          <div className="small muted" style={{ fontWeight: 700 }}>Bright Data (protected sites)</div>
+          <div style={{ fontWeight: 800, fontSize: 18, marginTop: 4, color: usage.brightdata?.configured ? "var(--grn)" : "var(--ink3)" }}>
+            {usage.brightdata?.configured ? "● On" : "● Off"}
+          </div>
+          <div className="small muted">
+            {usage.brightdata?.configured
+              ? `Zone ${usage.brightdata.zone} · ${usage.features.find((f) => f.feature === "fetch.brightdata")?.today ?? 0} fetches today · ${usage.brightdata.dailyLimitPerMember} per member a day`
+              : "99acres and Housing.com need pasted text"}
+          </div>
+        </div>
         <div className="card pad"><div className="small muted" style={{ fontWeight: 700 }}>Limit per member</div><div style={{ fontWeight: 800, fontSize: 26 }}>{usage.dailyLimitPerMember}<span className="small muted"> / day</span></div></div>
       </div>
 

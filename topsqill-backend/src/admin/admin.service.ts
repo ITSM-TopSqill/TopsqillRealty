@@ -6,6 +6,7 @@ import { CacheService } from "../redis/redis.module";
 import { NotificationsService } from "../notifications/notifications.service";
 import { MediaService } from "../media/media.service";
 import { ClaudeService } from "../ai/claude.service";
+import { env } from "../common/env";
 import { newId } from "../common/ids";
 
 type Decision = "approved" | "rejected" | "info";
@@ -46,6 +47,8 @@ export class AdminService {
       configured: this.claude.available,
       model: this.claude.model,
       dailyLimitPerMember: Number(process.env.AI_DAILY_LIMIT ?? 200),
+      // Imports from sites that block servers (99acres, Housing.com...).
+      brightdata: { configured: !!env.BRIGHTDATA_API_KEY && !!env.BRIGHTDATA_ZONE, zone: env.BRIGHTDATA_ZONE ?? null, dailyLimitPerMember: Number(process.env.BRIGHTDATA_DAILY_LIMIT_PER_MEMBER ?? 20) },
       features: features.map((f) => ({ ...f, inputTokens: Number(f.inputTokens), outputTokens: Number(f.outputTokens) })),
       daily: Array.isArray(daily) ? daily : (daily as { rows: unknown[] }).rows,
     };
