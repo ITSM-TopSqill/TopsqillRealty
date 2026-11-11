@@ -16,8 +16,10 @@ export type UploadedItem = { mediaId: string; name: string; progress: number; st
 
 const MAX = { image: 25e6, video: 500e6, document: 25e6, model: 80e6 } as const;
 
-export function MediaUploader({ items, onChange, max = 20, accept = "image/*,video/*,application/pdf", privateFiles = false, title, hint, coverFirst = false }: {
+export function MediaUploader({ items, onChange, max = 20, accept = "image/*,video/*,application/pdf", privateFiles = false, title, hint, coverFirst = false, inputId }: {
   items: UploadedItem[]; onChange: (items: UploadedItem[]) => void; max?: number; accept?: string;
+  /** Lets another part of the page open the file picker (for example "Upload your video"). */
+  inputId?: string;
   /** The first photo is the cover: it is marked, and any other can be made the cover. */
   coverFirst?: boolean;
   /** Documents for verification: stored privately, never published. */
@@ -119,7 +121,7 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
         <b>{title ?? "Add photos and videos"}</b>
         <div className="small muted">{hint ?? "Drag them here, or click to choose. Exterior, rooms, amenities and a walkthrough video."}</div>
       </div>
-      <input ref={input} type="file" accept={accept} multiple hidden
+      <input ref={input} id={inputId} type="file" accept={accept} multiple hidden
         onChange={(e) => {
           // Copy the files before clearing the input (clearing lets the same
           // file be picked again), since some browsers empty the list in place.

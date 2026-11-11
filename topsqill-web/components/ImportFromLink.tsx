@@ -166,25 +166,33 @@ export function ImportFromLink({ onDraft, onConfig, onPhotos, onLink, room }: {
             {draft.lat != null ? (draft.locationExact ? "📍 Map location taken from the page. " : "📍 Map set to the locality’s centre (the page had no pin). ") : "No map location found. "}
           </p>
 
-          {draft.videoUrl || draft.tourUrl ? (
+          {draft.videoUrl ? (
             <div style={{ background: "var(--soft)", borderRadius: 12, padding: "10px 14px" }}>
-              <b className="small">Video and 3D tour found on the page (not added)</b>
-              <p className="small muted" style={{ margin: "4px 0 8px" }}>
-                {PORTAL_HOST.test(draft.site)
-                  ? "These came from a property portal, so they most likely belong to the portal or to whoever posted the ad. "
-                  : ""}
-                They play with their channel’s name and logo, which can’t be hidden. Add one only if it is your own, or the builder’s and you are allowed to share it.
-                Otherwise upload your own video file below: uploaded videos play on Topsqill with no one else’s name.
+              <b className="small">🎬 This listing has a walkthrough video</b>
+              <p className="small" style={{ margin: "4px 0 8px" }}>
+                Upload your original video file (from your phone or WhatsApp). Topsqill’s AI watches it, names each room, and turns it into a guided video
+                with captions and a voice-over, with no other site’s name or logo on it.
               </p>
-              {([["videoUrl", "🎬 Walkthrough video"], ["tourUrl", "🧭 3D tour"]] as const).map(([k, name]) => draft[k] ? (
-                <div key={k} className="row small" style={{ gap: 8, flexWrap: "wrap", marginTop: 4 }}>
-                  <span>{name}:</span>
-                  <a href={draft[k]} target="_blank" rel="noopener noreferrer nofollow" style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{draft[k]}</a>
-                  {used.has(k)
-                    ? <span className="muted">✓ Added to the listing</span>
-                    : <button type="button" className="btn btn-o sm" onClick={() => { onLink(k, draft[k]); setUsed((u) => new Set(u).add(k)); }}>It’s mine: add it</button>}
-                </div>
-              ) : null)}
+              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                <button type="button" className="btn btn-p sm" onClick={() => {
+                  const el = document.getElementById("listing-media-input") as HTMLInputElement | null;
+                  el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  el?.click();
+                }}>📤 Upload your video</button>
+                {used.has("videoUrl")
+                  ? <span className="small muted">✓ Your YouTube video was added</span>
+                  : !PORTAL_HOST.test(draft.site)
+                    ? <button type="button" className="linklike small" onClick={() => { onLink("videoUrl", draft.videoUrl); setUsed((u) => new Set(u).add("videoUrl")); }}>It’s on my own YouTube channel: use the link</button>
+                    : null}
+              </div>
+            </div>
+          ) : null}
+          {draft.tourUrl ? (
+            <div className="row small" style={{ gap: 8, flexWrap: "wrap" }}>
+              <span>🧭 3D tour found on the page (not added). Add it only if it’s yours:</span>
+              {used.has("tourUrl")
+                ? <span className="muted">✓ Added to the listing</span>
+                : <button type="button" className="btn btn-o sm" onClick={() => { onLink("tourUrl", draft.tourUrl); setUsed((u) => new Set(u).add("tourUrl")); }}>It’s mine: add it</button>}
             </div>
           ) : null}
 

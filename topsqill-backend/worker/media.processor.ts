@@ -5,6 +5,7 @@ import sharp from "sharp";
 import { env } from "../src/common/env";
 import { readUpload, writePublic, copyToPublic } from "../src/media/storage";
 import { tagPhoto } from "./photo-tags";
+import { analyseVideo } from "./video-scenes";
 
 /** Photo sizes the app actually uses. A phone never downloads a 4K file for a small card. */
 export const IMAGE_SIZES = [
@@ -80,6 +81,12 @@ async function processVideo(data: MediaJob, pool: Pool, redis?: Redis) {
   const dest = data.objectPath.replace(/^uploads\//, "public/");
   await copyToPublic(data.objectPath, dest);
   await finish(pool, data.mediaId, { variants: { mp4: dest } });
+
+  // AI watches the video (a frame every few seconds) and notes the room, a
+  // caption and a narration line for each moment, for the guided video.
+  // It runs after the video is ready, so it never delays the upload.
+  const { rows } = await pool.query("select owner_id from media where id=$1", [data.mediaId]);
+  await analyseVideo(pool, data.mediaId, rows[0]?.owner_id ?? null, await download(data.objectPath)).catch(() => null);
 
   // On Google Cloud, a streaming (HLS) version is made too. The job runs for a
   // few minutes; checkTranscodes() adds it to the video once it is done.

@@ -1,6 +1,12 @@
 /** Shapes returned by the Topsqill.ai API, kept in one place. */
 
-export type Media = { id: string; kind: string; status: string; label?: string | null; urls?: Record<string, string>; blurhash?: string | null };
+export type VideoScene = { t: number; room: string; caption: string; line: string };
+export type Media = {
+  id: string; kind: string; status: string; label?: string | null; urls?: Record<string, string>; blurhash?: string | null;
+  durationMs?: number | null;
+  /** Videos: what AI saw at each moment, for the guided video. "branded" ones show another site's logo and are left out. */
+  scenes?: { branded?: boolean; items: VideoScene[] } | null;
+};
 
 export type PersonCard = {
   id: string; name: string; type: string; headline?: string | null;

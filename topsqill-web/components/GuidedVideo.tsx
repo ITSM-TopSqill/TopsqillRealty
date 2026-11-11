@@ -5,12 +5,13 @@ import { clientApi } from "@/lib/api";
 import { imageUrl, inr } from "@/lib/format";
 import { buildPlan, canPlan } from "@/lib/floorplan";
 import type { Walkthrough } from "@/lib/home3d";
-import type { Listing } from "@/lib/types";
+import type { Listing, VideoScene } from "@/lib/types";
 import { Map3D } from "./Map3D";
 
 /**
  * Topsqill's own guided video of a listing: a presenter voice and captions
- * over the listing's photos, a walk through its 3D layout room by room, the
+ * over the owner's own walkthrough clip (with what AI saw in it: "Subtle wall
+ * texture", "Modular kitchen"), the listing's photos, a walk through its 3D layout room by room, the
  * highlights and the neighbourhood map in 3D. Made from the listing itself,
  * so it carries no other site's or channel's name. The words are written by
  * AI from the listing's facts (or by rules when AI is off) and spoken by the
@@ -25,10 +26,15 @@ type Scene =
   | { kind: "intro" | "outro" | "highlights"; line: string; image?: string | null }
   | { kind: "photo"; line: string; image: string; label?: string | null }
   | { kind: "tour"; line: string }
+  | { kind: "clip"; line: string; src: string; items: VideoScene[] }
   | { kind: "map"; line: string };
 
 export function GuidedVideo({ listing }: { listing: Listing }) {
   const photos = useMemo(() => (listing.media ?? []).filter((m) => m.kind === "image" && m.urls).slice(0, 8), [listing.media]);
+  // The owner's own walkthrough videos; any showing another site's logo are left out.
+  const clips = useMemo(() => (listing.media ?? [])
+    .filter((m) => m.kind === "video" && m.status === "ready" && m.urls?.mp4 && !m.scenes?.branded)
+    .slice(0, 2).map((m) => ({ src: m.urls!.mp4, items: m.scenes?.items ?? [] })), [listing.media]);
   const plan = useMemo(() => (canPlan(listing.kind, listing.bhk, listing.areaSqft) ? buildPlan(listing.bhk!, listing.areaSqft!) : null), [listing]);
   const cover = imageUrl(listing.cover ?? photos[0], "full") ?? imageUrl(photos[0], "full");
   const [script, setScript] = useState<Script | null>(null);
@@ -36,13 +42,15 @@ export function GuidedVideo({ listing }: { listing: Listing }) {
   const [index, setIndex] = useState(0);
   const [caption, setCaption] = useState("");
   const [room, setRoom] = useState("");
+  const [title, setTitle] = useState("");
   const [muted, setMuted] = useState(false);
   const run = useRef(0);
   const wrap = useRef<HTMLDivElement>(null);
 
   const scenes: Scene[] = script ? [
     { kind: "intro", line: script.intro, image: cover },
-    ...photos.map((p, i) => ({ kind: "photo" as const, line: script.photos[i] ?? "", image: imageUrl(p, "full") ?? "", label: p.label })).filter((s) => s.image && s.line),
+    ...clips.map((c) => ({ kind: "clip" as const, line: "", src: c.src, items: c.items })),
+    ...photos.slice(0, clips.length ? 4 : 8).map((p, i) => ({ kind: "photo" as const, line: script.photos[i] ?? "", image: imageUrl(p, "full") ?? "", label: p.label })).filter((s) => s.image && s.line),
     ...(plan ? [{ kind: "tour" as const, line: "" }] : []),
     { kind: "highlights", line: script.highlights, image: imageUrl(photos[1] ?? photos[0], "full") ?? cover },
     ...(listing.lat != null && listing.lng != null ? [{ kind: "map" as const, line: script.location }] : []),
@@ -68,7 +76,7 @@ export function GuidedVideo({ listing }: { listing: Listing }) {
   // Each scene speaks its line, then moves on (the 3D tour moves on when it has been round the home).
   const scene = state === "playing" ? scenes[index] : undefined;
   useEffect(() => {
-    if (!scene || scene.kind === "tour") return;
+    if (!scene || scene.kind === "tour" || scene.kind === "clip") return;
     const me = run.current;
     setCaption(scene.line);
     let gone = false;
@@ -84,7 +92,7 @@ export function GuidedVideo({ listing }: { listing: Listing }) {
 
   const next = () => { if (index + 1 < scenes.length) setIndex(index + 1); else setState("done"); };
   const price = listing.priceInr ? inr(listing.priceInr, listing.purpose === "rent") : "";
-  if (!photos.length && !plan) return null;
+  if (!photos.length && !plan && !clips.length) return null;
 
   return (
     <div className="card pad" style={{ marginBottom: 16 }}>
@@ -111,7 +119,11 @@ export function GuidedVideo({ listing }: { listing: Listing }) {
           </button>
         ) : scene ? (
           <>
-            {scene.kind === "tour" && plan ? (
+            {scene.kind === "clip" ? (
+              <Clip key={`clip-${index}-${run.current}`} src={scene.src} items={scene.items} muted={muted}
+                onScene={(s) => { setRoom(s?.room && s.room !== "Other" ? s.room : ""); setTitle(s?.caption ?? ""); setCaption(s?.line ?? ""); }}
+                onDone={() => { setTitle(""); next(); }} />
+            ) : scene.kind === "tour" && plan ? (
               <Tour key={`tour-${run.current}`} plan={plan} script={script!} muted={muted}
                 onRoom={(name, line) => { setRoom(name); setCaption(line); }} onDone={next} />
             ) : scene.kind === "map" ? (
@@ -133,7 +145,13 @@ export function GuidedVideo({ listing }: { listing: Listing }) {
                 ))}
               </div>
             ) : null}
-            {scene.kind === "tour" && room ? <span className="pill" style={{ position: "absolute", left: 12, top: 12, background: "rgba(20,16,40,.7)", color: "#fff" }}>{room}</span> : null}
+            {scene.kind === "clip" && title ? (
+              <div key={title} style={{ position: "absolute", left: 0, right: 0, top: "58%", textAlign: "center", pointerEvents: "none", animation: "pop .5s both" }}>
+                <div style={{ display: "inline-block", fontSize: "clamp(22px, 4.4vw, 46px)", fontWeight: 800, color: "#fff", textShadow: "0 3px 14px rgba(0,0,0,.65)", letterSpacing: ".01em" }}>{title}</div>
+                <div style={{ width: "min(36%, 300px)", height: 5, margin: "8px auto 0", borderRadius: 4, background: "linear-gradient(90deg, #7c5cff, #2ec4b6)" }} />
+              </div>
+            ) : null}
+            {(scene.kind === "tour" || scene.kind === "clip") && room ? <span className="pill" style={{ position: "absolute", left: 12, top: 12, background: "rgba(20,16,40,.7)", color: "#fff" }}>{room}</span> : null}
             {scene.kind === "photo" && scene.label ? <span className="pill" style={{ position: "absolute", left: 12, top: 12, background: "rgba(20,16,40,.7)", color: "#fff" }}>{scene.label}</span> : null}
             {caption ? (
               <div style={{ position: "absolute", left: "50%", bottom: 14, transform: "translateX(-50%)", width: "min(92%, 760px)", textAlign: "center", padding: "8px 14px", borderRadius: 10, background: "rgba(10,8,25,.72)", fontSize: "clamp(13px, 1.8vw, 17px)", lineHeight: 1.35 }}>
@@ -195,6 +213,56 @@ function Tour({ plan, script, muted, onRoom, onDone }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return <div ref={stage} style={{ position: "absolute", inset: 0 }} />;
+}
+
+/**
+ * The owner's clip, fitted to the frame over a blurred copy of itself (so
+ * upright phone videos fill the screen), sound off, with the AI's caption
+ * and narration for each moment. Moves on when it ends, or after 90 seconds.
+ */
+function Clip({ src, items, muted, onScene, onDone }: { src: string; items: VideoScene[]; muted: boolean; onScene: (s: VideoScene | null) => void; onDone: () => void }) {
+  const fg = useRef<HTMLVideoElement>(null);
+  const bg = useRef<HTMLVideoElement>(null);
+  const shown = useRef(-1);
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const pending = useRef(0);
+  const ended = useRef(false);
+  useEffect(() => {
+    ended.current = false;
+    const cap = setTimeout(() => finish(), 90_000);
+    fg.current?.play().catch(() => finish());
+    return () => { clearTimeout(cap); ended.current = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  function finish() {
+    if (ended.current) return;
+    ended.current = true;
+    fg.current?.pause();
+    void queue.current.then(() => onDone());
+  }
+  function tick() {
+    const v = fg.current;
+    if (!v) return;
+    if (bg.current && Math.abs(bg.current.currentTime - v.currentTime) > 0.3) bg.current.currentTime = v.currentTime;
+    let i = -1;
+    for (let n = 0; n < items.length; n++) if (items[n].t - 1 <= v.currentTime) i = n;
+    if (i === shown.current || i < 0) return;
+    shown.current = i;
+    const s = items[i];
+    onScene(s);
+    // Narration one line at a time; if the video runs ahead, older lines are dropped.
+    if (s.line && pending.current < 1) {
+      pending.current++;
+      queue.current = queue.current.then(() => say(s.line, muted)).finally(() => { pending.current--; });
+    }
+  }
+  const fill: React.CSSProperties = { position: "absolute", inset: 0, width: "100%", height: "100%" };
+  return (
+    <>
+      <video ref={bg} src={src} muted playsInline autoPlay aria-hidden style={{ ...fill, objectFit: "cover", filter: "blur(22px) brightness(.55)", transform: "scale(1.15)" }} />
+      <video ref={fg} src={src} muted playsInline onTimeUpdate={tick} onEnded={finish} onError={finish} style={{ ...fill, objectFit: "contain" }} />
+    </>
+  );
 }
 
 function roomKind(name: string, bhk: number): keyof Script["rooms"] | null {

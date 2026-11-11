@@ -238,8 +238,8 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
           </div>
           <div className="field" style={{ gridColumn: "1 / -1" }}>
             <label>Photos, videos and 3D models</label>
-            <MediaUploader items={media} onChange={setMedia} max={20} coverFirst accept="image/*,video/*,application/pdf,.glb,model/gltf-binary"
-              hint="Drag them here, or click to choose. Exterior, rooms, amenities, a walkthrough video, or a 3D model (.glb)." />
+            <MediaUploader items={media} onChange={setMedia} max={20} coverFirst inputId="listing-media-input" accept="image/*,video/*,application/pdf,.glb,model/gltf-binary"
+              hint="Drag them here, or click to choose. Exterior, rooms, amenities, a walkthrough video (AI adds captions and a voice-over to it), or a 3D model (.glb)." />
             {media.some((m) => m.status !== "ready" && m.status !== "failed")
               ? <p className="small muted">Your photos are still processing. You can publish once they are ready.</p>
               : null}
