@@ -70,7 +70,8 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
       possession: d.possession === "Ready to move" ? "Ready to move" : "Under construction",
       furnishing: d.furnishing || f.furnishing, facing: d.facing,
       description: d.description || f.description, amenities: d.amenities.join(", "), usps: d.usps.join("\n"),
-      videoUrl: d.videoUrl, tourUrl: d.tourUrl, reraNumber: d.reraNumber,
+      // A video or tour found on the page is only offered; the member adds it if it is theirs.
+      videoUrl: "", tourUrl: "", reraNumber: d.reraNumber,
       lat: d.lat, lng: d.lng, exact: d.locationExact, sourceUrl: d.sourceUrl,
     }));
   }
@@ -144,6 +145,7 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
     <div className="col">
       {!editing ? (
         <ImportFromLink onDraft={applyDraft} onConfig={applyConfig} room={20 - media.length}
+          onLink={(k, url) => setForm((f) => ({ ...f, [k]: url }))}
           onPhotos={(items) => setMedia((m) => [...m, ...items].slice(0, 20))} />
       ) : null}
       <div className="card pad" style={{ border: "2px solid var(--vio)" }}>

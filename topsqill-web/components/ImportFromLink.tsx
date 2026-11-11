@@ -24,8 +24,10 @@ export type ImportDraft = {
  * member checks the form and presses Publish. Photos are only copied when
  * the member picks them and confirms they may use them.
  */
-export function ImportFromLink({ onDraft, onConfig, onPhotos, room }: {
+export function ImportFromLink({ onDraft, onConfig, onPhotos, onLink, room }: {
   onDraft: (d: ImportDraft) => void;
+  /** Puts a found video or 3D tour link on the listing, once the member chooses to. */
+  onLink: (kind: "videoUrl" | "tourUrl", url: string) => void;
   onConfig: (c: ImportConfig, d: ImportDraft) => void;
   onPhotos: (items: UploadedItem[]) => void;
   /** How many more files the listing can take. */
@@ -41,6 +43,7 @@ export function ImportFromLink({ onDraft, onConfig, onPhotos, room }: {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [rights, setRights] = useState(false);
   const [photoNote, setPhotoNote] = useState("");
+  const [used, setUsed] = useState<Set<string>>(new Set());
 
   async function run(e?: React.FormEvent) {
     e?.preventDefault();
@@ -48,7 +51,7 @@ export function ImportFromLink({ onDraft, onConfig, onPhotos, room }: {
     setBusy("read"); setError(""); setPhotoNote("");
     try {
       const d = await clientApi<ImportDraft>("/v1/ai/listings/import", { method: "POST", body: { url: url.trim(), text: text.trim() || undefined } });
-      setDraft(d); setConfig(0); setRights(false);
+      setDraft(d); setConfig(0); setRights(false); setUsed(new Set());
       // Portal photos usually carry the portal's watermark, so none start selected.
       setPicked(PORTAL_HOST.test(d.site) ? new Set() : new Set(d.images.slice(0, Math.min(room, 12)).map((i) => i.url)));
       onDraft(d);
@@ -161,9 +164,29 @@ export function ImportFromLink({ onDraft, onConfig, onPhotos, room }: {
 
           <p className="small muted" style={{ margin: 0 }}>
             {draft.lat != null ? (draft.locationExact ? "📍 Map location taken from the page. " : "📍 Map set to the locality’s centre (the page had no pin). ") : "No map location found. "}
-            {draft.videoUrl ? "🎬 Walkthrough video found. " : ""}
-            {draft.tourUrl ? "🧭 3D tour found. " : ""}
           </p>
+
+          {draft.videoUrl || draft.tourUrl ? (
+            <div style={{ background: "var(--soft)", borderRadius: 12, padding: "10px 14px" }}>
+              <b className="small">Video and 3D tour found on the page (not added)</b>
+              <p className="small muted" style={{ margin: "4px 0 8px" }}>
+                {PORTAL_HOST.test(draft.site)
+                  ? "These came from a property portal, so they most likely belong to the portal or to whoever posted the ad. "
+                  : ""}
+                They play with their channel’s name and logo, which can’t be hidden. Add one only if it is your own, or the builder’s and you are allowed to share it.
+                Otherwise upload your own video file below: uploaded videos play on Topsqill with no one else’s name.
+              </p>
+              {([["videoUrl", "🎬 Walkthrough video"], ["tourUrl", "🧭 3D tour"]] as const).map(([k, name]) => draft[k] ? (
+                <div key={k} className="row small" style={{ gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+                  <span>{name}:</span>
+                  <a href={draft[k]} target="_blank" rel="noopener noreferrer nofollow" style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{draft[k]}</a>
+                  {used.has(k)
+                    ? <span className="muted">✓ Added to the listing</span>
+                    : <button type="button" className="btn btn-o sm" onClick={() => { onLink(k, draft[k]); setUsed((u) => new Set(u).add(k)); }}>It’s mine: add it</button>}
+                </div>
+              ) : null)}
+            </div>
+          ) : null}
 
           {draft.notes.length ? (
             <div style={{ background: "var(--soft)", borderRadius: 12, padding: "10px 14px" }}>
