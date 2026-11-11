@@ -64,6 +64,10 @@ export async function readViaApish(url: string, opts: { fetchImpl?: typeof fetch
   return { page: pageFromApish(data, url), data: portal ? data : null, portal, credits, key };
 }
 
+/** Keys that hold photos, including the portal's floor plans (kept, labelled "Floor plan"). */
+const PLAN_KEY = /floor_?plan|floorplan|layout|site_?plan|unit_?plan/i;
+const IMAGE_KEY = /image|photo|img|picture|gallery|floor_?plan|floorplan|layout|site_?plan|unit_?plan/i;
+
 /** api.sh's JSON as a ReadPage: title, text (every field as "name: value" for portals), photos, map, video and tours. */
 export function pageFromApish(data: Record<string, unknown>, url: string): ReadPage {
   const str = (v: unknown) => (typeof v === "string" ? v : "");
@@ -80,7 +84,7 @@ export function pageFromApish(data: Record<string, unknown>, url: string): ReadP
       const o = v as Record<string, unknown>;
       // An image object: { url, alt } or { src, caption }
       const img = str(o.url) || str(o.src) || str(o.image) || str(o.large) || str(o.original);
-      if (img && /image|photo|img|picture|gallery/i.test(key) && /^https?:/.test(img)) addImage(img, str(o.alt) || str(o.caption) || str(o.label));
+      if (img && IMAGE_KEY.test(key) && /^https?:/.test(img)) addImage(img, PLAN_KEY.test(key) ? "Floor plan" : str(o.alt) || str(o.caption) || str(o.label));
       for (const [k, x] of Object.entries(o)) {
         // Who posted it (owner or agent name, photo, phone) is never taken in.
         if (/^(raw|links|headings|credits_used|cached|fetched_at|success)$/.test(k) || PERSONAL.test(k)) continue;
@@ -96,7 +100,7 @@ export function pageFromApish(data: Record<string, unknown>, url: string): ReadP
     }
     const s = String(v);
     strings.push(s);
-    if (/^https?:\/\/\S+\.(jpe?g|png|webp|avif)(\?\S*)?$/i.test(s) || (/image|photo|img|picture|gallery/i.test(key) && /^https?:\/\/\S+$/.test(s))) { addImage(s, ""); return; }
+    if (/^https?:\/\/\S+\.(jpe?g|png|webp|avif)(\?\S*)?$/i.test(s) || (IMAGE_KEY.test(key) && /^https?:\/\/\S+$/.test(s))) { addImage(s, PLAN_KEY.test(key) ? "Floor plan" : ""); return; }
     if (/^https?:/.test(s)) return;
     if (key !== "content" && depth <= 3 && s.length < 600) lines.push(`${label(key)}: ${s}`);
   };

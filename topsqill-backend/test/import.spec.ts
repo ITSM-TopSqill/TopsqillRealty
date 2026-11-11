@@ -240,6 +240,10 @@ describe("api.sh", () => {
     expect(d.title).toBe("3 BHK apartment in Chinchwad");
     expect(d.description).not.toContain("posted by the owner");
   });
+  it("keeps the portal's floor plans, labelled", () => {
+    const p = pageFromApish({ title: "x", floor_plans: [{ url: "https://imagecdn.99acres.com/fp/plan1.jpg" }], layout_image: "https://imagecdn.99acres.com/fp/site.png" }, "https://www.99acres.com/x-spid-N1");
+    expect(p.images).toEqual([{ url: "https://imagecdn.99acres.com/fp/plan1.jpg", alt: "Floor plan" }, { url: "https://imagecdn.99acres.com/fp/site.png", alt: "Floor plan" }]);
+  });
   it("never takes in who posted the listing", () => {
     const p = pageFromApish(ACRES_REAL, ACRES_REAL.url);
     expect(p.text).not.toMatch(/Ramesh|Testname|9800000000/);

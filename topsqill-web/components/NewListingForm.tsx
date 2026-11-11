@@ -10,6 +10,8 @@ import type { Listing } from "@/lib/types";
 import { ImportFromLink, type ImportDraft, type ImportConfig } from "./ImportFromLink";
 import { Map3D } from "./Map3D";
 import { videoEmbed, tourEmbed } from "@/lib/embeds";
+import { buildPlan, canPlan } from "@/lib/floorplan";
+import { PlanSvg } from "./HomeViews";
 
 const KINDS = ["Apartment", "Builder floor", "Villa", "Plot", "Office", "Shop"];
 const CITIES = ["Gurgaon", "Noida", "Greater Noida", "Delhi", "Faridabad", "Mumbai", "Pune", "Bengaluru", "Hyderabad"];
@@ -216,6 +218,13 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
             <input id="tour" value={form.tourUrl} onChange={set("tourUrl")} placeholder="https://my.matterport.com/show/?m=…  (Matterport, Kuula, Momento360, CloudPano or 360° YouTube)" />
             {form.tourUrl && !tourEmbed(form.tourUrl) ? <span className="small error">Use a Matterport, Kuula, Momento360, CloudPano or 360° YouTube link.</span> : null}
           </div>
+          {canPlan(form.kind, Number(form.bhk), Number(form.areaSqft)) ? (
+            <div className="field" style={{ gridColumn: "1 / -1" }}>
+              <label>2D plan, 3D walkthrough and hologram</label>
+              <p className="small muted" style={{ margin: "0 0 6px" }}>Made automatically from the type, bedrooms and area, and shown on your listing as an illustrative layout (not the actual floor plan). Add your real floor plan as a photo too.</p>
+              <PlanSvg plan={buildPlan(Number(form.bhk), Number(form.areaSqft))} facing={form.facing} title={form.title || "your home"} height={260} />
+            </div>
+          ) : null}
           <div className="field" style={{ gridColumn: "1 / -1" }}>
             <label>Map location</label>
             {form.lat != null && form.lng != null ? (
