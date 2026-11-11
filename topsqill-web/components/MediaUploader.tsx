@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { clientApi } from "@/lib/api";
 import { imageUrl } from "@/lib/format";
 import type { Media } from "@/lib/types";
@@ -14,7 +14,7 @@ import type { Media } from "@/lib/types";
  */
 export type UploadedItem = { mediaId: string; name: string; progress: number; status: "uploading" | "processing" | "ready" | "failed"; media?: Media; error?: string; previewUrl?: string };
 
-const MAX = { image: 25e6, video: 500e6, document: 25e6 } as const;
+const MAX = { image: 25e6, video: 500e6, document: 25e6, model: 80e6 } as const;
 
 export function MediaUploader({ items, onChange, max = 20, accept = "image/*,video/*,application/pdf", privateFiles = false, title, hint, coverFirst = false }: {
   items: UploadedItem[]; onChange: (items: UploadedItem[]) => void; max?: number; accept?: string;
@@ -34,6 +34,14 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
   latest.current = items;
   function commit(next: UploadedItem[]) { latest.current = next; onChange(next); }
 
+  // Files added from elsewhere (photos imported from a link) arrive already
+  // processing; watch those too, once each.
+  const watching = useRef(new Set<string>());
+  useEffect(() => {
+    for (const it of items) if (it.status === "processing" && !watching.current.has(it.mediaId)) watch(it.mediaId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
+
   function update(mediaId: string, patch: Partial<UploadedItem>) {
     commit(latest.current.map((i) => (i.mediaId === mediaId ? { ...i, ...patch } : i)));
   }
@@ -44,7 +52,7 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
     if (!list.length) { setError(`You can add up to ${max} files.`); return; }
 
     for (const file of list) {
-      const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "document";
+      const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : /\.glb$/i.test(file.name) ? "model" : "document";
       if (file.size > MAX[kind]) {
         setError(`${file.name} is too large. The limit is ${Math.round(MAX[kind] / 1e6)} MB.`);
         continue;
@@ -76,6 +84,8 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
 
   /** Processing happens in the background, so poll until the file is ready. */
   function watch(mediaId: string) {
+    if (watching.current.has(mediaId)) return;
+    watching.current.add(mediaId);
     let tries = 0;
     const timer = setInterval(async () => {
       tries += 1;
@@ -129,7 +139,7 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
                   style={{ width: "100%", height: "100%", objectFit: "cover", opacity: it.status === "ready" ? 1 : 0.6 }} />
               ) : (
                 <div style={{ display: "grid", placeItems: "center", height: "100%", fontSize: 24, padding: 6, textAlign: "center" }}>
-                  <span aria-hidden>{privateFiles ? "📄" : "🎬"}</span>
+                  <span aria-hidden>{privateFiles ? "📄" : /\.glb$/i.test(it.name) ? "🧊" : "🎬"}</span>
                   <span style={{ fontSize: 11, wordBreak: "break-all" }}>{it.name}</span>
                 </div>
               )}

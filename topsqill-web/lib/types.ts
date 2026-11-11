@@ -17,6 +17,7 @@ export type Listing = {
   owner?: PersonCard | null; ownerId?: string;
   projectSourceId?: string | null; reraNumber?: string | null;
   status?: "draft" | "pending" | "active" | "sold" | "archived";
+  lat?: number | null; lng?: number | null; videoUrl?: string | null; tourUrl?: string | null; sourceUrl?: string | null;
 };
 
 export type Paged<T> = { items: T[]; nextCursor: string | null };

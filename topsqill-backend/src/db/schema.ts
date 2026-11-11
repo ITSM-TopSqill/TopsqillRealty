@@ -125,6 +125,9 @@ export const listings = pgTable("listings", {
   projectId: varchar("project_id", { length: 36 }),
   projectSourceId: varchar("project_source_id", { length: 36 }),
   reraNumber: varchar("rera_number", { length: 64 }),
+  videoUrl: text("video_url"),                                    // YouTube or Vimeo walkthrough
+  tourUrl: text("tour_url"),                                      // Matterport, Kuula... 3D tour
+  sourceUrl: text("source_url"),                                  // the page it was imported from
   verified: boolean("verified").notNull().default(false),
   hidden: boolean("hidden").notNull().default(false),
   viewCount: integer("view_count").notNull().default(0),

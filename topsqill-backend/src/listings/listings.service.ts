@@ -1,4 +1,5 @@
-import { Injectable, Inject, NotFoundException, ForbiddenException } from "@nestjs/common";
+import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException } from "@nestjs/common";
+import { videoEmbed, tourEmbed } from "../common/embeds";
 import { and, eq, lt, or, gte, lte, desc, sql, inArray } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { listings, listingMedia, media, users } from "../db/schema";
@@ -17,7 +18,28 @@ export type SearchQuery = {
 export const LISTING_EDITABLE = [
   "title", "purpose", "kind", "city", "locality", "bhk", "areaSqft", "priceInr",
   "possession", "furnishing", "facing", "description", "amenities", "usps", "status",
+  "lat", "lng", "videoUrl", "tourUrl", "reraNumber",
 ] as const;
+
+/**
+ * Video and tour links are stored in their standard form, or refused: a
+ * listing page frames them, so only known video and 3D-tour hosts are allowed.
+ * An empty string clears the link.
+ */
+export function cleanLinks<T extends { videoUrl?: string | null; tourUrl?: string | null; lat?: number | null; lng?: number | null }>(input: T): T {
+  const out = { ...input };
+  if (out.videoUrl !== undefined) {
+    if (!out.videoUrl) out.videoUrl = null;
+    else out.videoUrl = videoEmbed(out.videoUrl)?.url ?? (() => { throw new BadRequestException("Use a YouTube or Vimeo link for the video."); })();
+  }
+  if (out.tourUrl !== undefined) {
+    if (!out.tourUrl) out.tourUrl = null;
+    else out.tourUrl = tourEmbed(out.tourUrl)?.url ?? (() => { throw new BadRequestException("Use a Matterport, Kuula, Momento360, CloudPano or 360° YouTube link for the 3D tour."); })();
+  }
+  // A location needs both halves.
+  if ((out.lat == null) !== (out.lng == null)) { out.lat = null; out.lng = null; }
+  return out;
+}
 export type ListingPatch = Partial<Pick<typeof listings.$inferInsert, (typeof LISTING_EDITABLE)[number]>>;
 
 @Injectable()
@@ -163,7 +185,7 @@ export class ListingsService {
 
   async create(userId: string, input: Partial<typeof listings.$inferInsert> & { mediaIds?: string[] }) {
     const id = newId();
-    const { mediaIds: requested = [], ...rest } = input;
+    const { mediaIds: requested = [], ...rest } = cleanLinks(input);
     const mediaIds = await this.ownMedia(userId, requested);
     const row = await this.db.transaction(async (tx) => {
       const [created] = await tx.insert(listings).values({
@@ -191,6 +213,7 @@ export class ListingsService {
 
     // Only fields an owner may change. Flags such as `verified`, `hidden`, the
     // counters and the owner itself are set by the platform, never by the member.
+    patch = cleanLinks(patch);
     const data: Record<string, unknown> = {};
     for (const k of LISTING_EDITABLE) if (k in patch && (patch as Record<string, unknown>)[k] !== undefined) data[k] = (patch as Record<string, unknown>)[k];
     if (data.status === "active" && !existing.publishedAt) data.publishedAt = new Date();

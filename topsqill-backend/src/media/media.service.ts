@@ -4,7 +4,21 @@ import { DB, DB_READ, type Database } from "../db/db.module";
 import { media } from "../db/schema";
 import { QueueService, QUEUES } from "../queue/queue.module";
 import { newId } from "../common/ids";
-import { uploadUrl, publicBase, checkSignature, saveLocalUpload, isLocalStorage, privateReadUrl } from "./storage";
+import { uploadUrl, publicBase, checkSignature, saveLocalUpload, isLocalStorage, privateReadUrl, writeUpload } from "./storage";
+import { CacheService } from "../redis/redis.module";
+import { safeFetch, FetchError } from "../common/safe-fetch";
+
+const IMPORTED_PER_DAY = 300;
+
+/** The real type of an image from its first bytes; a server's content-type header isn't trusted. */
+export function sniffImage(b: Buffer): { mime: string; ext: string } | null {
+  if (b.length < 16) return null;
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { mime: "image/jpeg", ext: "jpg" };
+  if (b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { mime: "image/png", ext: "png" };
+  if (b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP") return { mime: "image/webp", ext: "webp" };
+  if (b.toString("ascii", 4, 8) === "ftyp" && /^avi[fs]$/.test(b.toString("ascii", 8, 12))) return { mime: "image/avif", ext: "avif" };
+  return null;
+}
 
 const IMAGE = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/avif"];
 const VIDEO = ["video/mp4", "video/quicktime", "video/webm"];
@@ -19,7 +33,47 @@ export class MediaService {
     @Inject(DB) private readonly db: Database,
     @Inject(DB_READ) private readonly read: Database,
     private readonly queue: QueueService,
+    private readonly cache: CacheService,
   ) {}
+
+  /**
+   * Photos from a page the member imported. The server downloads each one
+   * (checking it is really a photo, and never from a private address), stores
+   * it like a normal upload, and queues the same resizing and AI labelling.
+   * Each photo succeeds or fails on its own.
+   */
+  async importFromUrls(userId: string, urls: string[]) {
+    const list = [...new Set(urls)].slice(0, 20);
+    const key = `mediaimport:${userId}:${new Date().toISOString().slice(0, 10)}`;
+    const used = await this.cache.redis.incrby(key, list.length).catch(() => 0);
+    if (used === list.length) await this.cache.redis.expire(key, 86_400).catch(() => {});
+    if (used > IMPORTED_PER_DAY) throw new BadRequestException(`You can import up to ${IMPORTED_PER_DAY} photos a day. Upload the rest from your device.`);
+
+    const results: { url: string; mediaId?: string; status: "processing" | "failed"; error?: string }[] = [];
+    // A few at a time: fast, without hammering the other site.
+    for (let i = 0; i < list.length; i += 4) {
+      results.push(...await Promise.all(list.slice(i, i + 4).map((url) => this.importOne(userId, url))));
+    }
+    return { items: results };
+  }
+
+  private async importOne(userId: string, url: string): Promise<{ url: string; mediaId?: string; status: "processing" | "failed"; error?: string }> {
+    try {
+      const res = await safeFetch(url, { maxBytes: MAX_BYTES.image, timeoutMs: 20_000, accept: "image/avif,image/webp,image/jpeg,image/png,image/*;q=0.8" });
+      const type = sniffImage(res.body);
+      if (!type) return { url, status: "failed", error: "Not a JPEG, PNG, WebP or AVIF photo." };
+      if (res.body.length < 8_000) return { url, status: "failed", error: "Too small to be a property photo." };
+      const id = newId();
+      const objectPath = `uploads/${userId}/${id}.${type.ext}`;
+      await writeUpload(objectPath, res.body, type.mime);
+      // No label: the worker's AI names the room (Kitchen, Exterior...) once it is resized.
+      await this.db.insert(media).values({ id, ownerId: userId, kind: "image", status: "processing", objectPath, mimeType: type.mime, bytes: res.body.length, label: null });
+      await this.queue.add(QUEUES.media, "process:image", { mediaId: id, kind: "image", objectPath, mimeType: type.mime }, `media-${id}`);
+      return { url, mediaId: id, status: "processing" };
+    } catch (e) {
+      return { url, status: "failed", error: e instanceof FetchError ? e.message : "Couldn’t download this photo." };
+    }
+  }
 
   /**
    * The browser never sends large files through our servers. We create a signed

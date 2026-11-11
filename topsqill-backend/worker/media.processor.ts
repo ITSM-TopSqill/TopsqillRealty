@@ -1,5 +1,6 @@
 import { Job } from "bullmq";
 import type { Pool } from "pg";
+import type Redis from "ioredis";
 import sharp from "sharp";
 import { env } from "../src/common/env";
 import { readUpload, writePublic, copyToPublic } from "../src/media/storage";
@@ -17,11 +18,11 @@ export const IMAGE_FORMATS = ["avif", "webp", "jpeg"] as const;
 
 export type MediaJob = { mediaId: string; kind: string; objectPath: string; mimeType: string };
 
-export async function processMedia(job: Job<MediaJob>, pool: Pool) {
+export async function processMedia(job: Job<MediaJob>, pool: Pool, redis?: Redis) {
   const { mediaId, kind, objectPath } = job.data;
   try {
     if (kind === "image") return await processImage(job.data, pool);
-    if (kind === "video") return await processVideo(job.data, pool);
+    if (kind === "video") return await processVideo(job.data, pool, redis);
     if (kind === "model3d") return await processModel(job.data, pool);
     // documents (brochures) just move to the public bucket as they are
     const dest = objectPath.replace(/^uploads\//, "public/");
@@ -73,30 +74,63 @@ async function processImage(data: MediaJob, pool: Pool) {
  * starts in under a second and adjusts to the viewer's connection.
  * On Google Cloud this is handed to the Transcoder API; locally ffmpeg is used.
  */
-async function processVideo(data: MediaJob, pool: Pool) {
-  if (env.GCP_PROJECT_ID) {
-    const mod: any = await import("@google-cloud/video-transcoder" as string).catch(() => null);
-    const TranscoderServiceClient = mod?.TranscoderServiceClient ?? mod?.v1?.TranscoderServiceClient;
-    if (TranscoderServiceClient) {
-      const client = new TranscoderServiceClient();
-      const outPrefix = `public/video/${data.mediaId}/`;
-      await client.createJob({
-        parent: client.locationPath(env.GCP_PROJECT_ID, "asia-south1"),
-        job: {
-          inputUri: `gs://${env.GCS_BUCKET_UPLOADS}/${data.objectPath}`,
-          outputUri: `gs://${env.GCS_BUCKET_PUBLIC}/${outPrefix}`,
-          templateId: "preset/web-hd",
-        },
-      });
-      await pool.query("update media set status='processing', variants=$2 where id=$1",
-        [data.mediaId, JSON.stringify({ hls: `${outPrefix}manifest.m3u8` })]);
-      return { queued: true };   // the Transcoder notifies us via Pub/Sub when it finishes
-    }
-  }
+async function processVideo(data: MediaJob, pool: Pool, redis?: Redis) {
+  // The original MP4 is published first and the video marked ready, so it
+  // plays (and the listing can be published) straight away.
   const dest = data.objectPath.replace(/^uploads\//, "public/");
   await copyToPublic(data.objectPath, dest);
   await finish(pool, data.mediaId, { variants: { mp4: dest } });
-  return { fallback: true };
+
+  // On Google Cloud, a streaming (HLS) version is made too. The job runs for a
+  // few minutes; checkTranscodes() adds it to the video once it is done.
+  if (env.GCP_PROJECT_ID && redis) {
+    const client = await transcoder();
+    if (client) {
+      const outPrefix = `public/video/${data.mediaId}/`;
+      const [job] = await client.createJob({
+        parent: client.locationPath(env.GCP_PROJECT_ID, "asia-south1"),
+        job: { inputUri: `gs://${env.GCS_BUCKET_UPLOADS}/${data.objectPath}`, outputUri: `gs://${env.GCS_BUCKET_PUBLIC}/${outPrefix}`, templateId: "preset/web-hd" },
+      });
+      if (job?.name) await redis.hset(TRANSCODES, data.mediaId, JSON.stringify({ job: job.name, hls: `${outPrefix}manifest.m3u8`, at: Date.now() }));
+      return { mp4: true, hls: "queued" };
+    }
+  }
+  return { mp4: true };
+}
+
+const TRANSCODES = "transcode:pending";
+let transcoderClient: any;
+async function transcoder() {
+  if (transcoderClient !== undefined) return transcoderClient;
+  const mod: any = await import("@google-cloud/video-transcoder" as string).catch(() => null);
+  const Client = mod?.TranscoderServiceClient ?? mod?.v1?.TranscoderServiceClient;
+  transcoderClient = Client ? new Client() : null;
+  return transcoderClient;
+}
+
+/** Runs every minute: adds finished streaming versions to their videos, and gives up on stuck ones after 2 hours. */
+export async function checkTranscodes(pool: Pool, redis: Redis) {
+  const pending = await redis.hgetall(TRANSCODES);
+  const ids = Object.keys(pending);
+  if (!ids.length) return;
+  const client = await transcoder();
+  if (!client) return;
+  for (const mediaId of ids) {
+    const { job, hls, at } = JSON.parse(pending[mediaId]) as { job: string; hls: string; at: number };
+    try {
+      const [state] = await client.getJob({ name: job });
+      if (state?.state === "SUCCEEDED") {
+        await pool.query("update media set variants = variants || $2::jsonb where id=$1", [mediaId, JSON.stringify({ hls })]);
+        await redis.hdel(TRANSCODES, mediaId);
+      } else if (state?.state === "FAILED" || Date.now() - at > 2 * 3600_000) {
+        // The MP4 keeps playing; only the streaming version is missing.
+        await redis.hdel(TRANSCODES, mediaId);
+      }
+    } catch (e) {
+      if (Date.now() - at > 2 * 3600_000) await redis.hdel(TRANSCODES, mediaId);
+      console.warn(`transcode check ${mediaId}: ${(e as Error).message.slice(0, 120)}`);
+    }
+  }
 }
 
 /** 3D models are compressed (Draco/Meshopt) and stored with a light version for phones. */

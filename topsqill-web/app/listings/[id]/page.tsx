@@ -9,6 +9,7 @@ import { ContactOwner } from "@/components/ContactOwner";
 import { ListingOwnerBar } from "@/components/ListingOwnerBar";
 import { ListingAsk } from "@/components/ListingAsk";
 import { Gallery } from "@/components/Gallery";
+import { ListingExtras } from "@/components/ListingExtras";
 import { inr, sqft, imageUrl, timeAgo } from "@/lib/format";
 import type { Listing } from "@/lib/types";
 
@@ -57,6 +58,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     offers: listing.priceInr ? { "@type": "Offer", price: listing.priceInr, priceCurrency: "INR" } : undefined,
     floorSize: listing.areaSqft ? { "@type": "QuantitativeValue", value: listing.areaSqft, unitCode: "FTK" } : undefined,
     numberOfRooms: listing.bhk ?? undefined,
+    geo: listing.lat != null && listing.lng != null ? { "@type": "GeoCoordinates", latitude: listing.lat, longitude: listing.lng } : undefined,
   };
 
   return (
@@ -135,6 +137,8 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
           ) : null}
         </div>
       </div>
+
+      <ListingExtras title={listing.title} videoUrl={listing.videoUrl} tourUrl={listing.tourUrl} lat={listing.lat} lng={listing.lng} locality={`${listing.locality}, ${listing.city}`} />
 
       {!mine && status === "active" ? <ListingAsk listingId={listing.id} signedIn={!!user} rent={rent} /> : null}
 

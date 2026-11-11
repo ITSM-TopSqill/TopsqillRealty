@@ -4,16 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
 
-export function ImportProject() {
+export function ImportProject({ initialUrl = "" }: { initialUrl?: string }) {
   const router = useRouter();
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(initialUrl);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   async function run(e: React.FormEvent) {
     e.preventDefault();
-    if (!url.trim() && text.trim().length < 40) { setError("Paste a link and the page text, or at least the brochure text."); return; }
+    if (!url.trim() && text.trim().length < 40) { setError("Paste the project’s link, or its brochure text."); return; }
     setBusy(true); setError("");
     try {
       const p = await clientApi<{ id: string }>("/v1/ai/projects/import", {
@@ -28,9 +28,9 @@ export function ImportProject() {
       <div className="field"><label htmlFor="url">Project link</label>
         <input id="url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://builder.com/projects/sky-gardens" />
       </div>
-      <div className="field" style={{ marginTop: 12 }}><label htmlFor="text">Page or brochure text</label>
+      <div className="field" style={{ marginTop: 12 }}><label htmlFor="text">Page or brochure text (optional)</label>
         <textarea id="text" rows={10} value={text} onChange={(e) => setText(e.target.value)} maxLength={60000}
-          placeholder="Select all on the project page (Ctrl+A), copy, and paste here. The more detail, the better the result." />
+          placeholder="We read the link ourselves. If the site won’t open for us, or you have a brochure, paste its text here (Ctrl+A, copy, paste)." />
       </div>
       {error ? <p className="error" style={{ marginTop: 10 }}>{error}</p> : null}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>

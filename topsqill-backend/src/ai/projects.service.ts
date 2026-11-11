@@ -7,6 +7,8 @@ import { SearchService } from "../search/search.service";
 import { ListingsService } from "../listings/listings.service";
 import { extractProject, estimatePrices, type Extracted } from "./extract";
 import { newId } from "../common/ids";
+import { safeFetch, cleanUrl, FetchError } from "../common/safe-fetch";
+import { readPage } from "./page-reader";
 
 @Injectable()
 export class ProjectsService {
@@ -25,6 +27,18 @@ export class ProjectsService {
    */
   async importFromUrl(userId: string, input: { url?: string; text?: string }) {
     if (!input.url && !input.text) throw new BadRequestException("Paste a link or the page text first.");
+    // With only a link, read the page ourselves (safely). Pasted text still
+    // wins: some sites block robots or build the page in the browser.
+    if (input.url && (input.text ?? "").trim().length < 200) {
+      try {
+        input = { ...input, url: cleanUrl(input.url) };
+        const res = await safeFetch(input.url!, { maxBytes: 4_000_000, timeoutMs: 15_000 });
+        const page = readPage(res.body.toString("utf8"), res.url);
+        input.text = [page.title, page.description, page.text, input.text].filter(Boolean).join("\n");
+      } catch (e) {
+        if (!input.text) throw new BadRequestException(`${e instanceof FetchError ? e.message : "The page couldn’t be opened."} Copy the page text and paste it below the link.`);
+      }
+    }
     const base = extractProject(input.url ?? "", input.text ?? "");
 
     let merged: Extracted = base;

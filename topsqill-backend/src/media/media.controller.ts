@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Put, Query, Req, Res, NotFoundExcep
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { IsBoolean } from "class-validator";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
-import { IsString, IsInt, IsOptional, Min } from "class-validator";
+import { IsString, IsInt, IsOptional, Min, IsArray, ArrayMaxSize, ArrayMinSize, MaxLength, Equals } from "class-validator";
 import { MediaService } from "./media.service";
 import { CurrentUser, AuthUser, Public } from "../auth/public.decorator";
 import { isLocalStorage, readLocal, checkSignature } from "./storage";
@@ -18,6 +18,12 @@ class CreateUploadDto {
   @IsOptional() @IsBoolean() private?: boolean;
 }
 
+class ImportMediaDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(2000, { each: true }) urls: string[];
+  /** The member confirms they may publish these photos. Required. */
+  @Equals(true, { message: "Confirm you have the right to use these photos." }) rights: boolean;
+}
+
 @ApiTags("media")
 @Controller("v1/media")
 export class MediaController {
@@ -25,6 +31,9 @@ export class MediaController {
 
   @Post("uploads") @ApiOperation({ summary: "Get a direct upload link for a photo, video or 3D model" })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateUploadDto) { return this.svc.createUpload(user.id, dto); }
+
+  @Post("import") @ApiOperation({ summary: "Copy photos from another page into my media (I confirm I may use them)" })
+  importPhotos(@CurrentUser() user: AuthUser, @Body() dto: ImportMediaDto) { return this.svc.importFromUrls(user.id, dto.urls); }
 
   @Post(":id/confirm") @ApiOperation({ summary: "Tell the server the upload finished" })
   confirm(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.confirmUpload(user.id, id); }

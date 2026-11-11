@@ -6,7 +6,7 @@ import { Pool } from "pg";
 import { env } from "../src/common/env";
 import { poolConfig } from "../src/db/pool-config";
 import { QUEUES } from "../src/queue/queues";
-import { processMedia } from "./media.processor";
+import { processMedia, checkTranscodes } from "./media.processor";
 import { fanoutPost } from "./fanout.processor";
 import { flushCounters } from "./counters";
 import { syncLiveCampaigns } from "./campaign-sync";
@@ -27,7 +27,7 @@ const pool = new Pool(poolConfig(env.DATABASE_URL, { max: 5, application_name: "
 const log = (m: string, extra?: unknown) => console.log(JSON.stringify({ severity: "INFO", message: m, extra }));
 
 const workers = [
-  new Worker(QUEUES.media, async (job: Job) => processMedia(job, pool), { connection, concurrency: 4 }),
+  new Worker(QUEUES.media, async (job: Job) => processMedia(job, pool, connection), { connection, concurrency: 4 }),
   new Worker(QUEUES.fanout, async (job: Job) => fanoutPost(job, pool, connection), { connection, concurrency: 8 }),
   new Worker(QUEUES.ai, async (job: Job) => runMatch(job, pool, connection), { connection, concurrency: 4 }),
   // Alert emails. Previously nothing consumed this queue, so they piled up in Redis unsent.
@@ -44,6 +44,8 @@ const timer = setInterval(() => flushCounters(pool, connection).catch((e) => con
 // Ad platforms are polled every 15 minutes: often enough to be useful, far
 // below the rate limits, and it keeps the member's spend figures honest.
 const statsTimer = setInterval(() => syncLiveCampaigns(pool).catch((e) => console.error("campaign sync", e.message)), 15 * 60_000);
+// Finished streaming versions of uploaded videos are picked up every minute.
+const videoTimer = setInterval(() => checkTranscodes(pool, connection).catch((e) => console.error("transcode check", e.message)), 60_000);
 
 const health = createServer((req, res) => {
   const redisUp = connection.status === "ready";
@@ -56,6 +58,7 @@ health.listen(Number(process.env.PORT ?? 8080), "0.0.0.0");
 async function shutdown() {
   clearInterval(timer);
   clearInterval(statsTimer);
+  clearInterval(videoTimer);
   health.close();
   await Promise.all(workers.map((w) => w.close()));
   await pool.end().catch(() => { });

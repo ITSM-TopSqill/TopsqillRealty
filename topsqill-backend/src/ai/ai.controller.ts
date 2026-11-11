@@ -5,12 +5,18 @@ import { WriterService } from "./writer.service";
 import { ProjectsService } from "./projects.service";
 import { AssistantService } from "./assistant.service";
 import { ListingChatService } from "./listing-chat.service";
+import { ListingImportService } from "./listing-import.service";
 import { Type } from "class-transformer";
 import { ValidateNested, ArrayMaxSize } from "class-validator";
 import { CurrentUser, AuthUser, Public } from "../auth/public.decorator";
 
 class ImportDto {
   @IsOptional() @IsString() @MaxLength(2000) url?: string;
+  @IsOptional() @IsString() @MaxLength(60000) text?: string;
+}
+class ListingImportDto {
+  @IsString() @MaxLength(2000) url: string;
+  /** The page text, pasted, for sites that block robots or build the page in the browser. */
   @IsOptional() @IsString() @MaxLength(60000) text?: string;
 }
 class ProfileDto {
@@ -50,7 +56,11 @@ export class AiController {
     private readonly projects: ProjectsService,
     private readonly assistant: AssistantService,
     private readonly listingChat: ListingChatService,
+    private readonly importer: ListingImportService,
   ) {}
+
+  @Post("listings/import") @ApiOperation({ summary: "Draft a listing from another listing or project page (nothing is published)" })
+  importListing(@CurrentUser() user: AuthUser, @Body() dto: ListingImportDto) { return this.importer.preview(user.id, dto); }
 
   @Post("assistant") @ApiOperation({ summary: "Ask Topsqill.ai: search, match, price and write in one chat" })
   ask(@CurrentUser() user: AuthUser, @Body() dto: AskDto) { return this.assistant.ask(user.id, dto.message, dto.history ?? []); }

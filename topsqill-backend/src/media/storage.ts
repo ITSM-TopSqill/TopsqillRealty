@@ -70,6 +70,12 @@ export async function saveLocalUpload(objectPath: string, body: Buffer) {
   await writeFile(full, body);
 }
 
+/** Saves an original the server fetched itself (an imported photo) where browser uploads go. */
+export async function writeUpload(objectPath: string, body: Buffer, contentType: string) {
+  if (gcs) { await gcs.bucket(env.GCS_BUCKET_UPLOADS!).file(objectPath).save(body, { contentType, resumable: false }); return; }
+  await saveLocalUpload(objectPath, body);
+}
+
 export async function readUpload(objectPath: string): Promise<Buffer> {
   if (gcs) { const [buf] = await gcs.bucket(env.GCS_BUCKET_UPLOADS!).file(objectPath).download(); return buf; }
   return readFile(localPath("uploads", objectPath));

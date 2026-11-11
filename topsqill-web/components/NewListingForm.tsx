@@ -7,6 +7,9 @@ import Link from "next/link";
 import { MediaUploader, type UploadedItem } from "./MediaUploader";
 import { refreshPages } from "@/lib/refresh";
 import type { Listing } from "@/lib/types";
+import { ImportFromLink, type ImportDraft, type ImportConfig } from "./ImportFromLink";
+import { Map3D } from "./Map3D";
+import { videoEmbed, tourEmbed } from "@/lib/embeds";
 
 const KINDS = ["Apartment", "Builder floor", "Villa", "Plot", "Office", "Shop"];
 const CITIES = ["Gurgaon", "Noida", "Greater Noida", "Delhi", "Faridabad", "Mumbai", "Pune", "Bengaluru", "Hyderabad"];
@@ -15,12 +18,15 @@ type Form = {
   title: string; purpose: "sale" | "rent"; kind: string; bhk: string; areaSqft: string; priceInr: string;
   city: string; locality: string; possession: string; furnishing: string; facing: string;
   description: string; amenities: string; usps: string;
+  videoUrl: string; tourUrl: string; reraNumber: string;
+  lat: number | null; lng: number | null; exact: boolean; sourceUrl: string;
 };
 
 const EMPTY: Form = {
   title: "", purpose: "sale", kind: "Apartment", bhk: "3", areaSqft: "", priceInr: "",
   city: "", locality: "", possession: "Ready to move", furnishing: "Unfurnished", facing: "",
   description: "", amenities: "", usps: "",
+  videoUrl: "", tourUrl: "", reraNumber: "", lat: null, lng: null, exact: true, sourceUrl: "",
 };
 
 function fromListing(l: Listing): Form {
@@ -29,6 +35,8 @@ function fromListing(l: Listing): Form {
     areaSqft: l.areaSqft != null ? String(l.areaSqft) : "", priceInr: l.priceInr != null ? String(l.priceInr) : "",
     city: l.city, locality: l.locality, possession: l.possession ?? "Ready to move", furnishing: l.furnishing ?? "Unfurnished",
     facing: l.facing ?? "", description: l.description ?? "", amenities: (l.amenities ?? []).join(", "), usps: (l.usps ?? []).join("\n"),
+    videoUrl: l.videoUrl ?? "", tourUrl: l.tourUrl ?? "", reraNumber: l.reraNumber ?? "",
+    lat: l.lat ?? null, lng: l.lng ?? null, exact: true, sourceUrl: l.sourceUrl ?? "",
   };
 }
 
@@ -48,6 +56,32 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
   const [error, setError] = useState("");
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  /** A draft from "Import from a link" replaces the form's contents; the member then checks it. */
+  function applyDraft(d: ImportDraft) {
+    setError("");
+    setForm((f) => ({
+      ...f,
+      title: d.title || f.title, purpose: d.purpose, kind: KINDS.includes(d.kind) ? d.kind : f.kind,
+      bhk: d.bhk != null ? String(d.bhk) : "", areaSqft: d.areaSqft ? String(d.areaSqft) : "", priceInr: d.priceInr ? String(d.priceInr) : "",
+      city: d.city || f.city, locality: d.locality || f.locality,
+      possession: d.possession === "Ready to move" ? "Ready to move" : "Under construction",
+      furnishing: d.furnishing || f.furnishing, facing: d.facing,
+      description: d.description || f.description, amenities: d.amenities.join(", "), usps: d.usps.join("\n"),
+      videoUrl: d.videoUrl, tourUrl: d.tourUrl, reraNumber: d.reraNumber,
+      lat: d.lat, lng: d.lng, exact: d.locationExact, sourceUrl: d.sourceUrl,
+    }));
+  }
+
+  /** One home type from a project page with several. */
+  function applyConfig(c: ImportConfig, d: ImportDraft) {
+    const kind = (KINDS.includes(d.kind) ? d.kind : "Apartment").toLowerCase();
+    const where = [d.projectName, d.locality].filter(Boolean).join(", ");
+    setForm((f) => ({
+      ...f, bhk: c.bhk ? String(c.bhk) : "", areaSqft: String(c.areaSqft), priceInr: c.priceInr ? String(c.priceInr) : "",
+      title: `${c.bhk ? `${c.bhk} BHK ` : ""}${kind} in ${where}`.slice(0, 140),
+    }));
+  }
 
   async function fillWithAi() {
     if (raw.trim().length < 8) { setError("Describe the property in a sentence first."); return; }
@@ -72,6 +106,8 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
       setError(`Add a title, city, locality and price before ${editing ? "saving" : "publishing"}.`);
       return;
     }
+    if (form.videoUrl && !videoEmbed(form.videoUrl)) { setError("The video link must be a YouTube or Vimeo link."); return; }
+    if (form.tourUrl && !tourEmbed(form.tourUrl)) { setError("The 3D tour link must be from Matterport, Kuula, Momento360, CloudPano or a 360° YouTube video."); return; }
     setBusy("save"); setError("");
     try {
       const body = {
@@ -84,6 +120,11 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
         usps: form.usps.split("\n").map((s) => s.trim()).filter(Boolean),
         // Only files that finished processing are attached.
         mediaIds: media.filter((m) => m.status === "ready").map((m) => m.mediaId),
+        videoUrl: form.videoUrl.trim() || (editing ? "" : undefined),
+        tourUrl: form.tourUrl.trim() || (editing ? "" : undefined),
+        reraNumber: form.reraNumber.trim() || (editing ? "" : undefined),
+        lat: form.lat ?? (editing ? null : undefined), lng: form.lng ?? (editing ? null : undefined),
+        ...(!editing && form.sourceUrl ? { sourceUrl: form.sourceUrl } : {}),
       };
       if (listing) {
         await clientApi(`/v1/listings/${listing.id}`, { method: "PATCH", body });
@@ -99,6 +140,10 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
 
   return (
     <div className="col">
+      {!editing ? (
+        <ImportFromLink onDraft={applyDraft} onConfig={applyConfig} room={20 - media.length}
+          onPhotos={(items) => setMedia((m) => [...m, ...items].slice(0, 20))} />
+      ) : null}
       <div className="card pad" style={{ border: "2px solid var(--vio)" }}>
         <h2 style={{ fontSize: 17, marginBottom: 4 }}>✨ Describe it like you would to a client</h2>
         <p className="small muted" style={{ marginBottom: 10 }}>
@@ -160,9 +205,30 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
           <div className="field" style={{ gridColumn: "1 / -1" }}><label htmlFor="usps">Selling points, one per line</label>
             <textarea id="usps" rows={3} value={form.usps} onChange={set("usps")} />
           </div>
+          <div className="field"><label htmlFor="rera">RERA number</label>
+            <input id="rera" value={form.reraNumber} onChange={set("reraNumber")} placeholder="UPRERAPRJ123456" maxLength={64} />
+          </div>
+          <div className="field" style={{ gridColumn: "span 2" }}><label htmlFor="video">Walkthrough video link</label>
+            <input id="video" value={form.videoUrl} onChange={set("videoUrl")} placeholder="https://youtube.com/watch?v=…  or a Vimeo link" />
+            {form.videoUrl && !videoEmbed(form.videoUrl) ? <span className="small error">Use a YouTube or Vimeo link.</span> : null}
+          </div>
+          <div className="field" style={{ gridColumn: "1 / -1" }}><label htmlFor="tour">3D tour link</label>
+            <input id="tour" value={form.tourUrl} onChange={set("tourUrl")} placeholder="https://my.matterport.com/show/?m=…  (Matterport, Kuula, Momento360, CloudPano or 360° YouTube)" />
+            {form.tourUrl && !tourEmbed(form.tourUrl) ? <span className="small error">Use a Matterport, Kuula, Momento360, CloudPano or 360° YouTube link.</span> : null}
+          </div>
           <div className="field" style={{ gridColumn: "1 / -1" }}>
-            <label>Photos and videos</label>
-            <MediaUploader items={media} onChange={setMedia} max={20} coverFirst />
+            <label>Map location</label>
+            {form.lat != null && form.lng != null ? (
+              <div>
+                <Map3D lat={form.lat} lng={form.lng} label={form.locality} approximate={!form.exact} height={240} />
+                <button type="button" className="linklike small" style={{ marginTop: 4 }} onClick={() => setForm((f) => ({ ...f, lat: null, lng: null }))}>Remove the map location</button>
+              </div>
+            ) : <p className="small muted" style={{ margin: 0 }}>No map location yet. Importing from a link adds one when the page has it, or the locality’s centre.</p>}
+          </div>
+          <div className="field" style={{ gridColumn: "1 / -1" }}>
+            <label>Photos, videos and 3D models</label>
+            <MediaUploader items={media} onChange={setMedia} max={20} coverFirst accept="image/*,video/*,application/pdf,.glb,model/gltf-binary"
+              hint="Drag them here, or click to choose. Exterior, rooms, amenities, a walkthrough video, or a 3D model (.glb)." />
             {media.some((m) => m.status !== "ready" && m.status !== "failed")
               ? <p className="small muted">Your photos are still processing. You can publish once they are ready.</p>
               : null}
