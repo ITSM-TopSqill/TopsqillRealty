@@ -48,7 +48,9 @@ export class AdminService {
       model: this.claude.model,
       dailyLimitPerMember: Number(process.env.AI_DAILY_LIMIT ?? 200),
       // Imports from sites that block servers (99acres, Housing.com...).
-      brightdata: { configured: !!env.BRIGHTDATA_API_KEY && !!env.BRIGHTDATA_ZONE, zone: env.BRIGHTDATA_ZONE ?? null, dailyLimitPerMember: Number(process.env.BRIGHTDATA_DAILY_LIMIT_PER_MEMBER ?? 20) },
+      brightdata: { configured: !!env.BRIGHTDATA_API_KEY && !!env.BRIGHTDATA_ZONE, zone: env.BRIGHTDATA_ZONE ?? null, dailyLimitPerMember: Number(process.env.SCRAPER_DAILY_LIMIT_PER_MEMBER ?? process.env.BRIGHTDATA_DAILY_LIMIT_PER_MEMBER ?? 20) },
+      // Which reader opens protected sites: api.sh wins when both are set.
+      scraper: env.APISH_API_KEY ? "api.sh" : env.BRIGHTDATA_API_KEY && env.BRIGHTDATA_ZONE ? "Bright Data" : null,
       features: features.map((f) => ({ ...f, inputTokens: Number(f.inputTokens), outputTokens: Number(f.outputTokens) })),
       daily: Array.isArray(daily) ? daily : (daily as { rows: unknown[] }).rows,
     };

@@ -6,6 +6,7 @@ vi.hoisted(() => {
   process.env.REDIS_URL ??= "redis://127.0.0.1:1";
   process.env.BRIGHTDATA_API_KEY = "test-brightdata-key";
   process.env.BRIGHTDATA_ZONE = "topsqill_unlocker";
+  process.env.APISH_API_KEY = "ash_test_key";
 });
 import { isPrivateAddress, checkUrl, cleanUrl, safeFetch } from "../src/common/safe-fetch";
 import { videoEmbed, tourEmbed } from "../src/common/embeds";
@@ -14,6 +15,7 @@ import { sniffImage } from "../src/media/media.service";
 import { ListingImportService, homeCards, pickCity } from "../src/ai/listing-import.service";
 import { cleanLinks } from "../src/listings/listings.service";
 import { unlock, PageFetcher } from "../src/ai/page-fetcher.service";
+import { apishEndpointFor, pageFromApish, portalFacts, readViaApish } from "../src/ai/apish";
 
 describe("safe fetching of pasted links", () => {
   it("refuses private, loopback and cloud-metadata addresses", () => {
@@ -178,5 +180,57 @@ describe("Bright Data Web Unlocker", () => {
     const r = await pages.fetch("u1", "http://localtest.me/");
     expect(r.via).toBeNull();
     expect(r.error).toMatch(/private address/);
+  });
+});
+
+// Shaped like api.sh's documented 99acres listing response.
+const ACRES = {
+  id: "92192336", url: "https://www.99acres.com/3-bhk-flat-for-sale-in-empire-square-chinchwad-pune-1216-sqft-spid-Y92192336",
+  title: "3 BHK Apartment / Flat for sale in Empire Square Chinchwad Pune - 1216 Sqft", purpose: "sale", type: "Flat",
+  price: 18200000, price_text: "₹1.82 Cr", bedrooms: 3, bathrooms: 3, super_builtup_sqft: null, builtup_sqft: null, carpet_sqft: 1216,
+  furnishing: "Semifurnished", facing: "West", availability: "Immediate", city: "Pune", locality: "Chinchwad",
+  latitude: 18.6298, longitude: 73.7997, photos: [{ url: "https://imagecdn.99acres.com/media1/1/2/photo1.jpg", caption: "Living room" }, "https://imagecdn.99acres.com/media1/1/2/photo2.webp"],
+  amenities: ["LIFT", "SWIMMING_POOL"], description: "Spacious flat posted by the owner.", credits_used: 1, cached: false,
+};
+
+describe("api.sh", () => {
+  it("sends portal listings to their own endpoints, and other links to the page reader", () => {
+    expect(apishEndpointFor(ACRES.url).path).toBe("/99acres/v1/listing");
+    expect(apishEndpointFor("https://www.magicbricks.com/propertyDetails/3-BHK-1356-Sq-ft-Apartment-FOR-Sale-Juhu-in-Mumbai&id=4d42").path).toBe("/magicbricks/v1/listing");
+    expect(apishEndpointFor("https://www.magicbricks.com/shelton-elite-juhu-mumbai-pdpid-4d4235333336313133").path).toBe("/magicbricks/v1/project");
+    expect(apishEndpointFor("https://www.nobroker.in/property/3-bhk-apartment-for-rent-in-padmanabhanagar/ff8081816e16355c016e176ab7676387/detail").path).toBe("/nobroker/v1/listing");
+    expect(apishEndpointFor("https://housing.com/in/buy/resale/page/123-3-bhk").path).toBe("/web/v1/page");
+  });
+  it("calls the endpoint with the key header and explains its errors", async () => {
+    let called = "", key = "";
+    const ok = (async (u: string, init: RequestInit) => { called = u; key = (init.headers as Record<string, string>)["x-api-key"]; return new Response(JSON.stringify(ACRES), { status: 200, headers: { "x-credits-used": "1" } }); }) as unknown as typeof fetch;
+    const r = await readViaApish(ACRES.url, { fetchImpl: ok });
+    expect(called).toContain("https://api.api.sh/99acres/v1/listing?url=");
+    expect(called).toContain("raw=0");
+    expect(key).toBe("ash_test_key");
+    expect(r.portal).toBe("99acres");
+    const fail = (status: number) => (async () => new Response(JSON.stringify({ success: false, error: "x" }), { status })) as unknown as typeof fetch;
+    await expect(readViaApish(ACRES.url, { fetchImpl: fail(401) })).rejects.toThrow(/refused the API key/);
+    await expect(readViaApish(ACRES.url, { fetchImpl: fail(402) })).rejects.toThrow(/credits are used up/);
+    await expect(readViaApish("http://169.254.169.254/latest", { fetchImpl: ok })).rejects.toThrow(/private address/);
+  });
+  it("turns a portal listing into photos, a map pin and exact facts", () => {
+    const p = pageFromApish(ACRES, ACRES.url);
+    expect(p.images.map((i) => i.url)).toEqual(["https://imagecdn.99acres.com/media1/1/2/photo1.jpg", "https://imagecdn.99acres.com/media1/1/2/photo2.webp"]);
+    expect([p.lat, p.lng]).toEqual([18.6298, 73.7997]);
+    expect(p.text).toContain("carpet sqft: 1216");
+    expect(portalFacts(ACRES)).toMatchObject({ purpose: "sale", kind: "Apartment", bhk: 3, areaSqft: 1216, priceInr: 18200000, city: "Pune", locality: "Chinchwad", furnishing: "Semi-furnished", facing: "West facing", possession: "Ready to move" });
+    expect(portalFacts({ kind: "RENT", rent: 22000, price: null, type: "3 BHK", size_sqft: 1100, city: "bangalore" })).toMatchObject({ purpose: "rent", priceInr: 22000, bhk: 3, areaSqft: 1100, city: "Bangalore" });
+  });
+  it("drafts from the facts, not the portal's own description", () => {
+    const svc = new ListingImportService({} as never, {} as never, {} as never);
+    const p = pageFromApish(ACRES, ACRES.url);
+    const d = svc.withPortalFacts(svc.rules(ACRES.url, p, p.text), ACRES);
+    expect(d).toMatchObject({ bhk: 3, areaSqft: 1216, priceInr: 18200000, city: "Pune", locality: "Chinchwad" });
+    expect(d.title).toBe("3 BHK apartment in Chinchwad");
+    expect(d.description).not.toContain("posted by the owner");
+  });
+  it("is preferred over Bright Data when both keys are set", () => {
+    expect(new PageFetcher({} as never, {} as never).provider).toBe("apish");
   });
 });

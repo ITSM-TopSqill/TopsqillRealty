@@ -6,33 +6,54 @@ import { safeFetch, checkUrl, FetchError } from "../common/safe-fetch";
 import { readPage, type ReadPage } from "./page-reader";
 import { newId } from "../common/ids";
 import { env } from "../common/env";
+import { apishEndpointFor, readViaApish } from "./apish";
 
-export type FetchedPage = { page: ReadPage | null; via: "direct" | "brightdata" | null; error: string };
+export type FetchedPage = {
+  page: ReadPage | null; via: "direct" | "brightdata" | "apish" | null; error: string;
+  /** A portal listing's own fields (api.sh), when the link was a 99acres, MagicBricks or NoBroker listing. */
+  data?: Record<string, unknown> | null; portal?: string | null;
+};
 
 /** Fewer characters than this and the page is a block screen or an empty shell built later in the browser. */
 const THIN = 600;
-/** Bright Data fetches per member per day; each one is a paid request. */
-const UNLOCKER_PER_MEMBER = Number(process.env.BRIGHTDATA_DAILY_LIMIT_PER_MEMBER ?? 20);
+/** Paid fetches (api.sh or Bright Data) per member per day. */
+const PAID_PER_MEMBER = Number(process.env.SCRAPER_DAILY_LIMIT_PER_MEMBER ?? process.env.BRIGHTDATA_DAILY_LIMIT_PER_MEMBER ?? 20);
 
 /**
  * Opens a page a member pasted, for the importers.
  *
  * Our own server tries first: free, and enough for most builder sites. Large
- * portals (99acres, Housing.com, MagicBricks...) block servers or build the
- * page in the browser; for those, when a Bright Data Web Unlocker key is set,
- * the page is fetched once more through Bright Data, which returns the page
- * as a visitor would see it. Each such fetch is counted per member and
- * recorded in ai_usage as "fetch.brightdata", so the cost shows in Admin → AI.
+ * portals block servers or build the page in the browser, so a paid provider
+ * reads those, when its key is set:
+ * - api.sh (preferred): 99acres, MagicBricks and NoBroker listings come back
+ *   as clean fields (price, BHK, areas, photos, location) and are read through
+ *   it straight away; any other link goes through its page reader.
+ * - Bright Data Web Unlocker: returns any page as a visitor would see it.
+ * Each paid fetch is counted per member and recorded in ai_usage
+ * ("fetch.apish" or "fetch.brightdata"), so the cost shows in Admin → AI.
  */
 @Injectable()
 export class PageFetcher {
   private readonly log = new Logger("page-fetch");
   constructor(@Inject(DB) private readonly db: Database, private readonly cache: CacheService) {}
 
-  get unlockerAvailable() { return !!env.BRIGHTDATA_API_KEY && !!env.BRIGHTDATA_ZONE; }
+  /** Which paid reader is set up, if any. */
+  get provider(): "apish" | "brightdata" | null {
+    if (env.APISH_API_KEY) return "apish";
+    if (env.BRIGHTDATA_API_KEY && env.BRIGHTDATA_ZONE) return "brightdata";
+    return null;
+  }
+  get unlockerAvailable() { return this.provider !== null; }
 
-  /** `paid: false` skips Bright Data (the member already pasted the page text). */
+  /** `paid: false` skips the paid readers (the member already pasted the page text). */
   async fetch(userId: string, url: string, opts: { paid?: boolean } = {}): Promise<FetchedPage> {
+    const provider = opts.paid === false ? null : this.provider;
+    // Portal listings: api.sh's fields beat anything we could read from the page, and the portal blocks us anyway.
+    if (provider === "apish") {
+      try { checkUrl(url); } catch (e) { return { page: null, via: null, error: (e as Error).message }; }
+      if (apishEndpointFor(url).portal) return this.paid(userId, url, "apish", null, "");
+    }
+
     let direct: ReadPage | null = null;
     let error = "";
     try {
@@ -45,36 +66,42 @@ export class PageFetcher {
       if (/private address|isn’t a web page|unusual port|Only http|username or password/.test(error)) return { page: null, via: null, error };
     }
     if (direct && textLength(direct) >= THIN) return { page: direct, via: "direct", error: "" };
-    if (!this.unlockerAvailable || opts.paid === false) return { page: direct, via: direct ? "direct" : null, error };
+    if (!provider) return { page: direct, via: direct ? "direct" : null, error };
+    return this.paid(userId, url, provider, direct, error);
+  }
 
+  private async paid(userId: string, url: string, provider: "apish" | "brightdata", direct: ReadPage | null, directError: string): Promise<FetchedPage> {
     await this.quota(userId);
     const started = Date.now();
     try {
-      const html = await unlock(url);
-      const page = readPage(html, url);
-      await this.record(userId, Date.now() - started, true);
-      // Keep whichever version has more to read.
-      if (direct && textLength(direct) >= textLength(page)) return { page: direct, via: "direct", error: "" };
-      return { page, via: "brightdata", error: "" };
+      let page: ReadPage, data: Record<string, unknown> | null = null, portal: string | null = null;
+      if (provider === "apish") ({ page, data, portal } = await readViaApish(url));
+      else page = readPage(await unlock(url), url);
+      await this.record(userId, provider, Date.now() - started, true);
+      // Keep whichever version has more to read (a portal's own fields always win).
+      if (!data && direct && textLength(direct) >= textLength(page)) return { page: direct, via: "direct", error: "" };
+      return { page, via: provider, error: "", data, portal };
     } catch (e) {
-      await this.record(userId, Date.now() - started, false);
-      this.log.warn(`brightdata failed for ${new URL(url).hostname}: ${(e as Error).message.slice(0, 160)}`);
-      return { page: direct, via: direct ? "direct" : null, error: error || (e as Error).message };
+      await this.record(userId, provider, Date.now() - started, false);
+      this.log.warn(`${provider} failed for ${new URL(url).hostname}: ${(e as Error).message.slice(0, 160)}`);
+      return { page: direct, via: direct ? "direct" : null, error: directError || (e as Error).message };
     }
   }
 
   private async quota(userId: string) {
-    const key = `brightdata:${userId}:${new Date().toISOString().slice(0, 10)}`;
+    const key = `scrape:${userId}:${new Date().toISOString().slice(0, 10)}`;
     const n = await this.cache.redis.incr(key).catch(() => 0);
     if (n === 1) await this.cache.redis.expire(key, 86_400).catch(() => {});
-    if (n > UNLOCKER_PER_MEMBER) {
-      throw new HttpException(`You’ve used today’s ${UNLOCKER_PER_MEMBER} imports from protected sites. Paste the page text instead, or try again tomorrow.`, HttpStatus.TOO_MANY_REQUESTS);
+    if (n > PAID_PER_MEMBER) {
+      throw new HttpException(`You’ve used today’s ${PAID_PER_MEMBER} imports from protected sites. Paste the page text instead, or try again tomorrow.`, HttpStatus.TOO_MANY_REQUESTS);
     }
   }
 
-  private async record(userId: string, ms: number, ok: boolean) {
-    await this.db.insert(aiUsage).values({ id: newId(), userId, feature: "fetch.brightdata", model: "brightdata-unlocker", inputTokens: 0, outputTokens: 0, ms, ok })
-      .catch(() => {});
+  private async record(userId: string, provider: "apish" | "brightdata", ms: number, ok: boolean) {
+    await this.db.insert(aiUsage).values({
+      id: newId(), userId, feature: `fetch.${provider}`, model: provider === "apish" ? "api.sh" : "brightdata-unlocker",
+      inputTokens: 0, outputTokens: 0, ms, ok,
+    }).catch(() => {});
   }
 }
 

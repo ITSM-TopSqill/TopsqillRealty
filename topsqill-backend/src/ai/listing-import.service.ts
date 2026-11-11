@@ -5,12 +5,13 @@ import { extractProject } from "./extract";
 import { readPage, type PageImage, type ReadPage } from "./page-reader";
 import { safeFetch, cleanUrl } from "../common/safe-fetch";
 import { PageFetcher } from "./page-fetcher.service";
+import { portalFacts } from "./apish";
 import { videoEmbed, tourEmbed } from "../common/embeds";
 import { money } from "./query";
 
 export type ImportConfig = { bhk: number; areaSqft: number; priceInr: number; label: string; startingPrice?: boolean };
 export type ImportDraft = {
-  source: "claude" | "rules"; sourceUrl: string; site: string; fetchedVia?: "direct" | "brightdata" | "pasted";
+  source: "claude" | "rules"; sourceUrl: string; site: string; fetchedVia?: "direct" | "brightdata" | "apish" | "pasted";
   title: string; purpose: "sale" | "rent"; kind: string; bhk: number | null; areaSqft: number | null;
   priceInr: number | null; priceOnRequest: boolean;
   city: string; locality: string; possession: string; furnishing: string; facing: string;
@@ -54,10 +55,14 @@ export class ListingImportService {
         : `That site shows almost nothing to robots${this.pages.unlockerAvailable ? "" : " (it blocks servers or builds the page in the browser)"}. Open it in your browser, copy all of its text, and paste it in the box below the link.`);
     }
 
-    const rules = this.rules(url, page, text);
+    // A portal listing read through api.sh states its facts outright; those beat any guess from the text.
+    const rules = fetched.data ? this.withPortalFacts(this.rules(url, page, text), fetched.data) : this.rules(url, page, text);
     const notes: string[] = [];
     if (fetchError) notes.push(`${fetchError} The draft uses only the text you pasted.`);
     if (fetched.via === "brightdata") notes.push("This site blocks servers, so the page was opened through Bright Data. Check the details closely.");
+    if (fetched.via === "apish") notes.push(fetched.portal
+      ? `Read from the ${fetched.portal} listing’s own details. The owner’s contact details are never copied.`
+      : "This site blocks servers, so the page was read through api.sh. Check the details closely.");
 
     const { data: ai, source } = await this.claude.json<Partial<AiDraft>>(this.prompt(url, page, text), () => ({}), {
       userId, feature: "listing.import", maxTokens: 2500, cacheSeconds: 3600, effort: "medium", timeoutMs: 60_000,
@@ -83,6 +88,33 @@ export class ListingImportService {
     const n = await this.cache.redis.incr(key).catch(() => 0);
     if (n === 1) await this.cache.redis.expire(key, 86_400).catch(() => {});
     if (n > IMPORTS_PER_DAY) throw new HttpException(`You can import up to ${IMPORTS_PER_DAY} links a day. Try again tomorrow.`, HttpStatus.TOO_MANY_REQUESTS);
+  }
+
+  /** Puts a portal listing's own fields (from api.sh) over the pattern-matched draft. */
+  withPortalFacts(d: ImportDraft, data: Record<string, unknown>): ImportDraft {
+    const f = portalFacts(data);
+    // Project and builder only as the portal names them; a guess from the text is often wrong here.
+    const out: ImportDraft = { ...d, purpose: f.purpose, kind: f.kind, projectName: f.projectName, builder: f.builder };
+    for (const k of ["city", "locality", "furnishing", "facing", "possession", "reraNumber"] as const) if (f[k]) out[k] = f[k];
+    if (f.amenities.length) out.amenities = f.amenities;
+    if (f.bhk || f.areaSqft || f.priceInr) {
+      const config: ImportConfig = {
+        bhk: f.bhk ?? 0, areaSqft: f.areaSqft ?? 0, priceInr: f.priceInr ?? 0,
+        label: [f.bhk ? `${f.bhk} BHK` : "", f.areaSqft ? `${f.areaSqft.toLocaleString("en-IN")} sq ft` : ""].filter(Boolean).join(" · ") || "This home",
+      };
+      out.configs = [config];
+      out.bhk = f.bhk; out.areaSqft = f.areaSqft; out.priceInr = f.priceInr; out.priceOnRequest = !f.priceInr;
+    }
+    const where = [out.projectName, out.locality || out.city].filter(Boolean).join(", ");
+    // Written from the facts, never the portal's own text (that belongs to whoever posted it).
+    out.description = [
+      `${f.bhk ? `${f.bhk} BHK ` : ""}${out.kind.toLowerCase()} ${out.purpose === "rent" ? "for rent" : "for sale"}${where ? ` in ${where}` : ""}${out.locality && out.city && !where.includes(out.city) ? `, ${out.city}` : ""}.`,
+      f.areaSqft ? `${f.areaSqft.toLocaleString("en-IN")} sq ft.` : "",
+      out.furnishing ? `${out.furnishing}.` : "", out.facing ? `${out.facing}.` : "", out.possession ? `${out.possession}.` : "",
+      out.amenities.length ? `Amenities include ${out.amenities.slice(0, 6).join(", ").toLowerCase()}.` : "",
+    ].filter(Boolean).join(" ");
+    out.title = `${f.bhk ? `${f.bhk} BHK ` : ""}${out.kind === "Apartment" ? "apartment" : out.kind.toLowerCase()}${out.purpose === "rent" ? " for rent" : ""} in ${where}`.slice(0, 140);
+    return out;
   }
 
   /** The no-AI draft: pattern matching over the page text. Always computed, and the base the AI result is merged onto. */

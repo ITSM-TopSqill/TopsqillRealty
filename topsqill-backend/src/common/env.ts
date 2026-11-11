@@ -58,6 +58,9 @@ const schema = z.object({
   // (99acres, Housing.com...). Without a key, those need the page text pasted.
   BRIGHTDATA_API_KEY: z.string().optional(),
   BRIGHTDATA_ZONE: z.string().optional(),
+  // api.sh: reads 99acres, MagicBricks and NoBroker listings as clean fields,
+  // and any other page. Used instead of Bright Data when both are set.
+  APISH_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof schema>;

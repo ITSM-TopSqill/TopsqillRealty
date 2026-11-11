@@ -26,3 +26,7 @@ email_from = ""                          # e.g. "Topsqill.ai <no-reply@topsqill.
 # Secret Manager first (topsqill-<env>-brightdata-key), then turn this on.
 brightdata_enabled = false
 brightdata_zone    = "topsqill_unlocker"
+
+# Imports through api.sh (preferred over Bright Data). Store the key in
+# Secret Manager first (topsqill-<env>-apish-key), then turn this on.
+apish_enabled = false

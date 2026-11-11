@@ -132,6 +132,12 @@ resource "google_secret_manager_secret" "anthropic" {
     auto {}
   }
 }
+resource "google_secret_manager_secret" "apish" {
+  secret_id = "${local.name}-apish-key"
+  replication {
+    auto {}
+  }
+}
 resource "google_secret_manager_secret" "brightdata" {
   secret_id = "${local.name}-brightdata-key"
   replication {
@@ -276,6 +282,19 @@ resource "google_cloud_run_v2_service" "api" {
           secret_key_ref {
             secret  = google_secret_manager_secret.anthropic.secret_id
             version = "latest"
+          }
+        }
+      }
+      # api.sh, only once its key is stored (apish_enabled).
+      dynamic "env" {
+        for_each = var.apish_enabled ? ["APISH_API_KEY"] : []
+        content {
+          name = env.value
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.apish.secret_id
+              version = "latest"
+            }
           }
         }
       }

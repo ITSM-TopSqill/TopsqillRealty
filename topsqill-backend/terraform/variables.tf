@@ -108,3 +108,12 @@ variable "brightdata_zone" {
   type    = string
   default = "topsqill_unlocker"
 }
+
+# api.sh, for importing 99acres, MagicBricks and NoBroker listings (and any
+# site that blocks servers). Store the key first:
+#   gcloud secrets versions add topsqill-<env>-apish-key --data-file=-
+# then set apish_enabled = true. Used instead of Bright Data when both are on.
+variable "apish_enabled" {
+  type    = bool
+  default = false
+}
