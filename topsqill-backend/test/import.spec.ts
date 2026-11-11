@@ -9,7 +9,7 @@ import { isPrivateAddress, checkUrl, cleanUrl, safeFetch } from "../src/common/s
 import { videoEmbed, tourEmbed } from "../src/common/embeds";
 import { readPage, coordsOf } from "../src/ai/page-reader";
 import { sniffImage } from "../src/media/media.service";
-import { ListingImportService, homeCards } from "../src/ai/listing-import.service";
+import { ListingImportService, homeCards, pickCity } from "../src/ai/listing-import.service";
 import { cleanLinks } from "../src/listings/listings.service";
 
 describe("safe fetching of pasted links", () => {
@@ -124,6 +124,15 @@ describe("drafting a listing from a page", () => {
     expect(d.configs.map((c) => c.areaSqft)).toEqual([1650, 2200]);
     expect(d.priceInr).toBe(18_000_000);
     expect(d.notes).toContain("Land area is given as both 4.5 and 4.70 acres.");
+  });
+});
+
+describe("which city a page is about", () => {
+  it("trusts the link and title over cities named in menus", () => {
+    const menu = "Projects in Greater Noida | Noida | Mumbai | Pune\nGodrej Aristocrat, Sector 49, Gurugram\nGreater Noida West launches";
+    expect(pickCity("https://www.godrejproperties.com/gurugram/residential/godrej-aristocrat", "Godrej Aristocrat", menu)).toBe("Gurgaon");
+    expect(pickCity("https://example.in/", "Skyline Towers", "Live in Noida. Noida's best. Delhi is near.")).toBe("Noida");
+    expect(pickCity("https://example.in/", "", "Greater Noida West homes")).toBe("Greater Noida");
   });
 });
 

@@ -93,7 +93,13 @@ export class ListingImportService {
     const host = new URL(url).hostname.replace(/^www\./, "");
     // The extractor names a project after the address when it finds nothing better; the page title is usually better.
     const fromTitle = (page?.title ?? "").split(/\s[|–—-]\s/)[0].trim();
-    const projectName = fromTitle && (!x.name || x.name.toLowerCase().replace(/\s/g, "") === host.split(".")[0]) ? fromTitle : x.name;
+    // A name made from the web address ("Www.m3m India") is no name at all.
+    const squash = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const fromHost = !x.name || /^www\b/i.test(x.name) || squash(host).startsWith(squash(x.name)) || squash(x.name).includes(squash(host.split(".")[0] === "www" ? host.split(".")[1] : host.split(".")[0]));
+    const projectName = fromHost ? fromTitle : x.name;
+    const city = pickCity(url, page?.title ?? "", text) || x.city;
+    // The extractor's locality may belong to another city named in a menu; keep it only when the page pairs them.
+    const locality = x.locality && (city === x.city || nearCity(text, x.locality, city)) ? x.locality : "";
     const rent = /\b(for rent|on rent|per month|\/month|monthly rent|lease)\b/i.test(text) && !/\bfor sale\b/i.test(text);
     const kind = /\bvilla\b/i.test(text) ? "Villa" : /\b(plot|land parcel for sale)\b/i.test(text) && !/apartment|flat|bhk/i.test(text) ? "Plot"
       : /builder floor|independent floor/i.test(text) ? "Builder floor" : /\boffice space\b/i.test(text) && !/bhk/i.test(text) ? "Office"
@@ -117,7 +123,7 @@ export class ListingImportService {
     for (const n of x.nearby.slice(0, 2)) usps.push(`${n.km} km to ${n.name}`);
     usps.push(...x.amenities.slice(0, 3));
 
-    const place = [x.locality, x.city].filter(Boolean).join(", ");
+    const place = [locality, city].filter(Boolean).join(", ");
     const description = [
       `${projectName || "This project"}${x.builder && !projectName.toLowerCase().includes(x.builder.toLowerCase().split(/\s+/).slice(0, 2).join(" ")) ? ` by ${x.builder}` : ""} is ${x.status === "Ready to move" ? "a ready-to-move" : x.status === "New launch" ? "a newly launched" : "an under-construction"} residential project${place ? ` in ${place}` : ""}.`,
       x.acres || x.towers ? `It is spread over ${x.acres ? `${x.acres} acres` : "a large site"}${x.towers ? ` with ${x.towers} towers` : ""}${x.openArea ? ` and about ${x.openArea}% open area` : ""}.` : "",
@@ -128,11 +134,11 @@ export class ListingImportService {
 
     return {
       source: "rules", sourceUrl: url, site: host,
-      title: (first ? `${first.bhk} BHK ${kind === "Apartment" ? "apartment" : kind.toLowerCase()} in ` : `${kind} in `) + [projectName, x.locality || x.city].filter(Boolean).join(", "),
+      title: (first ? `${first.bhk} BHK ${kind === "Apartment" ? "apartment" : kind.toLowerCase()} in ` : `${kind} in `) + [projectName, locality || city].filter(Boolean).join(", "),
       purpose: rent ? "rent" : "sale", kind,
       bhk: first?.bhk ?? null, areaSqft: first?.areaSqft ?? null, priceInr: first?.priceInr || null,
       priceOnRequest: /price on request|on request|call for price/i.test(text) && !first?.priceInr,
-      city: x.city, locality: x.locality || x.city, possession: x.status === "Ready to move" ? "Ready to move" : "Under construction",
+      city, locality: locality || city, possession: x.status === "Ready to move" ? "Ready to move" : "Under construction",
       furnishing: /fully furnished/i.test(text) ? "Fully furnished" : /semi[- ]furnished/i.test(text) ? "Semi-furnished" : "Unfurnished",
       // Only when the page says so in as many words; "Vastu compliant" is not a direction.
       facing: text.match(/\b((?:north|south|east|west)(?:[- ](?:east|west))?|park|garden|road|pool)[- ]facing\b/i)?.[0].replace(/^./, (c) => c.toUpperCase()) ?? "",
@@ -241,6 +247,39 @@ ${text.slice(0, 14_000)}
  * two later), as most project pages list them. Long sentences are skipped, so
  * a size mentioned in passing ("a 25,000 sq ft clubhouse") isn't taken for a home.
  */
+/**
+ * The listing's city: one named in the link or the page title wins; otherwise
+ * the city the page mentions most. (Menus and footers name many cities, so the
+ * first one found is often wrong.)
+ */
+export function pickCity(url: string, title: string, text: string): string {
+  const CITIES: [string, RegExp][] = [
+    ["Greater Noida", /greater[\s-]*noida/gi], ["Noida", /(?<!greater[\s-]{0,3})\bnoida\b/gi], ["Gurgaon", /\bgurgaon\b|\bgurugram\b/gi],
+    ["Delhi", /\b(?:new\s+)?delhi\b/gi], ["Faridabad", /\bfaridabad\b/gi], ["Ghaziabad", /\bghaziabad\b/gi],
+    ["Navi Mumbai", /navi[\s-]*mumbai/gi], ["Thane", /\bthane\b/gi], ["Mumbai", /(?<!navi[\s-]{0,3})\bmumbai\b/gi], ["Pune", /\bpune\b/gi],
+    ["Bengaluru", /\bbengaluru\b|\bbangalore\b/gi], ["Hyderabad", /\bhyderabad\b/gi], ["Chennai", /\bchennai\b/gi],
+    ["Kolkata", /\bkolkata\b/gi], ["Ahmedabad", /\bahmedabad\b/gi], ["Jaipur", /\bjaipur\b/gi], ["Chandigarh", /\bchandigarh\b/gi],
+    ["Mohali", /\bmohali\b/gi], ["Lucknow", /\blucknow\b/gi], ["Goa", /\bgoa\b/gi], ["Sonipat", /\bsonipat\b/gi],
+  ];
+  const head = decodeURIComponent(url).replace(/[-_/]+/g, " ") + " " + title;
+  let best = "", bestScore = 0;
+  for (const [name, re] of CITIES) {
+    const inHead = (head.match(re) ?? []).length;
+    const score = inHead * 1000 + (text.match(re) ?? []).length;
+    if (score > bestScore) { best = name; bestScore = score; }
+  }
+  return best;
+}
+
+/** True when the page names this locality close to this city ("Sector 49, Gurugram"). */
+function nearCity(text: string, locality: string, city: string) {
+  const at = text.toLowerCase().indexOf(locality.toLowerCase());
+  for (let i = at; i >= 0; i = text.toLowerCase().indexOf(locality.toLowerCase(), i + 1)) {
+    if (pickCity("", "", text.slice(Math.max(0, i - 80), i + locality.length + 80)) === city) return true;
+  }
+  return false;
+}
+
 export function homeCards(text: string): ImportConfig[] {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
   const out: ImportConfig[] = [];
