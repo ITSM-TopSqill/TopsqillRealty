@@ -6,12 +6,14 @@ import { getUser, getToken } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { Avatar, TypePill, Verified, ListingCard, Empty } from "@/components/ui";
 import { ConnectButton } from "@/components/ConnectButton";
+import { ShareProfile } from "@/components/ShareProfile";
+import { ProfileViewPing } from "@/components/ProfileViewPing";
 import { compact, imageUrl, TYPE_LABEL } from "@/lib/format";
 import type { Listing, Paged } from "@/lib/types";
 
 type Profile = {
   id: string; name: string; type: string; headline?: string | null; about?: string | null;
-  city?: string | null; localities?: string[]; agency?: string | null; yearsExperience?: number | null;
+  city?: string | null; localities?: string[]; specialties?: string[]; interests?: string[]; agency?: string | null; yearsExperience?: number | null;
   kycVerified?: boolean; reraVerified?: boolean; reraNumber?: string | null;
   connectionCount: number; followerCount: number; listingCount: number;
   avatar?: { urls?: Record<string, string> } | null; cover?: { urls?: Record<string, string> } | null;
@@ -77,8 +79,13 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
                     {!profile.kycVerified || (profile.type === "dealer" && !profile.reraVerified)
                       ? <Link href="/profile/verify" className="btn btn-ai">✓ Get verified</Link> : null}
                     <Link href="/profile/edit" className="btn btn-o">Edit profile</Link>
+                    <ShareProfile id={profile.id} name={profile.name} headline={profile.headline} />
                   </>
-                : <ConnectButton peerId={profile.id} relation={profile.relation} signedIn={!!user} />}
+                : <>
+                    <ConnectButton peerId={profile.id} relation={profile.relation} signedIn={!!user} />
+                    <ShareProfile id={profile.id} name={profile.name} headline={profile.headline} />
+                  </>}
+              {user && !isMe ? <ProfileViewPing id={profile.id} /> : null}
             </div>
           </div>
 
@@ -99,6 +106,23 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
           <h2 style={{ fontSize: 19, marginBottom: 8 }}>About</h2>
           <p style={{ margin: 0, maxWidth: "72ch" }}>{profile.about}</p>
           {profile.agency ? <p className="muted small" style={{ marginTop: 12 }}>Works at <b>{profile.agency}</b></p> : null}
+        </div>
+      ) : null}
+
+      {(profile.specialties?.length || profile.localities?.length || profile.interests?.length) ? (
+        <div className="card pad col" style={{ marginBottom: 16, gap: 14 }}>
+          {([["Specialties", profile.specialties], ["Areas served", profile.localities], ["Interests", profile.interests]] as [string, string[] | undefined][])
+            .filter(([, v]) => v?.length).map(([title, v]) => (
+              <section key={title}>
+                <h2 style={{ fontSize: 17, marginBottom: 8 }}>{title}</h2>
+                <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>{v!.map((t) => <span key={t} className="tag">{title === "Areas served" ? `📍 ${t}` : t}</span>)}</div>
+              </section>
+            ))}
+          {isMe && !profile.specialties?.length ? <p className="small muted" style={{ margin: 0 }}>Add your specialties and interests in <Link href="/profile/edit">Edit profile</Link>.</p> : null}
+        </div>
+      ) : isMe ? (
+        <div className="card pad" style={{ marginBottom: 16 }}>
+          <p className="small muted" style={{ margin: 0 }}>Tell people what you do best: add your specialties, the areas you serve and your interests in <Link href="/profile/edit">Edit profile</Link>.</p>
         </div>
       ) : null}
 

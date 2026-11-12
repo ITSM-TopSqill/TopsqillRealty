@@ -58,6 +58,7 @@ export function MeMenu({ user, current }: { user: SessionUser; current: string }
           </div>
           <div className="me-sep" />
           <Link href="/profile/edit" role="menuitem" className="me-item" onClick={() => setOpen(false)}>✏️ Edit profile</Link>
+          <Link href="/saved" role="menuitem" className="me-item" onClick={() => setOpen(false)}>♥ Saved homes</Link>
           <Link href="/profile/verify" role="menuitem" className="me-item" onClick={() => setOpen(false)}>✅ Verification</Link>
           <Link href="/campaigns" role="menuitem" className="me-item" onClick={() => setOpen(false)}>📣 Campaigns</Link>
           {/* Phones: pages the bottom bar has no room for. */}

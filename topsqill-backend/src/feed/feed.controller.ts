@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestj
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import { IsOptional, IsString, IsArray, IsIn, MaxLength, IsInt, Min, Max } from "class-validator";
 import { Type } from "class-transformer";
-import { FeedService } from "./feed.service";
+import { FeedService, type FeedFilter } from "./feed.service";
 import { CurrentUser, AuthUser, Public } from "../auth/public.decorator";
 
 class CreatePostDto {
@@ -12,9 +12,11 @@ class CreatePostDto {
   @IsOptional() @IsArray() mediaIds?: string[];
 }
 class EditPostDto { @IsString() @MaxLength(5000) body: string; }
+class RepostDto { @IsOptional() @IsString() @MaxLength(3000) body?: string; }
 class CommentDto { @IsString() @MaxLength(1000) body: string; }
 class FeedQueryDto {
   @IsOptional() @IsString() cursor?: string;
+  @IsOptional() @IsIn(["following", "listings", "requirements", "projects", "insights"]) filter?: FeedFilter;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) limit?: number;
 }
 
@@ -25,8 +27,11 @@ export class FeedController {
 
   @Get("feed") @ApiOperation({ summary: "Home feed" })
   home(@CurrentUser() user: AuthUser, @Query() q: FeedQueryDto) {
-    return this.svc.home(user.id, q.cursor, q.limit);
+    return this.svc.home(user.id, q.cursor, q.limit, q.filter);
   }
+
+  @Get("home/sidebar") @ApiOperation({ summary: "Home right column: hot localities, jobs for you, new launches" })
+  sidebar(@CurrentUser() user: AuthUser) { return this.svc.sidebar(user.id); }
 
   @Post("posts")
   create(@CurrentUser() user: AuthUser, @Body() dto: CreatePostDto) { return this.svc.createPost(user.id, dto); }
@@ -41,6 +46,9 @@ export class FeedController {
   removeComment(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("commentId") commentId: string) {
     return this.svc.deleteComment(user.id, id, commentId);
   }
+
+  @Post("posts/:id/repost") @ApiOperation({ summary: "Repost to my network, optionally with my own words" })
+  repost(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: RepostDto) { return this.svc.repost(user.id, id, dto.body); }
 
   @Post("posts/:id/like")
   like(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.like(user.id, id, true); }

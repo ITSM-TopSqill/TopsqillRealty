@@ -105,8 +105,8 @@ img{max-width:100%}
 /* feed */
 .post{padding:16px}
 .post .body{white-space:pre-wrap;word-wrap:break-word;margin:10px 0 0}
-.pac{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);margin-top:12px;padding-top:4px}
-.pa{display:flex;align-items:center;justify-content:center;gap:7px;height:42px;border-radius:10px;font-weight:700;color:var(--ink2)}
+.pac{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border-top:1px solid var(--line);margin-top:12px;padding-top:4px}
+.pa{display:flex;align-items:center;justify-content:center;gap:5px;height:42px;border-radius:10px;font-weight:700;color:var(--ink2);white-space:nowrap;font-size:14px;width:100%}
 .pa:hover{background:var(--soft);color:var(--ink)}
 .pa.on{color:var(--vio)}
 

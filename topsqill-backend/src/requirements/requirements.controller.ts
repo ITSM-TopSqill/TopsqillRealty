@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, Delete, Patch } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
-import { IsOptional, IsString, IsInt, IsIn, IsArray, IsBoolean, Min, Max } from "class-validator";
+import { IsOptional, IsString, IsInt, IsIn, IsArray, IsBoolean, Min, Max, MaxLength } from "class-validator";
 import { Type } from "class-transformer";
 import { RequirementsService } from "./requirements.service";
 import { CurrentUser, AuthUser, Public } from "../auth/public.decorator";
@@ -41,6 +41,11 @@ class ListDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) limit?: number;
 }
 
+class OfferDto {
+  @IsString() @MaxLength(36) listingId: string;
+  @IsOptional() @IsString() @MaxLength(500) note?: string;
+}
+
 @ApiTags("requirements")
 @Controller("v1/requirements")
 export class RequirementsController {
@@ -57,6 +62,12 @@ export class RequirementsController {
 
   @Public() @Get(":id/matches") @ApiOperation({ summary: "Listings that match this requirement" })
   matches(@Param("id") id: string) { return this.svc.matches(id); }
+
+  @Get(":id/my-listings") @ApiOperation({ summary: "\"I have a match\": my live listings, best fit first" })
+  myCandidates(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.myCandidates(user.id, id); }
+
+  @Post(":id/offer") @ApiOperation({ summary: "Offer one of my listings for this requirement (the buyer gets a message)" })
+  offer(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: OfferDto) { return this.svc.offer(user.id, id, dto.listingId, dto.note); }
 
   @Post(":id/rematch")
   rematch(@Param("id") id: string) { return this.svc.recompute(id); }

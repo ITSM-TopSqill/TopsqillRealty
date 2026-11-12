@@ -17,6 +17,9 @@ export class SavedController {
   @Get()
   list(@CurrentUser() user: AuthUser, @Query("type") type?: SavedType) { return this.svc.list(user.id, type ?? "listing"); }
 
+  @Get("check")
+  check(@CurrentUser() user: AuthUser, @Query("type") type: SavedType = "listing", @Query("id") id = "") { return this.svc.isSaved(user.id, type, id); }
+
   @Post()
   save(@CurrentUser() user: AuthUser, @Body() dto: SaveDto) { return this.svc.save(user.id, dto.itemType, dto.itemId); }
 

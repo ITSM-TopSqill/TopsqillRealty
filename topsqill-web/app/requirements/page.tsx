@@ -5,6 +5,7 @@ import { Shell } from "@/components/Shell";
 import { Avatar, TypePill, Empty } from "@/components/ui";
 import { MatchesButton } from "@/components/MatchesButton";
 import { RequirementActions } from "@/components/RequirementActions";
+import { HaveAMatch } from "@/components/HaveAMatch";
 import { inr, timeAgo } from "@/lib/format";
 import type { Paged, Requirement } from "@/lib/types";
 
@@ -94,7 +95,7 @@ export default async function RequirementsPage({ searchParams }: { searchParams:
                 <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                   <span className="small muted">{r.matchCount} matching listings</span>
                   <span className="row" style={{ gap: 6 }}>
-                    {user && r.userId === user.id ? <RequirementActions id={r.id} /> : null}
+                    {user && r.userId === user.id ? <RequirementActions id={r.id} /> : <HaveAMatch requirementId={r.id} signedIn={!!user} />}
                     <MatchesButton requirementId={r.id} />
                   </span>
                 </div>

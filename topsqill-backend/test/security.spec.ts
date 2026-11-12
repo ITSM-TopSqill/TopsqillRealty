@@ -70,7 +70,7 @@ describe("listing edits", () => {
     };
     const cache = { invalidate: async () => {} };
     const queue = { add: async () => {} };
-    const svc = new ListingsService(db as never, db as never, cache as never, queue as never, queue as never);
+    const svc = new ListingsService(db as never, db as never, cache as never, queue as never, queue as never, { create: async () => ({}) } as never);
     await svc.update("u1", "l1", {
       title: "New title", priceInr: 9_000_000,
       verified: true, hidden: false, ownerId: "attacker", viewCount: 99999,
@@ -102,7 +102,7 @@ describe("listing edits", () => {
       transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(db),
     };
     const queue = { add: async () => {} };
-    const svc = new ListingsService(db as never, db as never, { invalidate: async () => {} } as never, queue as never, queue as never);
+    const svc = new ListingsService(db as never, db as never, { invalidate: async () => {} } as never, queue as never, queue as never, { create: async () => ({}) } as never);
     await svc.update("u1", "l1", { mediaIds: ["theirs", "kyc", "mine"] });
     expect(attached.map((a) => a.mediaId)).toEqual(["mine"]);
     expect(written.coverMediaId).toBe("mine");

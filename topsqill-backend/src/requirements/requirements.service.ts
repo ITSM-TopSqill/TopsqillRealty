@@ -1,11 +1,14 @@
 import { Injectable, Inject, NotFoundException, BadRequestException } from "@nestjs/common";
-import { and, desc, eq, gte, lte, sql, lt, or } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql, lt, or, isNull } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { requirements, requirementMatches, listings, users } from "../db/schema";
 import { QueueService, QUEUES } from "../queue/queue.module";
 import { CacheService } from "../redis/redis.module";
 import { newId, encodeCursor, decodeCursor } from "../common/ids";
 import { matchScore, MATCH_THRESHOLD } from "./matching";
+import { MessagingService } from "../messaging/messaging.service";
+import { NotificationsService } from "../notifications/notifications.service";
+import { inr } from "../ai/query";
 
 @Injectable()
 export class RequirementsService {
@@ -14,7 +17,57 @@ export class RequirementsService {
     @Inject(DB_READ) private readonly read: Database,
     private readonly queue: QueueService,
     private readonly cache: CacheService,
+    private readonly messaging: MessagingService,
+    private readonly notifs: NotificationsService,
   ) {}
+
+  /** "I have a match": my live listings, best fit for this requirement first. */
+  async myCandidates(userId: string, requirementId: string) {
+    const [req] = await this.read.select().from(requirements).where(eq(requirements.id, requirementId)).limit(1);
+    if (!req || req.status !== "active") throw new NotFoundException("That requirement is no longer open.");
+    const mine = await this.read.select({
+      id: listings.id, title: listings.title, city: listings.city, locality: listings.locality, purpose: listings.purpose,
+      kind: listings.kind, bhk: listings.bhk, priceInr: listings.priceInr, areaSqft: listings.areaSqft, possession: listings.possession,
+    }).from(listings).where(and(eq(listings.ownerId, userId), eq(listings.status, "active"), eq(listings.hidden, false))).limit(200);
+    const items = mine.map((l) => ({ ...l, score: matchScore(l as never, req as never) })).sort((a, b) => b.score - a.score).slice(0, 30);
+    return { items };
+  }
+
+  /**
+   * A dealer offers one of their own live listings for a buyer's requirement.
+   * It joins the requirement's matches, and the buyer gets a chat message
+   * (and an alert) with the home and the dealer's note.
+   */
+  async offer(userId: string, requirementId: string, listingId: string, note?: string) {
+    const [req] = await this.read.select().from(requirements).where(eq(requirements.id, requirementId)).limit(1);
+    if (!req || req.status !== "active") throw new NotFoundException("That requirement is no longer open.");
+    if (req.userId === userId) throw new BadRequestException("This is your own requirement.");
+    const [l] = await this.read.select().from(listings).where(eq(listings.id, listingId)).limit(1);
+    if (!l || l.ownerId !== userId || l.status !== "active" || l.hidden) throw new BadRequestException("Offer one of your own live listings.");
+
+    const score = Math.max(1, matchScore(l as never, req as never));
+    const inserted = await this.db.insert(requirementMatches).values({ requirementId, listingId, score, offeredBy: userId })
+      .onConflictDoUpdate({ target: [requirementMatches.requirementId, requirementMatches.listingId], set: { offeredBy: userId } })
+      .returning({ createdAt: requirementMatches.createdAt });
+    if (inserted.length) {
+      const [{ n }] = await this.read.select({ n: sql<number>`count(*)::int` }).from(requirementMatches).where(eq(requirementMatches.requirementId, requirementId));
+      await this.db.update(requirements).set({ matchCount: n }).where(eq(requirements.id, requirementId));
+    }
+    await this.cache.invalidate(`matches:${requirementId}`);
+
+    const what = `${req.bhk ? `${req.bhk} BHK ` : ""}${req.kind.toLowerCase()} in ${req.localities[0] ?? req.city}`;
+    const body = [
+      `Hi! I have a match for your requirement (${what}):`,
+      `${l.title}, ${l.locality}, ${l.city} · ${inr(l.priceInr)}${l.purpose === "rent" ? " a month" : ""}`,
+      note?.trim() ? note.trim().slice(0, 500) : "",
+      `See it here: /listings/${l.id}`,
+    ].filter(Boolean).join("\n");
+    const convo = await this.messaging.openWith(userId, req.userId);
+    await this.messaging.send(userId, convo.id, { body, refType: "offer", refId: l.id });
+    const name = await this.notifs.nameOf(userId);
+    await this.notifs.create({ userId: req.userId, kind: "match", title: `${name} has a match for your requirement`, body: `${l.title} · ${inr(l.priceInr)}`, actorId: userId, targetType: "listing", targetId: l.id }).catch(() => null);
+    return { ok: true, conversationId: convo.id, score };
+  }
 
   async create(userId: string, input: Partial<typeof requirements.$inferInsert>) {
     const id = newId();
@@ -96,15 +149,19 @@ export class RequirementsService {
       .sort((a, b) => b.score - a.score)
       .slice(0, 50);
 
+    let total = scored.length;
     await this.db.transaction(async (tx) => {
-      await tx.delete(requirementMatches).where(eq(requirementMatches.requirementId, requirementId));
+      // Listings a dealer offered by hand ("I have a match") are kept.
+      await tx.delete(requirementMatches).where(and(eq(requirementMatches.requirementId, requirementId), isNull(requirementMatches.offeredBy)));
       if (scored.length) {
-        await tx.insert(requirementMatches).values(scored.map((m) => ({ requirementId, listingId: m.listingId, score: m.score })));
+        await tx.insert(requirementMatches).values(scored.map((m) => ({ requirementId, listingId: m.listingId, score: m.score }))).onConflictDoNothing();
       }
-      await tx.update(requirements).set({ matchCount: scored.length, updatedAt: new Date() }).where(eq(requirements.id, requirementId));
+      const [{ n }] = await tx.select({ n: sql<number>`count(*)::int` }).from(requirementMatches).where(eq(requirementMatches.requirementId, requirementId));
+      total = n;
+      await tx.update(requirements).set({ matchCount: n, updatedAt: new Date() }).where(eq(requirements.id, requirementId));
     });
     await this.cache.invalidate(`matches:${requirementId}`);
-    return { matched: scored.length };
+    return { matched: total };
   }
 
   /** When a listing goes live, buyers waiting for exactly that are matched to it. */

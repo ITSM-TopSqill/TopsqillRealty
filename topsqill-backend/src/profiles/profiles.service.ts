@@ -2,10 +2,30 @@ import { Injectable, Inject, NotFoundException, BadRequestException } from "@nes
 import { normaliseEmail } from "../auth/email";
 import { eq, and, inArray, sql, desc } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
-import { users, connections, media } from "../db/schema";
+import { users, connections, media, profileViews, listings } from "../db/schema";
 import { CacheService } from "../redis/redis.module";
 import { MediaService } from "../media/media.service";
 import { NotificationsService } from "../notifications/notifications.service";
+
+/** How complete a profile is, 0 to 100, and the next three things to add. */
+export function profileStrength(u: Pick<typeof users.$inferSelect, "type" | "avatarMediaId" | "coverMediaId" | "headline" | "about" | "city" | "localities" | "specialties" | "kycVerified" | "reraVerified" | "listingCount">) {
+  const pro = u.type === "dealer" || u.type === "builder";
+  const checks: [boolean, number, string][] = [
+    [!!u.avatarMediaId, 15, "Add a profile photo"],
+    [!!u.headline, 10, "Write a headline"],
+    [!!u.about && u.about.length >= 60, 10, "Write a short About"],
+    [!!u.city, 5, "Add your city"],
+    [(u.localities ?? []).length > 0, 10, "Add the areas you serve"],
+    [(u.specialties ?? []).length > 0, 10, "Add your specialties"],
+    [!!u.coverMediaId, 5, "Add a cover photo"],
+    [u.kycVerified, 15, "Get KYC verified"],
+    [!pro || u.reraVerified, 10, "Verify your RERA number"],
+    [!pro || u.listingCount > 0, 10, "Add your first listing"],
+  ];
+  const total = checks.reduce((n, c) => n + c[1], 0);
+  const score = Math.round((checks.filter((c) => c[0]).reduce((n, c) => n + c[1], 0) / total) * 100);
+  return { score, next: checks.filter((c) => !c[0]).map((c) => c[2]).slice(0, 3) };
+}
 
 @Injectable()
 export class ProfilesService {
@@ -28,6 +48,7 @@ export class ProfilesService {
       return {
         id: u.id, name: u.name, type: u.type, status: u.status, isAdmin: u.isAdmin, headline: u.headline, about: u.about,
         city: u.city, localities: u.localities, agency: u.agency, yearsExperience: u.yearsExperience,
+        specialties: u.specialties ?? [], interests: u.interests ?? [],
         kycVerified: u.kycVerified, reraVerified: u.reraVerified, reraNumber: u.reraVerified ? u.reraNumber : null,
         connectionCount: u.connectionCount, followerCount: u.followerCount, listingCount: u.listingCount,
         avatar: u.avatarMediaId ? byId.get(u.avatarMediaId) ?? null : null,
@@ -51,7 +72,7 @@ export class ProfilesService {
   }
 
   async updateMe(userId: string, patch: Partial<typeof users.$inferInsert>) {
-    const allowed = ["name", "type", "city", "localities", "headline", "about", "agency", "yearsExperience", "reraNumber", "avatarMediaId", "coverMediaId", "email"] as const;
+    const allowed = ["name", "type", "city", "localities", "specialties", "interests", "headline", "about", "agency", "yearsExperience", "reraNumber", "avatarMediaId", "coverMediaId", "email"] as const;
     const data: Record<string, unknown> = {};
     // `undefined` means "not sent". The validated DTO is a class instance, and
     // with ES2022+ class fields every declared property exists on it, so an
@@ -59,6 +80,10 @@ export class ProfilesService {
     for (const k of allowed) {
       const v = (patch as Record<string, unknown>)[k];
       if (v !== undefined) data[k] = v;
+    }
+    // Short tag lists: trimmed, unique, at most 12 of 40 characters each.
+    for (const k of ["localities", "specialties", "interests"] as const) {
+      if (Array.isArray(data[k])) data[k] = [...new Set((data[k] as unknown[]).map((x) => String(x).trim().slice(0, 40)).filter(Boolean))].slice(0, 12);
     }
     if (!Object.keys(data).length) return this.getProfile(userId, userId);
     data.updatedAt = new Date();
@@ -87,6 +112,38 @@ export class ProfilesService {
     }
     data.email = next;
     data.emailVerified = false;
+  }
+
+  /** Counts a signed-in member's visit to someone else's profile (once a day per viewer). */
+  async recordView(viewerId: string, profileId: string) {
+    if (!viewerId || viewerId === profileId) return { ok: true };
+    await this.db.insert(profileViews).values({ profileId, viewerId }).onConflictDoNothing();
+    return { ok: true };
+  }
+
+  /**
+   * My profile card: how complete my profile is (with what to add next), who
+   * viewed it in the last 30 days, and how often my listings were viewed.
+   */
+  async myStats(userId: string) {
+    const [u] = await this.read.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!u) throw new NotFoundException("That profile is not available.");
+    const strength = profileStrength(u);
+    const since = sql`current_date - 30`;
+    const [[views], recent, [lv]] = await Promise.all([
+      this.read.select({ n: sql<number>`count(distinct ${profileViews.viewerId})::int` }).from(profileViews)
+        .where(and(eq(profileViews.profileId, userId), sql`${profileViews.day} >= ${since}`)),
+      this.read.select({ id: users.id, name: users.name, type: users.type, headline: users.headline, avatarMediaId: users.avatarMediaId, day: profileViews.day })
+        .from(profileViews).innerJoin(users, eq(users.id, profileViews.viewerId))
+        .where(eq(profileViews.profileId, userId)).orderBy(desc(profileViews.day)).limit(5),
+      this.read.select({ n: sql<number>`coalesce(sum(${listings.viewCount}), 0)::int` }).from(listings).where(eq(listings.ownerId, userId)),
+    ]);
+    return {
+      strength,
+      viewers30d: views?.n ?? 0,
+      recentViewers: recent,
+      listingViews: lv?.n ?? 0,
+    };
   }
 
   private async relationOf(viewerId: string, peerId: string) {

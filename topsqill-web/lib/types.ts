@@ -18,6 +18,7 @@ export type Listing = {
   projectSourceId?: string | null; reraNumber?: string | null;
   status?: "draft" | "pending" | "active" | "sold" | "archived";
   lat?: number | null; lng?: number | null; videoUrl?: string | null; tourUrl?: string | null; sourceUrl?: string | null;
+  previousPriceInr?: number | null; priceDroppedAt?: string | null;
 };
 
 export type Paged<T> = { items: T[]; nextCursor: string | null };
@@ -26,6 +27,8 @@ export type Post = {
   id: string; authorId: string; kind: string; body: string; refId?: string | null;
   likeCount: number; commentCount: number; repostCount: number; createdAt: string;
   author?: PersonCard | null; media?: Media[]; likedByMe?: boolean;
+  /** A repost carries the original post (null when the original was removed). */
+  repostOfId?: string | null; repostOf?: Post | null;
 };
 
 export type Requirement = {

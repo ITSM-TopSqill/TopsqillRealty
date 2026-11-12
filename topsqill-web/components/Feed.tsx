@@ -102,6 +102,11 @@ export function PostCard({ post, meId, startOpen = false }: { post: Post; meId: 
   const [menu, setMenu] = useState(false);
   const [saving, setSaving] = useState(false);
   const [gone, setGone] = useState(false);
+  const [shareMenu, setShareMenu] = useState(false);
+  const [repostOpen, setRepostOpen] = useState(false);
+  const [repostText, setRepostText] = useState("");
+  const [reposting, setReposting] = useState(false);
+  const [reposts, setReposts] = useState(post.repostOf ? post.repostOf.repostCount : post.repostCount);
 
   async function saveEdit() {
     const text = (editing ?? "").trim();
@@ -143,14 +148,30 @@ export function PostCard({ post, meId, startOpen = false }: { post: Post; meId: 
     });
   }
 
-  async function share() {
-    const url = `${window.location.origin}/posts/${post.id}`;
-    const text = `${post.author?.name ?? "A member"} on Topsqill.ai: ${post.body.slice(0, 120)}`;
+  const shareUrl = () => `${window.location.origin}/posts/${post.id}`;
+  const shareText = () => `${post.author?.name ?? "A member"} on Topsqill.ai: ${(body || post.repostOf?.body || "").slice(0, 120)}`;
+  function shareWhatsApp() {
+    setShareMenu(false);
+    window.open(`https://wa.me/?text=${encodeURIComponent(`${shareText()}\n${shareUrl()}`)}`, "_blank", "noopener,noreferrer");
+  }
+  async function copyLink() {
+    setShareMenu(false);
+    try { await navigator.clipboard.writeText(shareUrl()); flash("Link copied"); } catch { flash("Couldn’t copy the link"); }
+  }
+  async function shareMore() {
+    setShareMenu(false);
+    try { if (navigator.share) await navigator.share({ title: "Topsqill.ai", text: shareText(), url: shareUrl() }); else await copyLink(); } catch { /* closed */ }
+  }
+  async function repost() {
+    if (!meId) { router.push(`/signin?next=/posts/${post.id}`); return; }
+    setReposting(true);
     try {
-      if (navigator.share) { await navigator.share({ title: "Topsqill.ai", text, url }); return; }
-      await navigator.clipboard.writeText(url);
-      flash("Link copied");
-    } catch { /* closed the share sheet */ }
+      await clientApi(`/v1/posts/${post.repostOf?.id ?? post.id}/repost`, { method: "POST", body: { body: repostText.trim() || undefined } });
+      setRepostOpen(false); setRepostText(""); setReposts((n) => n + 1);
+      flash("Reposted to your network");
+      router.refresh();
+    } catch (e) { flash((e as Error).message); }
+    finally { setReposting(false); }
   }
 
   if (gone) return null;
@@ -193,7 +214,8 @@ export function PostCard({ post, meId, startOpen = false }: { post: Post; meId: 
             <button className="btn btn-p sm" onClick={saveEdit} disabled={saving || !editing.trim()}>{saving ? "Saving…" : "Save"}</button>
           </div>
         </div>
-      ) : <p className="body">{body}</p>}
+      ) : body ? <p className="body">{body}</p> : null}
+      {post.repostOfId ? <Reposted original={post.repostOf ?? null} /> : null}
       {image ? (
         listingLink
           ? <Link href={listingLink}><img src={image} alt="" loading="lazy" style={{ width: "100%", borderRadius: 12, marginTop: 12 }} /></Link>
@@ -202,20 +224,58 @@ export function PostCard({ post, meId, startOpen = false }: { post: Post; meId: 
 
       <div className="small muted" style={{ marginTop: 12 }}>
         {compact(likes)} like{likes === 1 ? "" : "s"} · <button className="linklike" onClick={() => setShowComments(true)}>{comments} comment{comments === 1 ? "" : "s"}</button>
+        {reposts ? <> · {compact(reposts)} repost{reposts === 1 ? "" : "s"}</> : null}
         {note ? <span style={{ marginLeft: 8, color: "var(--vio)", fontWeight: 700 }} aria-live="polite">{note}</span> : null}
       </div>
 
       <div className="pac">
         <button className={`pa ${liked ? "on" : ""}`} onClick={toggleLike} aria-pressed={liked}>{liked ? "💙 Liked" : "👍 Like"}</button>
         <button className="pa" onClick={() => setShowComments((v) => !v)} aria-expanded={showComments}>💬 Comment</button>
-        {listingLink
-          ? <Link href={listingLink} className="pa">🏠 View listing</Link>
-          : <Link href={`/profile/${post.authorId}`} className="pa">👤 Profile</Link>}
-        <button className="pa" onClick={share}>↗ Share</button>
+        {listingLink ? <Link href={listingLink} className="pa">🏠 Listing</Link> : null}
+        <button className="pa" onClick={() => setRepostOpen((v) => !v)} aria-expanded={repostOpen}>🔁 Repost</button>
+        <span style={{ position: "relative", display: "inline-flex" }}>
+          <button className="pa" onClick={() => setShareMenu((v) => !v)} aria-expanded={shareMenu} aria-haspopup="menu">↗ Share</button>
+          {shareMenu ? (
+            <div className="card" role="menu" style={{ position: "absolute", right: 0, bottom: 40, zIndex: 5, minWidth: 180, padding: 4 }}>
+              <button role="menuitem" className="pmi" onClick={shareWhatsApp}>🟢 Share on WhatsApp</button>
+              <button role="menuitem" className="pmi" onClick={copyLink}>🔗 Copy link</button>
+              <button role="menuitem" className="pmi" onClick={shareMore}>↗ More options</button>
+            </div>
+          ) : null}
+        </span>
       </div>
+      {repostOpen ? (
+        <div style={{ marginTop: 8 }}>
+          <textarea value={repostText} onChange={(e) => setRepostText(e.target.value)} rows={2} maxLength={3000} placeholder="Add your thoughts (optional)" aria-label="Your words with the repost"
+            style={{ width: "100%", border: "1.5px solid var(--line)", borderRadius: 12, padding: 10, background: "var(--card)", font: "inherit" }} />
+          <div className="row" style={{ justifyContent: "flex-end", gap: 6, marginTop: 6 }}>
+            <button className="btn btn-g sm" onClick={() => setRepostOpen(false)} disabled={reposting}>Cancel</button>
+            <button className="btn btn-p sm" onClick={repost} disabled={reposting}>{reposting ? "Reposting…" : "Repost"}</button>
+          </div>
+        </div>
+      ) : null}
 
       {showComments ? <Comments postId={post.id} postBody={body} meId={meId} postAuthorId={post.authorId} onCount={(n) => setComments(n)} onAdded={() => setComments((n) => n + 1)} /> : null}
     </article>
+  );
+}
+
+/** The original post inside a repost, as a smaller card. */
+function Reposted({ original }: { original: Post | null }) {
+  if (!original) return <div className="small muted" style={{ marginTop: 10, padding: 12, border: "1.5px solid var(--line)", borderRadius: 12 }}>The original post is no longer available.</div>;
+  const image = original.media?.length ? imageUrl(original.media[0], "card") : null;
+  return (
+    <Link href={`/posts/${original.id}`} style={{ display: "block", marginTop: 10, padding: 12, border: "1.5px solid var(--line)", borderRadius: 12, textDecoration: "none", color: "inherit" }}>
+      <div className="row" style={{ gap: 8 }}>
+        <Avatar person={original.author} media={(original.author as { avatar?: never } | null)?.avatar} size={30} />
+        <div style={{ minWidth: 0 }}>
+          <b className="small">{original.author?.name ?? "Member"}</b> <TypePill type={original.author?.type} />
+          <div className="small muted">{timeAgo(original.createdAt)}</div>
+        </div>
+      </div>
+      <p className="small" style={{ margin: "8px 0 0", whiteSpace: "pre-wrap" }}>{original.body.length > 400 ? `${original.body.slice(0, 397)}…` : original.body}</p>
+      {image ? <img src={image} alt="" loading="lazy" style={{ width: "100%", borderRadius: 10, marginTop: 8 }} /> : null}
+    </Link>
   );
 }
 
@@ -304,7 +364,7 @@ function Comments({ postId, postBody, meId, postAuthorId, onAdded, onCount }: {
 }
 
 /** More posts below the first page, fetched as the member asks for them. */
-export function MoreFeed({ cursor, meId }: { cursor: string | null; meId: string }) {
+export function MoreFeed({ cursor, meId, filter }: { cursor: string | null; meId: string; filter?: string }) {
   const [items, setItems] = useState<Post[]>([]);
   const [next, setNext] = useState(cursor);
   const [busy, setBusy] = useState(false);
@@ -314,7 +374,7 @@ export function MoreFeed({ cursor, meId }: { cursor: string | null; meId: string
     if (!next) return;
     setBusy(true); setError("");
     try {
-      const res = await clientApi<{ items: Post[]; nextCursor: string | null }>(`/v1/feed?limit=12&cursor=${encodeURIComponent(next)}`);
+      const res = await clientApi<{ items: Post[]; nextCursor: string | null }>(`/v1/feed?limit=12&cursor=${encodeURIComponent(next)}${filter ? `&filter=${filter}` : ""}`);
       setItems((xs) => {
         const known = new Set(xs.map((x) => x.id));
         return [...xs, ...res.items.filter((p) => !known.has(p.id))];

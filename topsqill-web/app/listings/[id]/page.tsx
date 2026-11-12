@@ -2,10 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { api } from "@/lib/api";
-import { getUser } from "@/lib/session";
+import { getUser, getToken } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { Avatar, TypePill, Verified } from "@/components/ui";
 import { ContactOwner } from "@/components/ContactOwner";
+import { SaveButton } from "@/components/SaveButton";
+import { priceDrop } from "@/lib/price-drop";
 import { ListingOwnerBar } from "@/components/ListingOwnerBar";
 import { ListingAsk } from "@/components/ListingAsk";
 import { Gallery } from "@/components/Gallery";
@@ -34,11 +36,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [listing, user] = await Promise.all([
+  const [listing, user, token] = await Promise.all([
     api<Listing>(`/v1/listings/${id}`, { revalidate: 60 }).catch(() => null),
     getUser(),
+    getToken(),
   ]);
   if (!listing) notFound();
+  const saved = token ? (await api<{ saved: boolean }>(`/v1/saved/check?type=listing&id=${encodeURIComponent(id)}`, { token }).catch(() => ({ saved: false }))).saved : false;
+  const drop = priceDrop(listing);
 
   const rent = listing.purpose === "rent";
   const ownerId = listing.owner?.id ?? listing.ownerId ?? "";
@@ -91,6 +96,12 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ font: '800 30px/1.1 "Bricolage Grotesque", system-ui, sans-serif' }}>{inr(listing.priceInr, rent)}</div>
+              {drop ? (
+                <div className="small" style={{ marginTop: 4 }}>
+                  <span className="tag" style={{ background: "#E03E52", color: "#fff" }}>↓ Price drop {drop.pct}%</span>{" "}
+                  <s className="muted">{inr(drop.from, rent)}</s> <span style={{ color: "#E03E52", fontWeight: 700 }}>save {inr(drop.cut)}</span>
+                </div>
+              ) : null}
               {rate && !rent ? <div className="small muted">₹{rate.toLocaleString("en-IN")} per sq ft</div> : null}
             </div>
           </div>
@@ -160,7 +171,12 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         </div>
         {mine
           ? <ListingOwnerBar id={listing.id} ownerId={ownerId} status={status} rent={rent} />
-          : status === "active" ? <ContactOwner listingId={listing.id} ownerId={ownerId} signedIn={!!user} title={listing.title} /> : null}
+          : status === "active" ? (
+            <div className="row" style={{ gap: 8 }}>
+              <SaveButton listingId={listing.id} initial={saved} signedIn={!!user} />
+              <ContactOwner listingId={listing.id} ownerId={ownerId} signedIn={!!user} title={listing.title} />
+            </div>
+          ) : null}
       </div>
     </Shell>
   );

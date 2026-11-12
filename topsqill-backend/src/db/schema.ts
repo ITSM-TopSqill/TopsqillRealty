@@ -7,7 +7,7 @@
  *  - Every index below exists because a real screen needs it.
  *  - Media files live in Cloud Storage; only small records are kept here.
  */
-import { pgTable, text, varchar, integer, bigint, boolean, timestamp, jsonb, index, uniqueIndex, primaryKey, pgEnum, doublePrecision, smallint } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, bigint, boolean, timestamp, jsonb, index, uniqueIndex, primaryKey, pgEnum, doublePrecision, smallint, date } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const profileType = pgEnum("profile_type", ["buyer", "seller", "dealer", "builder"]);
@@ -36,7 +36,9 @@ export const users = pgTable("users", {
   reraNumber: varchar("rera_number", { length: 64 }),
   reraVerified: boolean("rera_verified").notNull().default(false),
   city: varchar("city", { length: 80 }),
-  localities: jsonb("localities").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  localities: jsonb("localities").$type<string[]>().notNull().default(sql`'[]'::jsonb`),   // areas served
+  specialties: jsonb("specialties").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  interests: jsonb("interests").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   headline: varchar("headline", { length: 160 }),
   about: text("about"),
   agency: varchar("agency", { length: 160 }),
@@ -114,6 +116,8 @@ export const listings = pgTable("listings", {
   bhk: smallint("bhk"),
   areaSqft: integer("area_sqft"),
   priceInr: bigint("price_inr", { mode: "number" }),              // monthly rent when purpose = rent
+  previousPriceInr: bigint("previous_price_inr", { mode: "number" }),  // the price before the last cut
+  priceDroppedAt: timestamp("price_dropped_at", { withTimezone: true }), // "Price drop" badge for 30 days
   city: varchar("city", { length: 80 }).notNull(),
   locality: varchar("locality", { length: 120 }).notNull(),
   lat: doublePrecision("lat"),
@@ -194,6 +198,7 @@ export const posts = pgTable("posts", {
   likeCount: integer("like_count").notNull().default(0),
   commentCount: integer("comment_count").notNull().default(0),
   repostCount: integer("repost_count").notNull().default(0),
+  repostOfId: varchar("repost_of_id", { length: 36 }),            // a repost points at the original
   hidden: boolean("hidden").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -249,10 +254,21 @@ export const requirementMatches = pgTable("requirement_matches", {
   listingId: varchar("listing_id", { length: 36 }).notNull(),
   score: smallint("score").notNull(),
   notified: boolean("notified").notNull().default(false),
+  offeredBy: varchar("offered_by", { length: 36 }),                // a dealer who offered this listing ("I have a match")
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   pk: primaryKey({ columns: [t.requirementId, t.listingId] }),
   bestIdx: index("requirement_matches_idx").on(t.requirementId, t.score.desc()),
+}));
+
+/** Who viewed a profile: one row per viewer per day. */
+export const profileViews = pgTable("profile_views", {
+  profileId: varchar("profile_id", { length: 36 }).notNull(),
+  viewerId: varchar("viewer_id", { length: 36 }).notNull(),
+  day: date("day").notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.profileId, t.viewerId, t.day] }),
+  recentIdx: index("profile_views_recent_idx").on(t.profileId, t.day.desc()),
 }));
 
 export const savedItems = pgTable("saved_items", {

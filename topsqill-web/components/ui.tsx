@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { priceDrop } from "@/lib/price-drop";
 import { imageUrl, initials, TYPE_COLOR, TYPE_LABEL, inr, sqft, timeAgo } from "@/lib/format";
 import type { Listing, Media, PersonCard } from "@/lib/types";
 
@@ -31,12 +32,16 @@ export function Verified({ person }: { person?: { kycVerified?: boolean; reraVer
 export function ListingCard({ listing }: { listing: Listing }) {
   const url = imageUrl(listing.cover, "card");
   const rent = listing.purpose === "rent";
+  const drop = priceDrop(listing);
   return (
     <Link href={`/listings/${listing.id}`} className="card lc" style={{ textDecoration: "none" }}>
       <div className="art">
         {url
           ? <img src={url} alt={listing.title} loading="lazy" />
           : <div style={{ width: "100%", height: "100%", background: "var(--brand)", opacity: 0.15 }} />}
+        {drop && (!listing.status || listing.status === "active") ? (
+          <span className="pill" style={{ position: "absolute", right: 12, top: 12, background: "#E03E52", color: "#fff" }} title={`Was ${inr(drop.from, rent)}`}>↓ Price drop {drop.pct}%</span>
+        ) : null}
         <span className="pill" style={{ position: "absolute", left: 12, top: 12, background: listing.status && listing.status !== "active" ? "#1F1D33" : "rgba(255,255,255,.94)", color: listing.status && listing.status !== "active" ? "#fff" : "#1F1D33" }}>
           {listing.status === "sold" ? (rent ? "Rented" : "Sold") : listing.status === "archived" ? "Unlisted" : listing.status === "draft" ? "Draft" : rent ? "For rent" : "For sale"}
         </span>

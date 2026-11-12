@@ -2,7 +2,9 @@ import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestEx
 import { videoEmbed, tourEmbed } from "../common/embeds";
 import { and, eq, lt, or, gte, lte, desc, sql, inArray } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
-import { listings, listingMedia, media, users } from "../db/schema";
+import { listings, listingMedia, media, users, savedItems } from "../db/schema";
+import { NotificationsService } from "../notifications/notifications.service";
+import { inr } from "../ai/query";
 import { CacheService } from "../redis/redis.module";
 import { MediaService } from "../media/media.service";
 import { QueueService, QUEUES } from "../queue/queue.module";
@@ -26,6 +28,12 @@ export const LISTING_EDITABLE = [
  * listing page frames them, so only known video and 3D-tour hosts are allowed.
  * An empty string clears the link.
  */
+/** A price cut shows a "Price drop" badge; a rise clears it. */
+export function priceChange(before: number | null | undefined, after: number | null | undefined): "drop" | "rise" | null {
+  if (!before || !after || before === after) return null;
+  return after < before ? "drop" : "rise";
+}
+
 export function cleanLinks<T extends { videoUrl?: string | null; tourUrl?: string | null; lat?: number | null; lng?: number | null }>(input: T): T {
   const out = { ...input };
   if (out.videoUrl !== undefined) {
@@ -50,6 +58,7 @@ export class ListingsService {
     private readonly cache: CacheService,
     private readonly mediaSvc: MediaService,
     private readonly queue: QueueService,
+    private readonly notifs: NotificationsService,
   ) {}
 
   /**
@@ -91,6 +100,7 @@ export class ListingsService {
       city: listings.city, locality: listings.locality, possession: listings.possession,
       verified: listings.verified, coverMediaId: listings.coverMediaId,
       publishedAt: listings.publishedAt, ownerId: listings.ownerId,
+      previousPriceInr: listings.previousPriceInr, priceDroppedAt: listings.priceDroppedAt,
     }).from(listings).where(and(...where))
       .orderBy(desc(listings.publishedAt), desc(listings.id))
       .limit(limit + 1);
@@ -161,6 +171,7 @@ export class ListingsService {
       city: listings.city, locality: listings.locality, publishedAt: listings.publishedAt,
       viewCount: listings.viewCount, leadCount: listings.leadCount,
       possession: listings.possession, coverMediaId: listings.coverMediaId, ownerId: listings.ownerId,
+      previousPriceInr: listings.previousPriceInr, priceDroppedAt: listings.priceDroppedAt,
     }).from(listings).where(eq(listings.ownerId, userId)).orderBy(desc(listings.createdAt)).limit(100);
     const covers = await this.coversFor(rows.map((r) => r.coverMediaId).filter(Boolean) as string[]);
     return { items: rows.map((r) => ({ ...r, cover: r.coverMediaId ? covers.get(r.coverMediaId) ?? null : null })) };
@@ -207,8 +218,20 @@ export class ListingsService {
     return row;
   }
 
+  /** Everyone who saved this home hears about a price cut. */
+  private async alertSavers(listingId: string, title: string, from: number, to: number) {
+    const savers = await this.read.select({ userId: savedItems.userId }).from(savedItems)
+      .where(and(eq(savedItems.itemType, "listing"), eq(savedItems.itemId, listingId))).limit(500);
+    for (const s of savers) {
+      await this.notifs.create({
+        userId: s.userId, kind: "match", title: `Price drop: ${title}`.slice(0, 140),
+        body: `Now ${inr(to)}, down from ${inr(from)}.`, targetType: "listing", targetId: listingId,
+      }).catch(() => null);
+    }
+  }
+
   async update(userId: string, id: string, patch: ListingPatch & { mediaIds?: string[] }) {
-    const [existing] = await this.db.select({ ownerId: listings.ownerId, publishedAt: listings.publishedAt, status: listings.status })
+    const [existing] = await this.db.select({ ownerId: listings.ownerId, publishedAt: listings.publishedAt, status: listings.status, priceInr: listings.priceInr, title: listings.title })
       .from(listings).where(eq(listings.id, id)).limit(1);
     if (!existing) throw new NotFoundException("That listing is no longer available.");
     if (existing.ownerId !== userId) throw new ForbiddenException("You can only edit your own listings.");
@@ -220,6 +243,12 @@ export class ListingsService {
     for (const k of LISTING_EDITABLE) if (k in patch && (patch as Record<string, unknown>)[k] !== undefined) data[k] = (patch as Record<string, unknown>)[k];
     if (data.status === "active" && !existing.publishedAt) data.publishedAt = new Date();
     data.updatedAt = new Date();
+    // A lower price shows a "Price drop" badge for 30 days; raising it again removes the badge.
+    const newPrice = typeof data.priceInr === "number" ? data.priceInr : null;
+    const change = priceChange(existing.priceInr, newPrice);
+    const dropped = change === "drop";
+    if (dropped) { data.previousPriceInr = existing.priceInr; data.priceDroppedAt = new Date(); }
+    else if (change === "rise") { data.previousPriceInr = null; data.priceDroppedAt = null; }
 
     // Photos: the list sent replaces the old one, in that order; the first is the cover.
     const mediaIds = patch.mediaIds ? await this.ownMedia(userId, patch.mediaIds) : null;
@@ -234,6 +263,7 @@ export class ListingsService {
       return updated;
     });
     await this.cache.invalidate(`listing:${id}`);
+    if (dropped && row.status === "active") await this.alertSavers(id, existing.title, existing.priceInr!, newPrice!).catch(() => null);
     // A live listing whose price, place or size changed may now suit different buyers.
     const rematch = ["priceInr", "city", "locality", "bhk", "areaSqft", "purpose", "kind", "possession"].some((k) => k in data);
     if (row.status === "active" && (rematch || existing.status !== "active")) {
