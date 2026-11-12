@@ -1,25 +1,19 @@
 import { Injectable, Inject, NotFoundException, BadRequestException, ForbiddenException } from "@nestjs/common";
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
-import { posts, postLikes, postComments, connections, follows, users, media, listings, jobs, projects } from "../db/schema";
+import { posts, postLikes, postComments, connections, follows, users, media, listings, jobs, projects, requirements } from "../db/schema";
 import { CacheService } from "../redis/redis.module";
-import { QueueService, QUEUES } from "../queue/queue.module";
 import { MediaService } from "../media/media.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { newId, encodeCursor, decodeCursor } from "../common/ids";
 
 /**
- * Feed strategy
- *  - On publish, a background job copies the post id into each connection's feed
- *    list in Redis ("fan-out on write"). Opening Home is then a single list read.
- *  - Accounts with very large followings are not fanned out; their posts are
- *    merged in at read time, so one builder with 80k followers never blocks the queue.
+ * The wall reads straight from Postgres (see home()), so a post, listing,
+ * requirement or job shows the moment it's saved.
  */
-const FANOUT_LIMIT = 5000;
 
-export type FeedFilter = "following" | "listings" | "requirements" | "projects" | "insights";
-const FILTER_KIND = { listings: "listing", requirements: "requirement", projects: "project", insights: "insight" } as const;
-const FEED_KEY = (userId: string) => `feed:${userId}`;
+export type FeedFilter = "following" | "listings" | "requirements" | "projects" | "jobs" | "insights";
+const FILTER_KIND = { listings: "listing", requirements: "requirement", projects: "project", jobs: "job", insights: "insight" } as const;
 
 @Injectable()
 export class FeedService {
@@ -27,7 +21,6 @@ export class FeedService {
     @Inject(DB) private readonly db: Database,
     @Inject(DB_READ) private readonly read: Database,
     private readonly cache: CacheService,
-    private readonly queue: QueueService,
     private readonly mediaSvc: MediaService,
     private readonly notifs: NotificationsService,
   ) {}
@@ -38,48 +31,29 @@ export class FeedService {
       id, authorId: userId, kind: (input.kind as any) ?? "update",
       body: input.body, refId: input.refId ?? null, mediaIds: input.mediaIds ?? [],
     }).returning();
-    // The API returns now; delivery to followers happens in the background.
-    await this.queue.add(QUEUES.fanout, "post", { postId: id, authorId: userId }, `fanout-${id}`);
     return row;
   }
 
   /**
-   * Home feed: pre-built list in Redis, with a database fallback.
+   * Home feed, newest first, from Postgres: posts from my network and me, plus
+   * new listings, requirements, projects and jobs from members in my city (so
+   * the wall always has what's happening locally, even with few connections).
    *
-   * Cursors say which source made them ("c:" a post id from the Redis list,
-   * "d:" a time and id from Postgres). Before, the two kinds were mixed up when
-   * the source changed between pages, so "load more" repeated or skipped posts.
+   * It used to read a list in Redis that a background job filled after each
+   * post, so a new post (even my own) appeared only once that job had run.
+   * The first page reads the primary database, so what I just posted is
+   * always there; later pages use the replica.
    */
   async home(userId: string, cursor?: string, limit = 20, filter?: FeedFilter) {
     limit = Math.min(Math.max(limit, 1), 50);
-    if (filter) return this.filtered(userId, filter, cursor?.startsWith("d:") ? cursor.slice(2) : undefined, limit);
-    if (cursor?.startsWith("d:")) return this.homeFromDb(userId, cursor.slice(2), limit);
-    const afterId = cursor?.startsWith("c:") ? cursor.slice(2) : undefined;
-
-    const ids = await this.cache.redis.zrevrange(FEED_KEY(userId), 0, 400).catch(() => [] as string[]);
-    if (ids.length && (!afterId || ids.includes(afterId))) {
-      const start = afterId ? ids.indexOf(afterId) + 1 : 0;
-      const slice = ids.slice(start, start + limit + 1);
-      if (slice.length > limit) {
-        const page = slice.slice(0, limit);
-        return { items: await this.hydrate(page, userId), nextCursor: `c:${page[page.length - 1]}`, source: "cache" };
-      }
-      // The cached list only holds posts delivered since it was created, so it
-      // runs out: carry on from Postgres after its last post, on this same page.
-      // (Stopping here hid every older post from the member's network.)
-      const cached = await this.hydrate(slice, userId);
-      const anchorId = cached.length ? cached[cached.length - 1].id : afterId;
-      const [anchor] = anchorId ? await this.read.select({ createdAt: posts.createdAt }).from(posts).where(eq(posts.id, anchorId)).limit(1) : [];
-      const rest = await this.homeFromDb(userId, anchor ? encodeCursor(anchor.createdAt, anchorId!) : undefined, Math.max(limit - cached.length, 1), new Set(ids));
-      const items = [...cached, ...rest.items].slice(0, limit);
-      return { items, nextCursor: rest.nextCursor, source: "cache+db" };
+    let after = cursor?.startsWith("d:") ? cursor.slice(2) : undefined;
+    // Older apps may still hold a cursor from the Redis list: carry on after that post.
+    if (cursor?.startsWith("c:")) {
+      const [p] = await this.read.select({ createdAt: posts.createdAt }).from(posts).where(eq(posts.id, cursor.slice(2))).limit(1);
+      after = p ? encodeCursor(p.createdAt, cursor.slice(2)) : undefined;
     }
-    // Past the end of the cached list (or it expired): carry on from that post in Postgres.
-    if (afterId) {
-      const [p] = await this.read.select({ createdAt: posts.createdAt }).from(posts).where(eq(posts.id, afterId)).limit(1);
-      return this.homeFromDb(userId, p ? encodeCursor(p.createdAt, afterId) : undefined, limit);
-    }
-    return this.homeFromDb(userId, undefined, limit);
+    if (filter) return this.filtered(userId, filter, after, limit);
+    return this.homeFromDb(userId, after, limit);
   }
 
   /**
@@ -90,6 +64,7 @@ export class FeedService {
    */
   private async filtered(userId: string, filter: FeedFilter, cursor: string | undefined, limit: number) {
     const cur = decodeCursor(cursor);
+    const src = cursor ? this.read : this.db;
     const where = [eq(posts.hidden, false)];
     if (filter === "following") {
       const authorIds = await this.audienceOf(userId);
@@ -99,11 +74,11 @@ export class FeedService {
       where.push(eq(posts.kind, FILTER_KIND[filter]));
     }
     if (cur) where.push(or(lt(posts.createdAt, new Date(cur.t)), and(eq(posts.createdAt, new Date(cur.t)), lt(posts.id, cur.id))!)!);
-    const rows = await this.read.select().from(posts).where(and(...where)).orderBy(desc(posts.createdAt), desc(posts.id)).limit(limit + 1);
+    const rows = await src.select().from(posts).where(and(...where)).orderBy(desc(posts.createdAt), desc(posts.id)).limit(limit + 1);
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
     return {
-      items: await this.decorate(page, userId),
+      items: await this.decorate(page, userId, 0, src),
       nextCursor: hasMore && page.length ? `d:${encodeCursor(page[page.length - 1].createdAt, page[page.length - 1].id)}` : null,
       source: "db",
     };
@@ -128,7 +103,6 @@ export class FeedService {
       id, authorId: userId, kind: original.kind, body: (comment ?? "").trim().slice(0, 3000), repostOfId: original.id, mediaIds: [],
     }).returning();
     await this.db.update(posts).set({ repostCount: sql`${posts.repostCount} + 1` }).where(eq(posts.id, original.id));
-    await this.queue.add(QUEUES.fanout, "post", { postId: id, authorId: userId }, `fanout-${id}`);
     if (original.authorId !== userId) {
       const name = await this.notifs.nameOf(userId);
       await this.notifs.create({ userId: original.authorId, kind: "post", title: `${name} reposted your post`, body: excerpt(original.body), actorId: userId, targetType: "post", targetId: original.id }).catch(() => null);
@@ -169,29 +143,40 @@ export class FeedService {
     });
   }
 
-  /** Used for new members, and whenever the cached feed is empty. */
-  private async homeFromDb(userId: string, cursor?: string, limit = 20, skip?: Set<string>) {
+  private async homeFromDb(userId: string, cursor?: string, limit = 20) {
     const cur = decodeCursor(cursor);
-    const authorIds = await this.audienceOf(userId);
+    const src = cursor ? this.read : this.db;
+    const [authorIds, [me]] = await Promise.all([
+      this.audienceOf(userId),
+      this.read.select({ city: users.city }).from(users).where(eq(users.id, userId)).limit(1),
+    ]);
     const where = [eq(posts.hidden, false)];
-    if (authorIds.length) where.push(inArray(posts.authorId, [...authorIds, userId]));
+    if (authorIds.length) {
+      // New listings, requirements, projects and jobs from members in my city (or anywhere, if I haven't set one).
+      const local = me?.city
+        ? sql`${posts.authorId} in (select id from users where lower(city) = lower(${me.city}))`
+        : sql`true`;
+      where.push(or(
+        inArray(posts.authorId, [...authorIds, userId]),
+        and(inArray(posts.kind, ["listing", "requirement", "project", "job"]), local),
+      )!);
+    }
     if (cur) where.push(or(lt(posts.createdAt, new Date(cur.t)), and(eq(posts.createdAt, new Date(cur.t)), lt(posts.id, cur.id))!)!);
 
-    const rows = await this.read.select().from(posts).where(and(...where))
+    const rows = await src.select().from(posts).where(and(...where))
       .orderBy(desc(posts.createdAt), desc(posts.id)).limit(limit + 1);
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
-    // Posts already shown from the cached list are not repeated.
-    const items = await this.decorate(skip ? page.filter((p) => !skip.has(p.id)) : page, userId);
     return {
-      items,
+      items: await this.decorate(page, userId, 0, src),
       nextCursor: hasMore && page.length ? `d:${encodeCursor(page[page.length - 1].createdAt, page[page.length - 1].id)}` : null,
       source: "db",
     };
   }
 
   private async audienceOf(userId: string) {
-    return this.cache.wrap(`audience:${userId}`, 300, async () => {
+    // Short, so someone I just connected with or followed shows up within a minute.
+    return this.cache.wrap(`audience:${userId}`, 60, async () => {
       const [conns, fols] = await Promise.all([
         this.read.select({ id: connections.peerId }).from(connections)
           .where(and(eq(connections.userId, userId), eq(connections.status, "accepted"))).limit(2000),
@@ -201,17 +186,13 @@ export class FeedService {
     });
   }
 
-  private async hydrate(ids: string[], viewerId: string) {
-    if (!ids.length) return [];
-    const rows = await this.read.select().from(posts).where(and(inArray(posts.id, ids), eq(posts.hidden, false)));
-    const order = new Map(ids.map((id, i) => [id, i]));
-    rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-    return this.decorate(rows, viewerId);
-  }
-
   /** Authors, media and "did I like this" are each one query for the whole page. */
-  private async decorate(rows: (typeof posts.$inferSelect)[], viewerId: string, depth = 0): Promise<any[]> {
+  private async decorate(rows: (typeof posts.$inferSelect)[], viewerId: string, depth = 0, src: Database = this.read): Promise<any[]> {
     if (!rows.length) return [];
+    // What a listing, requirement or job post is about, shown as a card on the post.
+    const refs = await this.refsFor(rows, src);
+    // A post about a listing that's no longer up (unlisted, removed, in review) or a closed requirement is left out.
+    rows = rows.filter((r) => !refs.missing.has(r.id));
     // Reposts carry the original post (one level, never nested).
     const originalIds = depth ? [] : [...new Set(rows.map((r) => r.repostOfId).filter(Boolean) as string[])];
     const originals = originalIds.length
@@ -236,7 +217,51 @@ export class FeedService {
       media: (r.mediaIds ?? []).map((id) => mediaById.get(id)).filter(Boolean),
       likedByMe: likedSet.has(r.id),
       ...(r.repostOfId ? { repostOf: originalById.get(r.repostOfId) ?? null } : {}),
+      ...(refs.byPost.has(r.id) ? { ref: refs.byPost.get(r.id) } : {}),
     }));
+  }
+
+  /** The listing, requirement or job behind each post (one query per kind for the whole page). */
+  private async refsFor(rows: (typeof posts.$inferSelect)[], src: Database) {
+    const ids = (kind: string) => [...new Set(rows.filter((r) => r.kind === kind && r.refId && !r.repostOfId).map((r) => r.refId!))];
+    const [lIds, rIds, jIds] = [ids("listing"), ids("requirement"), ids("job")];
+    const [ls, rs, js] = await Promise.all([
+      lIds.length ? src.select({ id: listings.id, title: listings.title, purpose: listings.purpose, kind: listings.kind, bhk: listings.bhk, areaSqft: listings.areaSqft,
+        priceInr: listings.priceInr, city: listings.city, locality: listings.locality, status: listings.status, hidden: listings.hidden, possession: listings.possession,
+        coverMediaId: listings.coverMediaId, verified: listings.verified }).from(listings).where(inArray(listings.id, lIds)) : Promise.resolve([]),
+      rIds.length ? src.select({ id: requirements.id, purpose: requirements.purpose, kind: requirements.kind, bhk: requirements.bhk, city: requirements.city,
+        localities: requirements.localities, minPrice: requirements.minPrice, maxPrice: requirements.maxPrice, timeline: requirements.timeline, status: requirements.status,
+        matchCount: requirements.matchCount }).from(requirements).where(inArray(requirements.id, rIds)) : Promise.resolve([]),
+      jIds.length ? src.select({ id: jobs.id, title: jobs.title, company: jobs.company, city: jobs.city, locality: jobs.locality, status: jobs.status,
+        employment: jobs.employment, workMode: jobs.workMode, salaryMin: jobs.salaryMin, salaryMax: jobs.salaryMax, expMin: jobs.expMin, expMax: jobs.expMax })
+        .from(jobs).where(inArray(jobs.id, jIds)) : Promise.resolve([]),
+    ]);
+    const coverIds = ls.map((l) => l.coverMediaId).filter(Boolean) as string[];
+    const covers = coverIds.length ? await src.select().from(media).where(inArray(media.id, coverIds)) : [];
+    const coverById = new Map(covers.map((m) => [m.id, this.mediaSvc.publicView(m)]));
+    const L = new Map(ls.map(({ hidden, coverMediaId, ...l }) => [l.id, { type: "listing" as const, ...l, hidden, cover: coverMediaId ? coverById.get(coverMediaId) ?? null : null }]));
+    const R = new Map(rs.map((r) => [r.id, { type: "requirement" as const, ...r }]));
+    const J = new Map(js.map((j) => [j.id, { type: "job" as const, ...j }]));
+    const byPost = new Map<string, unknown>();
+    const missing = new Set<string>();
+    for (const r of rows) {
+      if (!r.refId || r.repostOfId) continue;
+      if (r.kind === "listing") {
+        const l = L.get(r.refId);
+        // A listing post made before this card existed may point at nothing: keep the post, without a card.
+        if (l && (l.hidden || !["active", "sold"].includes(l.status))) missing.add(r.id);
+        else if (l) { const { hidden: _h, ...card } = l; byPost.set(r.id, card); }
+      } else if (r.kind === "requirement") {
+        const q = R.get(r.refId);
+        if (q && q.status === "closed") missing.add(r.id);
+        else if (q) byPost.set(r.id, q);
+      } else if (r.kind === "job") {
+        const j = J.get(r.refId);
+        if (j && j.status === "draft") missing.add(r.id);
+        else if (j) byPost.set(r.id, j);
+      }
+    }
+    return { byPost, missing };
   }
 
   /** One post, for its own page (shared links and alerts open it). */
@@ -309,7 +334,6 @@ export class FeedService {
       await tx.delete(postComments).where(eq(postComments.postId, postId));
       await tx.delete(posts).where(eq(posts.id, postId));
     });
-    await this.cache.redis.zrem(FEED_KEY(userId), postId).catch(() => 0);
     return { ok: true };
   }
 
@@ -336,8 +360,6 @@ export class FeedService {
     return { items: rows };
   }
 
-  static FANOUT_LIMIT = FANOUT_LIMIT;
-  static feedKey = FEED_KEY;
 }
 
 const excerpt = (t: string) => (t.length > 120 ? `${t.slice(0, 117)}…` : t);

@@ -19,7 +19,7 @@ type Sidebar = {
 };
 
 /** Home: the feed for members, and a landing page for everyone else. */
-const FILTERS = [["", "All"], ["following", "Following"], ["listings", "Listings"], ["requirements", "Requirements"], ["projects", "Projects"], ["insights", "Insights"]] as const;
+const FILTERS = [["", "All"], ["following", "Following"], ["listings", "Listings"], ["requirements", "Requirements"], ["projects", "Projects"], ["jobs", "Jobs"], ["insights", "Insights"]] as const;
 
 export default async function HomePage({ searchParams }: { searchParams: Promise<{ f?: string }> }) {
   const [user, token, q] = await Promise.all([getUser(), getToken(), searchParams]);

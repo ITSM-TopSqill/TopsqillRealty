@@ -1,3 +1,4 @@
+import { postActivity, listingActivityText } from "../feed/activity";
 import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException } from "@nestjs/common";
 import { videoEmbed, tourEmbed } from "../common/embeds";
 import { and, eq, lt, or, gte, lte, desc, sql, inArray } from "drizzle-orm";
@@ -239,7 +240,10 @@ export class ListingsService {
     });
     // Buyers whose requirements match this listing are matched in the background (once it's live).
     if (review) await this.review.submit(row.id, userId);
-    else if (row.status === "active") await this.queue.add(QUEUES.ai, "match:listing", { listingId: row.id }, `matchl-${row.id}`);
+    else if (row.status === "active") {
+      await postActivity(this.db, { authorId: userId, kind: "listing", refId: row.id, body: listingActivityText(row), mediaIds: row.coverMediaId ? [row.coverMediaId] : [] });
+      await this.queue.add(QUEUES.ai, "match:listing", { listingId: row.id }, `matchl-${row.id}`);
+    }
     return { ...row, inReview: review };
   }
 
@@ -343,6 +347,9 @@ export class ListingsService {
     if (dropped && row.status === "active") await this.alertSavers(id, existing.title, existing.priceInr!, newPrice!).catch(() => null);
     // A live listing whose price, place or size changed may now suit different buyers.
     const rematch = ["priceInr", "city", "locality", "bhk", "areaSqft", "purpose", "kind", "possession"].some((k) => k in data);
+    if (row.status === "active" && existing.status !== "active") {
+      await postActivity(this.db, { authorId: userId, kind: "listing", refId: id, body: listingActivityText(row), mediaIds: row.coverMediaId ? [row.coverMediaId] : [] });
+    }
     if (row.status === "active" && (rematch || existing.status !== "active")) {
       await this.queue.add(QUEUES.ai, "match:listing", { listingId: id }, `matchl-${id}-${Date.now()}`);
     }

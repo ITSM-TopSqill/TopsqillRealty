@@ -1,3 +1,4 @@
+import { postActivity, listingActivityText } from "../feed/activity";
 import { Injectable, Inject, NotFoundException, BadRequestException } from "@nestjs/common";
 import { and, desc, eq, inArray, sql, ne } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
@@ -208,6 +209,7 @@ export class ListingReviewService {
     await this.db.insert(auditLog).values({ id: newId(), actorId: adminId, action: `listing.${input.decision}`, targetType: "listing", targetId: listingId, meta: { reasons, note } }).catch(() => {});
 
     // Buyers waiting for exactly this are matched once it's live.
+    if (approved) await postActivity(this.db, { authorId: l.ownerId, kind: "listing", refId: listingId, body: listingActivityText(l), mediaIds: l.coverMediaId ? [l.coverMediaId] : [] });
     if (approved) await this.queue.add(QUEUES.ai, "match:listing", { listingId }, `matchl-${listingId}-${Date.now()}`).catch(() => {});
 
     const why = [...reasons.map((r) => REVIEW_REASONS[r]), note].filter(Boolean).join(" · ");

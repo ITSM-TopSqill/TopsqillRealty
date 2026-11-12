@@ -1,3 +1,4 @@
+import { postActivity, requirementActivityText } from "../feed/activity";
 import { Injectable, Inject, NotFoundException, BadRequestException } from "@nestjs/common";
 import { and, desc, eq, gte, lte, sql, lt, or, isNull } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
@@ -72,6 +73,7 @@ export class RequirementsService {
   async create(userId: string, input: Partial<typeof requirements.$inferInsert>) {
     const id = newId();
     const [row] = await this.db.insert(requirements).values({ ...input, id, userId } as typeof requirements.$inferInsert).returning();
+    if (row.status === "active") await postActivity(this.db, { authorId: userId, kind: "requirement", refId: id, body: requirementActivityText(row) });
     // Matching runs in the background, so posting a requirement is instant.
     await this.queue.add(QUEUES.ai, "match:requirement", { requirementId: id }, `match-${id}`);
     return row;

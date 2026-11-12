@@ -32,7 +32,17 @@ export type Post = {
   author?: PersonCard | null; media?: Media[]; likedByMe?: boolean;
   /** A repost carries the original post (null when the original was removed). */
   repostOfId?: string | null; repostOf?: Post | null;
+  /** What a listing, requirement or job post is about, shown as a card. */
+  ref?: PostRef;
 };
+
+export type PostRef =
+  | { type: "listing"; id: string; title: string; purpose: "sale" | "rent"; kind: string; bhk?: number | null; areaSqft?: number | null; priceInr?: number | null;
+      city: string; locality: string; status: string; possession?: string | null; verified?: boolean; cover?: Media | null }
+  | { type: "requirement"; id: string; purpose: "sale" | "rent"; kind: string; bhk?: number | null; city: string; localities: string[];
+      minPrice?: number | null; maxPrice?: number | null; timeline?: string | null; status: string; matchCount: number }
+  | { type: "job"; id: string; title: string; company: string; city: string; locality?: string | null; status: string; employment: string; workMode: string;
+      salaryMin?: string | null; salaryMax?: string | null; expMin: number; expMax: number };
 
 export type Requirement = {
   id: string; purpose: "sale" | "rent"; kind: string; bhk?: number | null;

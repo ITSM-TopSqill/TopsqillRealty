@@ -4,9 +4,9 @@ import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
-import { timeAgo, compact, imageUrl } from "@/lib/format";
+import { timeAgo, compact, imageUrl, inr } from "@/lib/format";
 import { Avatar, TypePill } from "./ui";
-import type { Post } from "@/lib/types";
+import type { Post, PostRef } from "@/lib/types";
 import type { SessionUser } from "@/lib/session";
 
 type Tone = "write" | "fix" | "punchy" | "short" | "hinglish" | "tags";
@@ -175,7 +175,8 @@ export function PostCard({ post, meId, startOpen = false }: { post: Post; meId: 
   }
 
   if (gone) return null;
-  const image = post.media?.length ? imageUrl(post.media[0], "large") : null;
+  // A listing post shows its listing card (with the cover photo) instead of a separate image.
+  const image = post.ref?.type !== "listing" && post.media?.length ? imageUrl(post.media[0], "large") : null;
   const listingLink = post.kind === "listing" && post.refId ? `/listings/${post.refId}` : null;
 
   return (
@@ -216,6 +217,7 @@ export function PostCard({ post, meId, startOpen = false }: { post: Post; meId: 
         </div>
       ) : body ? <p className="body">{body}</p> : null}
       {post.repostOfId ? <Reposted original={post.repostOf ?? null} /> : null}
+      {post.ref ? <RefCard r={post.ref} mine={mine} /> : null}
       {image ? (
         listingLink
           ? <Link href={listingLink}><img src={image} alt="" loading="lazy" style={{ width: "100%", borderRadius: 12, marginTop: 12 }} /></Link>
@@ -261,6 +263,61 @@ export function PostCard({ post, meId, startOpen = false }: { post: Post; meId: 
 }
 
 /** The original post inside a repost, as a smaller card. */
+const KIND_TAG = { listing: ["New listing", "#12B76A"], requirement: ["Requirement", "#2F7FE6"], job: ["Hiring", "#7B3DFF"] } as const;
+
+/** The essentials of what the post is about: price, size and place for a listing; budget and areas for a requirement; role and pay for a job. */
+function RefCard({ r, mine }: { r: PostRef; mine: boolean }) {
+  const [label, color] = KIND_TAG[r.type];
+  const tag = <span className="pill" style={{ color, background: `color-mix(in srgb, ${color} 13%, transparent)`, fontSize: 11.5 }}>{label}</span>;
+  if (r.type === "listing") {
+    const cover = imageUrl(r.cover, "large");
+    const rent = r.purpose === "rent";
+    const closed = r.status === "sold";
+    return (
+      <Link href={`/listings/${r.id}`} className="refcard" style={{ display: "block", marginTop: 12, border: "1.5px solid var(--line)", borderRadius: 14, overflow: "hidden", color: "inherit" }}>
+        {cover ? (
+          <div style={{ position: "relative" }}>
+            <img src={cover} alt={r.title} loading="lazy" style={{ width: "100%", aspectRatio: "16/9", objectFit: "cover", display: "block" }} />
+            {closed ? <span className="pill" style={{ position: "absolute", left: 10, top: 10, background: "#1F1D33", color: "#fff" }}>{rent ? "Rented" : "Sold"}</span> : null}
+          </div>
+        ) : null}
+        <div style={{ padding: "10px 12px", display: "grid", gap: 4 }}>
+          <div className="spread" style={{ gap: 8 }}>
+            <b style={{ fontSize: 18 }}>{inr(r.priceInr, rent)}</b>
+            <span className="row" style={{ gap: 6 }}>{r.verified ? <span className="tag" style={{ color: "#2E9E90" }}>✓ Verified</span> : null}{tag}</span>
+          </div>
+          <div style={{ fontWeight: 700 }}>{[r.bhk ? `${r.bhk} BHK` : null, r.kind, r.areaSqft ? `${r.areaSqft.toLocaleString("en-IN")} sq ft` : null].filter(Boolean).join(" · ")}</div>
+          <div className="small muted">📍 {r.locality}, {r.city}{r.possession ? ` · ${r.possession}` : ""} · {rent ? "For rent" : "For sale"}</div>
+          <span className="small" style={{ color: "var(--vio)", fontWeight: 800 }}>View listing →</span>
+        </div>
+      </Link>
+    );
+  }
+  if (r.type === "requirement") {
+    const budget = r.maxPrice ? (r.minPrice ? `${inr(r.minPrice, r.purpose === "rent")} – ${inr(r.maxPrice, r.purpose === "rent")}` : `Up to ${inr(r.maxPrice, r.purpose === "rent")}`) : "Budget open";
+    return (
+      <div style={{ marginTop: 12, border: "1.5px solid var(--line)", borderRadius: 14, padding: "10px 12px", display: "grid", gap: 4, background: "var(--soft)" }}>
+        <div className="spread" style={{ gap: 8 }}><b style={{ fontSize: 16 }}>{budget}</b>{tag}</div>
+        <div style={{ fontWeight: 700 }}>{r.purpose === "rent" ? "To rent" : "To buy"}: {[r.bhk ? `${r.bhk} BHK` : null, r.kind].filter(Boolean).join(" ")}</div>
+        <div className="small muted">📍 {r.localities?.length ? `${r.localities.join(", ")} · ` : ""}{r.city}{r.timeline ? ` · ${r.timeline}` : ""}{r.status === "matched" ? " · Matched" : ""}</div>
+        <div className="row" style={{ gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+          <Link href={`/requirements/${r.id}`} className="btn btn-p sm">{mine ? `See matches${r.matchCount ? ` (${r.matchCount})` : ""}` : "🤝 I have a match"}</Link>
+        </div>
+      </div>
+    );
+  }
+  const lpa = (v?: string | null) => (v ? String(Number(v)) : "");
+  const pay = r.salaryMin || r.salaryMax ? `₹${[lpa(r.salaryMin), lpa(r.salaryMax)].filter(Boolean).join("–")} LPA` : null;
+  return (
+    <Link href={`/jobs/${r.id}`} style={{ display: "grid", gap: 4, marginTop: 12, border: "1.5px solid var(--line)", borderRadius: 14, padding: "10px 12px", color: "inherit" }}>
+      <div className="spread" style={{ gap: 8 }}><b style={{ fontSize: 16 }}>{r.title}</b>{tag}</div>
+      <div style={{ fontWeight: 700 }}>{r.company}</div>
+      <div className="small muted">📍 {[r.locality, r.city].filter(Boolean).join(", ")} · {r.employment} · {r.workMode} · {r.expMin}–{r.expMax} yrs{pay ? ` · ${pay}` : ""}{r.status === "closed" ? " · Closed" : ""}</div>
+      <span className="small" style={{ color: "var(--vio)", fontWeight: 800 }}>{r.status === "closed" ? "View job →" : "View and apply →"}</span>
+    </Link>
+  );
+}
+
 function Reposted({ original }: { original: Post | null }) {
   if (!original) return <div className="small muted" style={{ marginTop: 10, padding: 12, border: "1.5px solid var(--line)", borderRadius: 12 }}>The original post is no longer available.</div>;
   const image = original.media?.length ? imageUrl(original.media[0], "card") : null;

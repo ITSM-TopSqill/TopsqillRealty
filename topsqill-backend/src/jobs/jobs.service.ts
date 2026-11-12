@@ -1,3 +1,4 @@
+import { postActivity, jobActivityText } from "../feed/activity";
 import { Injectable, Inject, NotFoundException, ForbiddenException, ConflictException, BadRequestException } from "@nestjs/common";
 import { and, desc, eq, lt, or, sql, inArray } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
@@ -60,6 +61,7 @@ Use realistic Indian salary ranges. Company: ${company}. City: ${city}. Request:
       salaryMin: input.salaryMin != null ? String(input.salaryMin) : null,
       salaryMax: input.salaryMax != null ? String(input.salaryMax) : null,
     } as typeof jobs.$inferInsert).returning();
+    if (row.status === "open") await postActivity(this.db, { authorId: userId, kind: "job", refId: id, body: jobActivityText(row) });
     return row;
   }
 

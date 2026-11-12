@@ -16,7 +16,7 @@ class RepostDto { @IsOptional() @IsString() @MaxLength(3000) body?: string; }
 class CommentDto { @IsString() @MaxLength(1000) body: string; }
 class FeedQueryDto {
   @IsOptional() @IsString() cursor?: string;
-  @IsOptional() @IsIn(["following", "listings", "requirements", "projects", "insights"]) filter?: FeedFilter;
+  @IsOptional() @IsIn(["following", "listings", "requirements", "projects", "jobs", "insights"]) filter?: FeedFilter;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) limit?: number;
 }
 
