@@ -31,11 +31,22 @@ export function imageUrl(
   size: "thumb" | "card" | "large" | "full" = "card",
 ): string | null {
   if (!media?.urls) return null;
-  for (const format of ["avif", "webp", "jpeg"]) {
-    const url = media.urls[`${size}_${format}`];
+  // A size that wasn't made (small photos are never enlarged) falls back to the
+  // next one down, then up: never to whatever happens to be first.
+  const ladder = { full: ["full", "large", "card", "thumb"], large: ["large", "full", "card", "thumb"], card: ["card", "large", "full", "thumb"], thumb: ["thumb", "card", "large", "full"] }[size];
+  for (const s of ladder) for (const format of ["avif", "webp", "jpeg"]) {
+    const url = media.urls[`${s}_${format}`];
     if (url) return url;
   }
   return Object.values(media.urls)[0] ?? null;
+}
+
+/** A label worth showing buyers: never a file name ("IMG_2034.jpg", "WhatsApp Image 2026-…"). */
+export function cleanLabel(label?: string | null): string | null {
+  if (!label) return null;
+  if (/\.(jpe?g|png|webp|heic|heif|avif|gif|mp4|mov|webm|pdf|glb)$/i.test(label)) return null;
+  if (/^(img|dsc|pxl|photo|image|whatsapp|screenshot|vid|video)[\s_-]/i.test(label)) return null;
+  return label;
 }
 
 export const initials = (name?: string | null) =>

@@ -31,7 +31,13 @@ export function Map3D({ lat, lng, label, approximate = false, height = 360 }: { 
           pitch: 60, bearing: -24, maxPitch: 75, attributionControl: { compact: true }, cooperativeGestures: true,
         });
         map.addControl(new maplibre.NavigationControl({ visualizePitch: true }), "top-right");
-        new maplibre.Marker({ color: "#6A3FE0" }).setLngLat([lng, lat]).addTo(map);
+        if (approximate) {
+          // Only the area: a soft circle about 300 m across, no pin on a building.
+          const el = document.createElement("div");
+          el.setAttribute("aria-label", "Approximate area");
+          Object.assign(el.style, { width: "150px", height: "150px", borderRadius: "50%", background: "rgba(106,63,224,.18)", border: "2px solid rgba(106,63,224,.65)", pointerEvents: "none" });
+          new maplibre.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
+        } else new maplibre.Marker({ color: "#6A3FE0" }).setLngLat([lng, lat]).addTo(map);
         map.on("load", () => { if (!cancelled) setState("ready"); });
         map.on("error", () => { /* a missing tile is not fatal */ });
         mapRef.current = map as never;
@@ -51,6 +57,7 @@ export function Map3D({ lat, lng, label, approximate = false, height = 360 }: { 
   }
 
   const google = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  // (An approximate point is already rounded to about 150 m when saved.)
   return (
     <div>
       <div style={{ position: "relative", height, borderRadius: 14, overflow: "hidden", background: "var(--chip)" }}>
@@ -68,7 +75,7 @@ export function Map3D({ lat, lng, label, approximate = false, height = 360 }: { 
         ) : null}
       </div>
       <div className="row small muted" style={{ justifyContent: "space-between", marginTop: 6, flexWrap: "wrap", gap: 6 }}>
-        <span>{approximate ? "Approximate location: the centre of the locality." : "Location shared by the seller."}</span>
+        <span>{approximate ? "Approximate area: the seller shares the exact address on enquiry." : "Location shared by the seller."}</span>
         <a href={google} target="_blank" rel="noopener noreferrer">Open in Google Maps ↗</a>
       </div>
     </div>

@@ -107,7 +107,8 @@ export class MediaService {
       id, ownerId: userId, kind: (input.private ? "document" : kind) as never, status: "uploading", objectPath, mimeType: input.mimeType, bytes: input.bytes,
       groupName: input.private ? "private" : MEDIA_CATEGORIES[input.category ?? ""]?.group ?? null,
       // A category gives the file its name on the listing ("Floor plan", "Reel"); plain photos are named by AI later.
-      label: !input.private && MEDIA_CATEGORIES[input.category ?? ""]?.label ? MEDIA_CATEGORIES[input.category!].label : input.filename?.slice(0, 60) ?? null,
+      // Photos start unnamed (the worker's AI names the room); a file name like "IMG_2034.jpg" is never shown to buyers.
+      label: !input.private && input.category && input.category in MEDIA_CATEGORIES ? MEDIA_CATEGORIES[input.category].label : input.private ? input.filename?.slice(0, 60) ?? null : null,
       source: input.private ? null : "upload",
     });
     const url = await uploadUrl(id, objectPath, input.mimeType);

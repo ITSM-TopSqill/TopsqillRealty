@@ -1,7 +1,7 @@
 "use client";
 
 import { createElement, useEffect, useState } from "react";
-import { imageUrl } from "@/lib/format";
+import { imageUrl, cleanLabel } from "@/lib/format";
 import type { Media } from "@/lib/types";
 import { isPlanOrDoc } from "./PlansAndDocs";
 
@@ -27,7 +27,7 @@ export function Gallery({ media, title }: { media: Media[]; title: string }) {
     <div>
       <div style={{ position: "relative", aspectRatio: "16/8", background: current.kind === "image" ? "var(--chip)" : "#0d0b1a" }}>
         {current.kind === "image" ? (
-          <img src={imageUrl(current, "full") ?? ""} alt={current.label ?? title}
+          <img src={imageUrl(current, "full") ?? ""} alt={cleanLabel(current.label) ?? title}
             style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
         ) : current.kind === "video" ? (
           // MP4 plays everywhere; the streaming version is used where it is the only one.
@@ -36,9 +36,9 @@ export function Gallery({ media, title }: { media: Media[]; title: string }) {
         ) : (
           <Model key={current.id} src={current.urls!.full} alt={current.label ?? `3D model of ${title}`} />
         )}
-        {current.label && current.kind === "image" ? (
+        {cleanLabel(current.label) && current.kind === "image" ? (
           <span className="pill" style={{ position: "absolute", right: 12, top: 12, background: "rgba(20,16,40,.6)", color: "#fff" }}>
-            {current.label}
+            {cleanLabel(current.label)}
           </span>
         ) : null}
         {current.kind === "image" ? (
@@ -50,11 +50,20 @@ export function Gallery({ media, title }: { media: Media[]; title: string }) {
       {items.length > 1 ? (
         <div style={{ display: "flex", gap: 6, padding: 8, overflowX: "auto" }}>
           {items.map((p, n) => (
-            <button key={p.id} onClick={() => setIndex(n)} aria-label={p.kind === "video" ? "Video" : p.kind === "model3d" ? "3D model" : p.label ?? `Photo ${n + 1}`}
+            <button key={p.id} onClick={() => setIndex(n)} aria-label={p.kind === "video" ? (p.label === "Reel" ? "Reel" : "Video") : p.kind === "model3d" ? "3D model" : cleanLabel(p.label) ?? `Photo ${n + 1}`}
               style={{ flex: "0 0 96px", aspectRatio: "4/3", borderRadius: 10, overflow: "hidden", border: n === i ? "2px solid var(--vio)" : "2px solid transparent", background: "#1b1736", color: "#fff" }}>
               {p.kind === "image"
                 ? <img src={imageUrl(p, "thumb") ?? ""} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                : <span style={{ display: "grid", placeItems: "center", height: "100%", fontSize: 12, fontWeight: 700 }}>{p.kind === "video" ? "▶ Video" : "🧊 3D"}</span>}
+                : p.kind === "video" ? (
+                  // The video's own first frame as its thumbnail, with what it is.
+                  <span style={{ position: "relative", display: "block", width: "100%", height: "100%" }}>
+                    <video src={`${p.urls!.mp4 ?? p.urls!.hls}#t=0.5`} muted playsInline preload="metadata" tabIndex={-1} aria-hidden
+                      style={{ width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none" }} />
+                    <span style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "rgba(13,11,26,.35)", fontSize: 12, fontWeight: 800 }}>
+                      ▶ {p.label === "Reel" ? "Reel" : "Video"}
+                    </span>
+                  </span>
+                ) : <span style={{ display: "grid", placeItems: "center", height: "100%", fontSize: 12, fontWeight: 700 }}>🧊 3D</span>}
             </button>
           ))}
         </div>

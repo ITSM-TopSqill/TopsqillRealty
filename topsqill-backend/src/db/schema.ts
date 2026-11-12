@@ -122,6 +122,7 @@ export const listings = pgTable("listings", {
   locality: varchar("locality", { length: 120 }).notNull(),
   lat: doublePrecision("lat"),
   lng: doublePrecision("lng"),
+  locationExact: boolean("location_exact").notNull().default(true),     // false: buyers see only the area
   possession: varchar("possession", { length: 32 }),
   furnishing: varchar("furnishing", { length: 32 }),
   facing: varchar("facing", { length: 40 }),

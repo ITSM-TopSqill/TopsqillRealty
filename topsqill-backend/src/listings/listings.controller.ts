@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Header } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import { IsOptional, IsString, IsInt, IsIn, Min, Max, IsArray, MaxLength, IsNumber } from "class-validator";
+import { IsBoolean } from "class-validator";
 import { Type } from "class-transformer";
 import { ListingsService } from "./listings.service";
 import { CurrentUser, AuthUser, Public } from "../auth/public.decorator";
@@ -37,6 +38,7 @@ class CreateListingDto {
   @IsOptional() @IsArray() usps?: string[];
   @IsOptional() @IsArray() mediaIds?: string[];
   @IsOptional() @IsNumber() @Min(-90) @Max(90) lat?: number | null;
+  @IsOptional() @IsBoolean() locationExact?: boolean;
   @IsOptional() @IsNumber() @Min(-180) @Max(180) lng?: number | null;
   /** YouTube or Vimeo; anything else is refused. */
   @IsOptional() @IsString() @MaxLength(500) videoUrl?: string;
@@ -70,6 +72,7 @@ class UpdateListingDto {
   /** The full photo list, in order; replaces the old one. The first is the cover. */
   @IsOptional() @IsArray() @IsString({ each: true }) mediaIds?: string[];
   @IsOptional() @IsNumber() @Min(-90) @Max(90) lat?: number | null;
+  @IsOptional() @IsBoolean() locationExact?: boolean;
   @IsOptional() @IsNumber() @Min(-180) @Max(180) lng?: number | null;
   @IsOptional() @IsString() @MaxLength(500) videoUrl?: string;
   @IsOptional() @IsString() @MaxLength(500) tourUrl?: string;

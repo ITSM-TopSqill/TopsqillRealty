@@ -39,7 +39,7 @@ function fromListing(l: Listing): Form {
     city: l.city, locality: l.locality, possession: l.possession ?? "Ready to move", furnishing: l.furnishing ?? "Unfurnished",
     facing: l.facing ?? "", description: l.description ?? "", amenities: (l.amenities ?? []).join(", "), usps: (l.usps ?? []).join("\n"),
     videoUrl: l.videoUrl ?? "", tourUrl: l.tourUrl ?? "", reraNumber: l.reraNumber ?? "",
-    lat: l.lat ?? null, lng: l.lng ?? null, exact: true, sourceUrl: l.sourceUrl ?? "",
+    lat: l.lat ?? null, lng: l.lng ?? null, exact: l.locationExact !== false, sourceUrl: l.sourceUrl ?? "",
   };
 }
 
@@ -129,6 +129,7 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
         // "Approximate area only" saves the point rounded to about 150 m, so the exact building isn't shown.
         lat: form.lat != null ? (form.exact ? form.lat : Math.round(form.lat * 700) / 700) : (editing ? null : undefined),
         lng: form.lng != null ? (form.exact ? form.lng : Math.round(form.lng * 700) / 700) : (editing ? null : undefined),
+        ...(form.lat != null ? { locationExact: form.exact } : {}),
         ...(!editing && form.sourceUrl ? { sourceUrl: form.sourceUrl } : {}),
       };
       if (listing) {

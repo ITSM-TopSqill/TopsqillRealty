@@ -20,7 +20,7 @@ export type SearchQuery = {
 export const LISTING_EDITABLE = [
   "title", "purpose", "kind", "city", "locality", "bhk", "areaSqft", "priceInr",
   "possession", "furnishing", "facing", "description", "amenities", "usps", "status",
-  "lat", "lng", "videoUrl", "tourUrl", "reraNumber",
+  "lat", "lng", "locationExact", "videoUrl", "tourUrl", "reraNumber",
 ] as const;
 
 /**
@@ -234,6 +234,8 @@ export class ListingsService {
         : sql<number>`percentile_cont(0.5) within group (order by ${listings.priceInr})`;
       const month = sql<string>`to_char(date_trunc('month', coalesce(${listings.publishedAt}, ${listings.createdAt})), 'YYYY-MM')`;
       const base = [
+        // Other listings only: a home is never compared with itself.
+        sql`${listings.id} <> ${l.id}`,
         eq(listings.purpose, l.purpose), eq(listings.hidden, false), sql`lower(${listings.city}) = lower(${l.city})`,
         sql`coalesce(${listings.publishedAt}, ${listings.createdAt}) > date_trunc('month', now()) - interval '11 months'`,
         sql`${listings.priceInr} > 0`, ...(sale ? [sql`${listings.areaSqft} > 0`] : l.bhk ? [eq(listings.bhk, l.bhk)] : []),
@@ -250,7 +252,8 @@ export class ListingsService {
         locality: l.locality, city: l.city, unit: sale ? "per sq ft" : `a month${l.bhk ? ` (${l.bhk} BHK)` : ""}`,
         listing: own, localitySeries: loc, citySeries: round(city),
         changePct: first && last ? Math.round(((last - first) / first) * 1000) / 10 : null,
-        vsLocalityPct: own && last ? Math.round(((own - last) / last) * 1000) / 10 : null,
+        // Only against a real median: at least two other homes in the latest month.
+        vsLocalityPct: own && last && loc[loc.length - 1].n >= 2 ? Math.round(((own - last) / last) * 1000) / 10 : null,
       };
     });
   }

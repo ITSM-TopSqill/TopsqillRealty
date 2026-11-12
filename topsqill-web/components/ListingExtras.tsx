@@ -6,8 +6,10 @@ import { Map3D } from "./Map3D";
  * listing. Each section shows only when the listing has it. Embeds come only
  * from known hosts, sandboxed so they can't navigate the page away.
  */
-export function ListingExtras({ title, videoUrl, tourUrl, lat, lng, locality }: {
+export function ListingExtras({ title, videoUrl, tourUrl, lat, lng, locality, approximate = false }: {
   title: string; videoUrl?: string | null; tourUrl?: string | null; lat?: number | null; lng?: number | null; locality: string;
+  /** The seller chose "approximate area only": an area, not a pin. */
+  approximate?: boolean;
 }) {
   const video = videoEmbed(videoUrl);
   const tour = tourEmbed(tourUrl);
@@ -31,7 +33,7 @@ export function ListingExtras({ title, videoUrl, tourUrl, lat, lng, locality }: 
       {hasMap ? (
         <section>
           <h2 style={{ fontSize: 18, marginBottom: 8 }}>🗺️ Neighbourhood in 3D</h2>
-          <Map3D lat={lat!} lng={lng!} label={locality} />
+          <Map3D lat={lat!} lng={lng!} label={locality} approximate={approximate} />
         </section>
       ) : null}
     </div>

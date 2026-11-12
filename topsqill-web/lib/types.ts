@@ -18,7 +18,7 @@ export type Listing = {
   projectSourceId?: string | null; reraNumber?: string | null;
   status?: "draft" | "pending" | "active" | "sold" | "archived";
   lat?: number | null; lng?: number | null; videoUrl?: string | null; tourUrl?: string | null; sourceUrl?: string | null;
-  previousPriceInr?: number | null; priceDroppedAt?: string | null;
+  previousPriceInr?: number | null; priceDroppedAt?: string | null; locationExact?: boolean;
 };
 
 export type Paged<T> = { items: T[]; nextCursor: string | null };

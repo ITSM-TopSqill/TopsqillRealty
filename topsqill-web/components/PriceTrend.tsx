@@ -63,7 +63,7 @@ export function PriceTrend({ listingId }: { listingId: string }) {
       </div>
       <p className="small" style={{ margin: "6px 0 8px" }}>{sentence}</p>
       <div className="row small" style={{ gap: 14, flexWrap: "wrap", marginBottom: 6 }} aria-hidden={table}>
-        <span className="row" style={{ gap: 6 }}><i className="pt-key pt-loc" />{t.locality} median</span>
+        {t.localitySeries.length ? <span className="row" style={{ gap: 6 }}><i className="pt-key pt-loc" />{t.locality} median</span> : null}
         <span className="row" style={{ gap: 6 }}><i className="pt-key pt-city" />{t.city} median</span>
         {t.listing ? <span className="row" style={{ gap: 6 }}><i className="pt-key pt-own" />This home</span> : null}
         <span className="muted">({t.unit})</span>
