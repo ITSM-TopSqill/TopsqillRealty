@@ -1,14 +1,11 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from "@nestjs/common";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc, inArray, ne } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { media } from "../db/schema";
 import { QueueService, QUEUES } from "../queue/queue.module";
 import { newId } from "../common/ids";
 import { uploadUrl, publicBase, checkSignature, saveLocalUpload, isLocalStorage, privateReadUrl, writeUpload } from "./storage";
 import { CacheService } from "../redis/redis.module";
-import { safeFetch, FetchError } from "../common/safe-fetch";
-
-const IMPORTED_PER_DAY = 300;
 
 /** The real type of an image from its first bytes; a server's content-type header isn't trusted. */
 export function sniffImage(b: Buffer): { mime: string; ext: string } | null {
@@ -42,37 +39,35 @@ export class MediaService {
    * it like a normal upload, and queues the same resizing and AI labelling.
    * Each photo succeeds or fails on its own.
    */
-  async importFromUrls(userId: string, urls: string[]) {
-    const list = [...new Set(urls)].slice(0, 20);
-    const key = `mediaimport:${userId}:${new Date().toISOString().slice(0, 10)}`;
-    const used = await this.cache.redis.incrby(key, list.length).catch(() => 0);
-    if (used === list.length) await this.cache.redis.expire(key, 86_400).catch(() => {});
-    if (used > IMPORTED_PER_DAY) throw new BadRequestException(`You can import up to ${IMPORTED_PER_DAY} photos a day. Upload the rest from your device.`);
-
-    const results: { url: string; mediaId?: string; status: "processing" | "failed"; error?: string }[] = [];
-    // A few at a time: fast, without hammering the other site.
-    for (let i = 0; i < list.length; i += 4) {
-      results.push(...await Promise.all(list.slice(i, i + 4).map((url) => this.importOne(userId, url))));
-    }
-    return { items: results };
+  /**
+   * Stores a photo or video the member sent us themselves (to Topsqill's
+   * WhatsApp number, or picked from their own Instagram) and processes it like
+   * an upload. Nothing is ever taken from other sites.
+   */
+  async storeOwn(userId: string, body: Buffer, mimeHint: string, source: "whatsapp" | "instagram") {
+    const img = sniffImage(body);
+    const isVideo = !img && /^video\//.test(mimeHint);
+    if (!img && !isVideo) throw new BadRequestException("Only photos and videos can be added.");
+    const kind = img ? "image" : "video";
+    if (body.length > MAX_BYTES[kind]) throw new BadRequestException(`That file is too large. The limit is ${Math.round(MAX_BYTES[kind] / 1e6)} MB.`);
+    if (img && body.length < 8_000) throw new BadRequestException("That photo is too small.");
+    const mime = img ? img.mime : (VIDEO.includes(mimeHint) ? mimeHint : "video/mp4");
+    const ext = img ? img.ext : mime === "video/quicktime" ? "mov" : mime === "video/webm" ? "webm" : "mp4";
+    const id = newId();
+    const objectPath = `uploads/${userId}/${id}.${ext}`;
+    await writeUpload(objectPath, body, mime);
+    // No label: the worker's AI names the room (Kitchen, Exterior...) once a photo is resized.
+    await this.db.insert(media).values({ id, ownerId: userId, kind, status: "processing", objectPath, mimeType: mime, bytes: body.length, label: null, source });
+    await this.queue.add(QUEUES.media, `process:${kind}`, { mediaId: id, kind, objectPath, mimeType: mime }, `media-${id}`);
+    return { mediaId: id, kind, status: "processing" as const };
   }
 
-  private async importOne(userId: string, url: string): Promise<{ url: string; mediaId?: string; status: "processing" | "failed"; error?: string }> {
-    try {
-      const res = await safeFetch(url, { maxBytes: MAX_BYTES.image, timeoutMs: 20_000, accept: "image/avif,image/webp,image/jpeg,image/png,image/*;q=0.8" });
-      const type = sniffImage(res.body);
-      if (!type) return { url, status: "failed", error: "Not a JPEG, PNG, WebP or AVIF photo." };
-      if (res.body.length < 8_000) return { url, status: "failed", error: "Too small to be a property photo." };
-      const id = newId();
-      const objectPath = `uploads/${userId}/${id}.${type.ext}`;
-      await writeUpload(objectPath, res.body, type.mime);
-      // No label: the worker's AI names the room (Kitchen, Exterior...) once it is resized.
-      await this.db.insert(media).values({ id, ownerId: userId, kind: "image", status: "processing", objectPath, mimeType: type.mime, bytes: res.body.length, label: null });
-      await this.queue.add(QUEUES.media, "process:image", { mediaId: id, kind: "image", objectPath, mimeType: type.mime }, `media-${id}`);
-      return { url, mediaId: id, status: "processing" };
-    } catch (e) {
-      return { url, status: "failed", error: e instanceof FetchError ? e.message : "Couldn’t download this photo." };
-    }
+  /** My recent photos and videos from one source (WhatsApp or Instagram), newest first, for picking into a listing. */
+  async mine(userId: string, source: "whatsapp" | "instagram" | "upload") {
+    const rows = await this.read.select().from(media)
+      .where(and(eq(media.ownerId, userId), eq(media.source, source), inArray(media.kind, ["image", "video"]), ne(media.status, "failed")))
+      .orderBy(desc(media.createdAt)).limit(60);
+    return { items: rows.map((r) => this.publicView(r)) };
   }
 
   /**
@@ -97,7 +92,7 @@ export class MediaService {
 
     await this.db.insert(media).values({
       id, ownerId: userId, kind: (input.private ? "document" : kind) as never, status: "uploading", objectPath, mimeType: input.mimeType, bytes: input.bytes,
-      groupName: input.private ? "private" : null, label: input.filename?.slice(0, 60) ?? null,
+      groupName: input.private ? "private" : null, label: input.filename?.slice(0, 60) ?? null, source: input.private ? null : "upload",
     });
     const url = await uploadUrl(id, objectPath, input.mimeType);
     return { mediaId: id, uploadUrl: url, method: "PUT", headers: { "content-type": input.mimeType }, expiresInSeconds: 900 };

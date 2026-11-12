@@ -30,3 +30,10 @@ brightdata_zone    = "topsqill_unlocker"
 # Imports through api.sh (preferred over Bright Data). Store the key in
 # Secret Manager first (topsqill-<env>-apish-key), then turn this on.
 apish_enabled = false
+
+# Members' own photos and videos (see variables.tf for the secrets to store first)
+# whatsapp_enabled         = true
+# whatsapp_phone_number_id = "123456789012345"
+# whatsapp_verify_token    = "a-long-random-word"
+# instagram_enabled        = true
+# instagram_app_id         = "1234567890"

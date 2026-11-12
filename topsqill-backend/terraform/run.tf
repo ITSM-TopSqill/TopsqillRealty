@@ -150,6 +150,19 @@ resource "google_secret_manager_secret" "whatsapp" {
     auto {}
   }
 }
+# Meta app secret: checks that WhatsApp webhooks really come from Meta.
+resource "google_secret_manager_secret" "meta_app_secret" {
+  secret_id = "${local.name}-meta-app-secret"
+  replication {
+    auto {}
+  }
+}
+resource "google_secret_manager_secret" "instagram" {
+  secret_id = "${local.name}-instagram-app-secret"
+  replication {
+    auto {}
+  }
+}
 
 # ---------------------------------------------------------------- API service
 resource "google_cloud_run_v2_service" "api" {
@@ -325,6 +338,58 @@ resource "google_cloud_run_v2_service" "api" {
         content {
           name  = "BRIGHTDATA_ZONE"
           value = env.value
+        }
+      }
+      env {
+        # The website's address: Instagram sends members back to it after they connect.
+        name  = "WEB_URL"
+        value = var.web_url
+      }
+      # Topsqill's WhatsApp number: members send their own photos and videos to it
+      # (also used for sign-in codes). Only once its token is stored (whatsapp_enabled).
+      dynamic "env" {
+        for_each = var.whatsapp_enabled ? {
+          WHATSAPP_TOKEN  = google_secret_manager_secret.whatsapp.secret_id
+          META_APP_SECRET = google_secret_manager_secret.meta_app_secret.secret_id
+        } : {}
+        content {
+          name = env.key
+          value_source {
+            secret_key_ref {
+              secret  = env.value
+              version = "latest"
+            }
+          }
+        }
+      }
+      dynamic "env" {
+        for_each = var.whatsapp_enabled ? {
+          WHATSAPP_PHONE_NUMBER_ID = var.whatsapp_phone_number_id
+          WHATSAPP_VERIFY_TOKEN    = var.whatsapp_verify_token
+        } : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+      # Members' own Instagram, to pick their posts and reels (instagram_enabled).
+      dynamic "env" {
+        for_each = var.instagram_enabled ? [var.instagram_app_id] : []
+        content {
+          name  = "INSTAGRAM_APP_ID"
+          value = env.value
+        }
+      }
+      dynamic "env" {
+        for_each = var.instagram_enabled ? ["INSTAGRAM_APP_SECRET"] : []
+        content {
+          name = env.value
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.instagram.secret_id
+              version = "latest"
+            }
+          }
         }
       }
 

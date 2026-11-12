@@ -93,8 +93,11 @@ export const media = pgTable("media", {
   caption: varchar("caption", { length: 200 }),
   variants: jsonb("variants").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
   error: text("error"),
+  /** Where it came from: "upload" (device), "whatsapp" (sent to Topsqill's number) or "instagram" (the member's own account). */
+  source: varchar("source", { length: 16 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
+  ownerSourceIdx: index("media_owner_source_idx").on(t.ownerId, t.source, t.createdAt.desc()),
   ownerIdx: index("media_owner_idx").on(t.ownerId, t.createdAt.desc()),
   statusIdx: index("media_status_idx").on(t.status).where(sql`${t.status} in ('uploading','processing')`),
 }));
@@ -581,6 +584,17 @@ export const campaignDeliveries = pgTable("campaign_deliveries", {
   syncedAt: timestamp("synced_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ campaignIdx: index("campaign_deliveries_idx").on(t.campaignId) }));
+
+/** A member's own Instagram (business or creator) account, for picking their posts and reels. */
+export const instagramAccounts = pgTable("instagram_accounts", {
+  ownerId: varchar("owner_id", { length: 36 }).primaryKey(),
+  igUserId: varchar("ig_user_id", { length: 40 }).notNull(),
+  username: varchar("username", { length: 60 }),
+  secretRef: text("secret_ref").notNull(),                         // the token, in Secret Manager
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const whatsappAccounts = pgTable("whatsapp_accounts", {
   id: varchar("id", { length: 36 }).primaryKey(),

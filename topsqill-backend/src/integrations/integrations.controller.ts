@@ -1,8 +1,10 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, Req, UnauthorizedException, type RawBodyRequest } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
-import { IsIn, IsOptional, IsString, IsArray, MaxLength } from "class-validator";
+import { IsIn, IsOptional, IsString, IsArray, MaxLength, ArrayMaxSize, ArrayMinSize } from "class-validator";
 import { AdPlatformsService } from "./ad-platforms.service";
 import { WhatsAppService } from "./whatsapp.service";
+import { MediaInboxService } from "./media-inbox.service";
+import { InstagramService } from "./instagram.service";
 import { CurrentUser, AuthUser, Public } from "../auth/public.decorator";
 import { verifyMetaSignature } from "../common/meta-signature";
 import { env, isProd } from "../common/env";
@@ -26,6 +28,8 @@ class SendWaDto {
   @IsOptional() @IsArray() templateParams?: string[];
   @IsOptional() @IsString() leadId?: string;
 }
+class IgCallbackDto { @IsString() @MaxLength(2000) code: string; @IsString() @MaxLength(200) state: string; }
+class IgImportDto { @IsArray() @ArrayMinSize(1) @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(40, { each: true }) ids: string[]; }
 class OptInDto {
   @IsString() phone: string;
   @IsIn(["lead form", "chat", "manual", "website"]) source: string;
@@ -35,7 +39,37 @@ class OptInDto {
 @ApiTags("integrations")
 @Controller("v1")
 export class IntegrationsController {
-  constructor(private readonly ads: AdPlatformsService, private readonly wa: WhatsAppService) {}
+  constructor(
+    private readonly ads: AdPlatformsService,
+    private readonly wa: WhatsAppService,
+    private readonly inbox: MediaInboxService,
+    private readonly ig: InstagramService,
+  ) {}
+
+  /* ------------------- my own photos and videos: WhatsApp, Instagram ------------------- */
+
+  @Get("whatsapp/inbox") @ApiOperation({ summary: "Topsqill's WhatsApp number that members send their photos and videos to" })
+  async inboxInfo(@CurrentUser() user: AuthUser) {
+    return { configured: this.inbox.configured, number: await this.inbox.number(), myPhone: await this.inbox.phoneOf(user.id) };
+  }
+
+  @Get("instagram/status")
+  igStatus(@CurrentUser() user: AuthUser) { return this.ig.status(user.id); }
+
+  @Get("instagram/authorize") @ApiOperation({ summary: "The Instagram login link to connect my account" })
+  igAuthorize(@CurrentUser() user: AuthUser) { return this.ig.authorizeUrl(user.id); }
+
+  @Post("instagram/callback") @ApiOperation({ summary: "Finish connecting Instagram (called by the website after Instagram's login)" })
+  igCallback(@CurrentUser() user: AuthUser, @Body() dto: IgCallbackDto) { return this.ig.connect(user.id, dto.code, dto.state); }
+
+  @Delete("instagram")
+  igDisconnect(@CurrentUser() user: AuthUser) { return this.ig.disconnect(user.id); }
+
+  @Get("instagram/media") @ApiOperation({ summary: "My Instagram posts and reels, to pick from" })
+  igMedia(@CurrentUser() user: AuthUser, @Query("after") after?: string) { return this.ig.media(user.id, after); }
+
+  @Post("instagram/import") @ApiOperation({ summary: "Copy picked Instagram photos and videos into my Topsqill media" })
+  igImport(@CurrentUser() user: AuthUser, @Body() dto: IgImportDto) { return this.ig.import(user.id, dto.ids); }
 
   /* ------------------------------ ad accounts ------------------------------ */
 
@@ -90,6 +124,9 @@ export class IntegrationsController {
   webhook(@Body() body: Record<string, unknown>, @Req() req: RawBodyRequest<{ headers: Record<string, string | string[] | undefined> }>) {
     const check = verifyMetaSignature(req.rawBody, req.headers["x-hub-signature-256"], env.META_APP_SECRET, isProd());
     if (!check.ok) throw new UnauthorizedException(`Webhook rejected: ${check.reason}.`);
+    // Messages to Topsqill's own number are members sending their photos and videos.
+    const value = (body as any)?.entry?.[0]?.changes?.[0]?.value;
+    if (value && this.inbox.isOurNumber(value.metadata?.phone_number_id)) return this.inbox.receive(value);
     return this.wa.handleWebhook(null, body);
   }
 }

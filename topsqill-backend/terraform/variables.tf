@@ -117,3 +117,35 @@ variable "apish_enabled" {
   type    = bool
   default = false
 }
+
+# Topsqill's WhatsApp number (WhatsApp Cloud API). Members send their own
+# property photos and videos to it, and they appear in their Topsqill media.
+# Store the token and the Meta app secret first:
+#   gcloud secrets versions add topsqill-<env>-whatsapp-token --data-file=-
+#   gcloud secrets versions add topsqill-<env>-meta-app-secret --data-file=-
+# then set whatsapp_enabled = true with the number's ID and a webhook verify word.
+variable "whatsapp_enabled" {
+  type    = bool
+  default = false
+}
+variable "whatsapp_phone_number_id" {
+  type    = string
+  default = ""
+}
+variable "whatsapp_verify_token" {
+  type    = string
+  default = ""
+}
+
+# Instagram API with Instagram Login: members connect their own Instagram and
+# pick posts and reels. Store the app secret first:
+#   gcloud secrets versions add topsqill-<env>-instagram-app-secret --data-file=-
+# then set instagram_enabled = true and instagram_app_id.
+variable "instagram_enabled" {
+  type    = bool
+  default = false
+}
+variable "instagram_app_id" {
+  type    = string
+  default = ""
+}

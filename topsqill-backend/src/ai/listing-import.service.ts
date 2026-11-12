@@ -6,7 +6,7 @@ import { readPage, type PageImage, type ReadPage } from "./page-reader";
 import { safeFetch, cleanUrl } from "../common/safe-fetch";
 import { PageFetcher } from "./page-fetcher.service";
 import { portalFacts } from "./apish";
-import { PORTAL_HOST, scrubList, scrubSources } from "../common/sources";
+import { scrubList, scrubSources } from "../common/sources";
 import { videoEmbed, tourEmbed } from "../common/embeds";
 import { money } from "./query";
 
@@ -21,6 +21,8 @@ export type ImportDraft = {
   lat: number | null; lng: number | null; locationExact: boolean;
   videoUrl: string; tourUrl: string;
   configs: ImportConfig[]; images: PageImage[]; notes: string[];
+  /** What the source page had (never copied). */
+  foundMedia?: { photos: number; video: boolean; tour: boolean };
 };
 
 const KINDS = ["Apartment", "Builder floor", "Villa", "Plot", "Office", "Shop"];
@@ -79,9 +81,12 @@ export class ListingImportService {
     }
     if (!draft.priceInr) draft.notes.push("The page doesn’t state a price. Add the price you are offering before publishing.");
     if (!draft.reraNumber && draft.purpose === "sale") draft.notes.push("No RERA number found on the page. Add it if the project is registered.");
-    if (draft.images.length && PORTAL_HOST.test(new URL(url).hostname)) {
-      draft.notes.push("Photos on property portals usually carry the portal’s watermark, so none are selected. Upload your own original photos instead, or pick only ones without a watermark.");
-    } else if (draft.images.length) draft.notes.push("Use only photos you have the right to publish, such as the builder’s marketing material shared with you as a channel partner.");
+    // Photos, videos and 3D tours belong to the site they're on: none are taken. The member
+    // adds their own, from their device, Topsqill's WhatsApp number or their Instagram.
+    const found = [draft.images.length ? `${draft.images.length} photo${draft.images.length === 1 ? "" : "s"}` : "", draft.videoUrl ? "a video" : "", draft.tourUrl ? "a 3D tour" : ""].filter(Boolean);
+    draft.foundMedia = { photos: draft.images.length, video: !!draft.videoUrl, tour: !!draft.tourUrl };
+    draft.images = []; draft.videoUrl = ""; draft.tourUrl = "";
+    if (found.length) draft.notes.push(`The page has ${found.join(", ")}. They belong to that site, so they aren’t copied: add your own photos and videos from WhatsApp, Instagram or your device.`);
     return scrubDraft(draft);
   }
 

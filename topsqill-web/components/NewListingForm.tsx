@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
 import Link from "next/link";
 import { MediaUploader, type UploadedItem } from "./MediaUploader";
+import { MediaSources } from "./MediaSources";
 import { refreshPages } from "@/lib/refresh";
 import type { Listing } from "@/lib/types";
 import { ImportFromLink, type ImportDraft, type ImportConfig } from "./ImportFromLink";
@@ -143,8 +144,7 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
   return (
     <div className="col">
       {!editing ? (
-        <ImportFromLink onDraft={applyDraft} onConfig={applyConfig} room={20 - media.length}
-          onPhotos={(items) => setMedia((m) => [...m, ...items].slice(0, 20))} />
+        <ImportFromLink onDraft={applyDraft} onConfig={applyConfig} />
       ) : null}
       <div className="card pad" style={{ border: "2px solid var(--vio)" }}>
         <h2 style={{ fontSize: 17, marginBottom: 4 }}>✨ Describe it like you would to a client</h2>
@@ -236,6 +236,8 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
           </div>
           <div className="field" style={{ gridColumn: "1 / -1" }}>
             <label>Photos, videos and 3D models</label>
+            <MediaSources room={20 - media.length} have={media.map((m) => m.mediaId)}
+              onAdd={(items) => setMedia((m) => [...m, ...items.filter((i) => !m.some((x) => x.mediaId === i.mediaId))].slice(0, 20))} />
             <MediaUploader items={media} onChange={setMedia} max={20} coverFirst accept="image/*,video/*,application/pdf,.glb,model/gltf-binary"
               hint="Drag them here, or click to choose. Exterior, rooms, amenities, a walkthrough video, or a 3D model (.glb)." />
             {media.some((m) => m.status !== "ready" && m.status !== "failed")

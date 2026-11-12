@@ -18,12 +18,6 @@ class CreateUploadDto {
   @IsOptional() @IsBoolean() private?: boolean;
 }
 
-class ImportMediaDto {
-  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(2000, { each: true }) urls: string[];
-  /** The member confirms they may publish these photos. Required. */
-  @Equals(true, { message: "Confirm you have the right to use these photos." }) rights: boolean;
-}
-
 @ApiTags("media")
 @Controller("v1/media")
 export class MediaController {
@@ -32,8 +26,11 @@ export class MediaController {
   @Post("uploads") @ApiOperation({ summary: "Get a direct upload link for a photo, video or 3D model" })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateUploadDto) { return this.svc.createUpload(user.id, dto); }
 
-  @Post("import") @ApiOperation({ summary: "Copy photos from another page into my media (I confirm I may use them)" })
-  importPhotos(@CurrentUser() user: AuthUser, @Body() dto: ImportMediaDto) { return this.svc.importFromUrls(user.id, dto.urls); }
+  @Get("mine") @ApiOperation({ summary: "My recent photos and videos from one source: whatsapp, instagram or upload" })
+  mine(@CurrentUser() user: AuthUser, @Query("source") source = "whatsapp") {
+    if (!["whatsapp", "instagram", "upload"].includes(source)) throw new BadRequestException("Unknown source.");
+    return this.svc.mine(user.id, source as "whatsapp" | "instagram" | "upload");
+  }
 
   @Post(":id/confirm") @ApiOperation({ summary: "Tell the server the upload finished" })
   confirm(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.confirmUpload(user.id, id); }

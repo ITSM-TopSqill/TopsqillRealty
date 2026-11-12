@@ -45,6 +45,9 @@ const schema = z.object({
   // Meta signs every lead-ads and WhatsApp webhook with the app secret. In
   // production, webhooks are refused outright until this is set.
   META_APP_SECRET: z.string().optional(),
+  // Instagram API with Instagram Login: members connect their own account and pick posts and reels.
+  INSTAGRAM_APP_ID: z.string().optional(),
+  INSTAGRAM_APP_SECRET: z.string().optional(),
 
   // Shared with the web app. Lets its server tell the API the real visitor IP
   // for rate limiting; without it, a forwarded IP header is never trusted.
