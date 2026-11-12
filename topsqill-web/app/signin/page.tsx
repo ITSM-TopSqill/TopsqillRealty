@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { DemoButton } from "@/components/DemoButton";
 import { getUser } from "@/lib/session";
 import { getAuthMethods, safeNext } from "@/lib/auth-methods";
 import { AuthForm } from "@/components/AuthForm";
@@ -22,6 +23,10 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
           Sign in with a one-time code. No password to remember.
         </p>
         <AuthForm mode="signin" methods={methods} next={next} />
+        <div style={{ borderTop: "1px solid var(--line)", marginTop: 18, paddingTop: 14, textAlign: "center" }}>
+          <p className="small muted" style={{ margin: "0 0 8px" }}>Just looking? Try Topsqill.ai as a demo dealer, no sign-up needed.</p>
+          <DemoButton />
+        </div>
       </div>
     </main>
   );

@@ -90,7 +90,7 @@ export type CampaignPlan = {
 export type CampaignCreatives = {
   headlines?: string[]; primaryTexts?: string[]; hinglish?: string;
   carousel?: { title: string; sub: string }[]; reel?: { caption: string; sub: string }[];
-  googleAd?: { headlines: string[]; descriptions: string[] }; whatsappTemplate?: string;
+  googleAd?: { headlines: string[]; descriptions: string[] }; whatsappTemplate?: string; cta?: string | null;
 };
 
 export type Campaign = {

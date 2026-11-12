@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DemoBanner } from "./DemoBanner";
 import type { SessionUser } from "@/lib/session";
 import { LiveBadge, LiveAlerts } from "./Live";
 import { Suspense } from "react";
@@ -28,6 +29,7 @@ export function Shell({ user, current, unread, children }: {
 }) {
   return (
     <>
+      {user?.demo ? <DemoBanner /> : null}
       <header className="nav">
         <div className="nav-in">
           <Link href="/" className="logo" aria-label="Topsqill.ai home">

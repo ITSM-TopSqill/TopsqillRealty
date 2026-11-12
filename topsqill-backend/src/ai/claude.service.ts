@@ -4,7 +4,9 @@ import Redis from "ioredis";
 import { createHash } from "node:crypto";
 import { DB, type Database } from "../db/db.module";
 import { REDIS } from "../redis/redis.module";
-import { aiUsage } from "../db/schema";
+import { aiUsage, appSettings } from "../db/schema";
+import { eq } from "drizzle-orm";
+import { aiAllowed, cleanAiSettings, DEFAULT_AI_SETTINGS, type AiSettings } from "./ai-settings";
 import { newId } from "../common/ids";
 import { env } from "../common/env";
 
@@ -53,7 +55,29 @@ export class ClaudeService {
   constructor(@Inject(DB) private readonly db: Database, @Inject(REDIS) private readonly redis: Redis) {}
 
   get available() { return !!env.ANTHROPIC_API_KEY; }
-  get model() { return env.CLAUDE_MODEL; }
+  get model() { return this.settingsCache?.value.model ?? env.CLAUDE_MODEL; }
+
+  private settingsCache: { value: AiSettings; at: number } | null = null;
+
+  /** The admin's AI settings (Admin → AI), re-read at most every 30 seconds. */
+  async settings(): Promise<AiSettings> {
+    if (this.settingsCache && Date.now() - this.settingsCache.at < 30_000) return this.settingsCache.value;
+    let value = DEFAULT_AI_SETTINGS;
+    try {
+      const [row] = await this.db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, "ai")).limit(1);
+      if (row) value = cleanAiSettings(row.value);
+    } catch { /* table not there yet: defaults */ }
+    this.settingsCache = { value, at: Date.now() };
+    return value;
+  }
+
+  /** Forgets the cached settings (after an admin changes them). */
+  resetSettings() { this.settingsCache = null; }
+
+  /** Is AI on for this feature? (Configured, switched on, and not turned off for the feature.) */
+  async enabledFor(feature: string) {
+    return this.available && aiAllowed(await this.settings(), feature);
+  }
 
   private sdk() {
     this.client ??= new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 1 });
@@ -62,7 +86,7 @@ export class ClaudeService {
 
   /** Asks for JSON and falls back to the supplied value if anything goes wrong. */
   async json<T>(prompt: string, fallback: () => T, opts: AskOptions): Promise<{ data: T; source: "claude" | "rules" }> {
-    if (!this.available) return { data: fallback(), source: "rules" };
+    if (!(await this.enabledFor(opts.feature))) return { data: fallback(), source: "rules" };
     try {
       // Short structured writing jobs: low effort is fast and plenty.
       const text = await this.ask(prompt, { effort: "low", ...opts });
@@ -104,6 +128,7 @@ export class ClaudeService {
    */
   async chat(opts: ChatOptions): Promise<Anthropic.Beta.BetaMessage> {
     if (!this.available) throw new Error("AI is not configured");
+    if (!(await this.enabledFor(opts.feature))) throw new Error("AI is turned off for this feature");
     await this.checkQuota(opts.userId);
 
     const started = Date.now();

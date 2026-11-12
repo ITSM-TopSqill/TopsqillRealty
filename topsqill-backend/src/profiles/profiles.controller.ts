@@ -27,7 +27,7 @@ export class ProfilesController {
   constructor(private readonly svc: ProfilesService) {}
 
   @Get("me") @ApiOperation({ summary: "My profile" })
-  me(@CurrentUser() user: AuthUser) { return this.svc.getProfile(user.id, user.id); }
+  async me(@CurrentUser() user: AuthUser) { return { ...(await this.svc.getProfile(user.id, user.id)), demo: !!user.demo }; }
 
   @Patch("me")
   updateMe(@CurrentUser() user: AuthUser, @Body() dto: UpdateMeDto) { return this.svc.updateMe(user.id, dto as any); }

@@ -19,6 +19,7 @@ class ListingImportDto {
   /** The page text, pasted, for sites that block robots or build the page in the browser. */
   @IsOptional() @IsString() @MaxLength(60000) text?: string;
 }
+class PartnerDto { @IsOptional() @IsString() @MaxLength(600) message?: string; }
 class ProfileDto {
   @IsString() name: string;
   @IsIn(["buyer", "seller", "dealer", "builder"]) type: string;
@@ -75,6 +76,9 @@ export class AiController {
 
   @Get("projects/mine")
   mine(@CurrentUser() user: AuthUser) { return this.projects.mine(user.id); }
+
+  @Post("projects/:id/partner") @ApiOperation({ summary: "Ask the builder to become a channel partner for this project" })
+  partner(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: PartnerDto) { return this.projects.requestPartnership(user.id, id, dto.message); }
 
   @Public() @Get("projects/:id")
   project(@Param("id") id: string) { return this.projects.get(id); }

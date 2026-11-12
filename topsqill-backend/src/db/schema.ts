@@ -323,7 +323,7 @@ export const verifications = pgTable("verifications", {
 /* ------------------------------- messaging ------------------------------- */
 
 export const leadStage = pgEnum("lead_stage", ["new", "contacted", "site_visit", "negotiation", "booked", "lost"]);
-export const leadSource = pgEnum("lead_source", ["website", "meta", "google", "linkedin", "whatsapp", "portal_99acres", "portal_magicbricks", "portal_housing", "call", "topsqill", "manual", "other"]);
+export const leadSource = pgEnum("lead_source", ["website", "meta", "google", "linkedin", "whatsapp", "portal_99acres", "portal_magicbricks", "portal_housing", "call", "topsqill", "manual", "other", "channel_partner"]);
 export const notifKind = pgEnum("notif_kind", ["connection", "message", "lead", "match", "post", "comment", "system", "job"]);
 
 export const conversations = pgTable("conversations", {
@@ -654,6 +654,14 @@ export const whatsappOptins = pgTable("whatsapp_optins", {
 }, (t) => ({ pk: primaryKey({ columns: [t.ownerId, t.phone] }) }));
 
 /* ---------------------------------- audit ---------------------------------- */
+
+/** Platform settings an admin can change without a deploy, e.g. "ai": { enabled, disabled[], model }. */
+export const appSettings = pgTable("app_settings", {
+  key: varchar("key", { length: 40 }).primaryKey(),
+  value: jsonb("value").$type<Record<string, unknown>>().notNull(),
+  updatedBy: varchar("updated_by", { length: 36 }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const auditLog = pgTable("audit_log", {
   id: varchar("id", { length: 36 }).primaryKey(),

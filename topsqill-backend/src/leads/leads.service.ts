@@ -2,6 +2,7 @@ import { Injectable, Inject, NotFoundException, ForbiddenException } from "@nest
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { leads, leadActivities, listings, users } from "../db/schema";
+import { campaigns } from "../db/schema";
 import { NotificationsService } from "../notifications/notifications.service";
 import { CacheService } from "../redis/redis.module";
 import { newId } from "../common/ids";
@@ -149,7 +150,46 @@ export class LeadsService {
       const row = (Array.isArray(res) ? res[0] : (res as any).rows[0]) ?? {};
       const bySource = await this.read.select({ source: leads.source, n: sql<number>`count(*)::int` })
         .from(leads).where(eq(leads.ownerId, ownerId)).groupBy(leads.source).orderBy(desc(sql`count(*)`));
-      return { ...row, bySource };
+      // First response: from a lead arriving to the first thing the team did
+      // about it (a call, WhatsApp, email, note or stage change), last 90 days.
+      const resp = await this.read.execute(sql`
+        with firsts as (
+          select l.id, l.created_at, min(a.created_at) as first_at
+          from leads l
+          left join lead_activities a on a.lead_id = l.id and a.actor_id is not null and a.created_at >= l.created_at
+          where l.owner_id = ${ownerId} and l.created_at > now() - interval '90 days'
+          group by l.id, l.created_at
+        )
+        select
+          round(percentile_cont(0.5) within group (order by extract(epoch from first_at - created_at) / 60))::int as "medianMinutes",
+          count(*) filter (where first_at is not null)::int as "responded",
+          count(*) filter (where first_at is not null and first_at - created_at <= interval '1 hour')::int as "withinHour",
+          count(*) filter (where first_at is null)::int as "waiting",
+          count(*)::int as "recent"
+        from firsts`);
+      const r = (Array.isArray(resp) ? resp[0] : (resp as any).rows[0]) ?? {};
+      // Cost per lead: what campaigns spent, over the leads they brought.
+      const [spend] = await this.read.select({
+        spend: sql<number>`coalesce(sum(${campaigns.spendInr}), 0)::bigint`,
+        budget: sql<number>`coalesce(sum(${campaigns.budgetInr}) filter (where ${campaigns.status} <> 'draft'), 0)::bigint`,
+        leads: sql<number>`coalesce(sum(${campaigns.leadsCount}), 0)::int`,
+        qualified: sql<number>`coalesce(sum(${campaigns.qualifiedCount}), 0)::int`,
+      }).from(campaigns).where(eq(campaigns.ownerId, ownerId));
+      const spent = Number(spend?.spend ?? 0), campaignLeads = Number(spend?.leads ?? 0), qualifiedLeads = Number(spend?.qualified ?? 0);
+      return {
+        ...row, bySource,
+        response: {
+          medianMinutes: r.medianMinutes ?? null,
+          withinHourPct: r.responded ? Math.round((r.withinHour / r.recent) * 100) : null,
+          waiting: r.waiting ?? 0,
+        },
+        cost: {
+          spendInr: spent,
+          perLead: campaignLeads ? Math.round(spent / campaignLeads) : null,
+          perQualifiedLead: qualifiedLeads ? Math.round(spent / qualifiedLeads) : null,
+          campaignLeads,
+        },
+      };
     });
   }
 

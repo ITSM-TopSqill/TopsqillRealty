@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Pool } from "pg";
 import { env } from "../src/common/env";
 import { newId } from "../src/common/ids";
+import { aiAllowed, cleanAiSettings } from "../src/ai/ai-settings";
 
 /** The labels buyers see on photos. The AI must pick one of these. */
 export const PHOTO_LABELS = [
@@ -26,12 +27,16 @@ let client: Anthropic | null = null;
  */
 export async function tagPhoto(pool: Pool, mediaId: string, ownerId: string | null, jpeg: Buffer, currentLabel: string | null) {
   if (!env.ANTHROPIC_API_KEY || !needsLabel(currentLabel)) return null;
+  // The admin can switch photo labels (or all AI) off, and pick the model, on Admin → AI.
+  const settings = cleanAiSettings((await pool.query("select value from app_settings where key='ai'").catch(() => ({ rows: [] }))).rows[0]?.value);
+  if (!aiAllowed(settings, "photo.tag")) return null;
+  const model = settings.model ?? env.CLAUDE_MODEL;
   client ??= new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 1 });
   const started = Date.now();
   try {
-    const fallback = ["claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1"].includes(env.CLAUDE_MODEL);
+    const fallback = ["claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1"].includes(model);
     const res = await client.beta.messages.create({
-      model: env.CLAUDE_MODEL,
+      model,
       ...(fallback ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
       max_tokens: 2000,
       thinking: { type: "adaptive" },

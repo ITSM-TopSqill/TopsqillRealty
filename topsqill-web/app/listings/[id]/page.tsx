@@ -13,6 +13,8 @@ import { ListingAsk } from "@/components/ListingAsk";
 import { Gallery } from "@/components/Gallery";
 import { ListingExtras } from "@/components/ListingExtras";
 import { HomeViews } from "@/components/HomeViews";
+import { PriceTrend } from "@/components/PriceTrend";
+import { VastuScore } from "@/components/VastuScore";
 import { inr, sqft, imageUrl, timeAgo } from "@/lib/format";
 import type { Listing } from "@/lib/types";
 
@@ -150,6 +152,8 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         </div>
       </div>
 
+      <PriceTrend listingId={listing.id} />
+      <VastuScore facing={listing.facing} />
       <HomeViews title={listing.title} kind={listing.kind} bhk={listing.bhk} areaSqft={listing.areaSqft} facing={listing.facing} />
       <ListingExtras title={listing.title} videoUrl={listing.videoUrl} tourUrl={listing.tourUrl} lat={listing.lat} lng={listing.lng} locality={`${listing.locality}, ${listing.city}`} />
 

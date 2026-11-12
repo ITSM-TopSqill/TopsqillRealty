@@ -4,8 +4,11 @@ import { api } from "@/lib/api";
 import { getUser, getToken } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { CampaignActions } from "@/components/CampaignActions";
-import { inr, compact, CAMPAIGN_COLOR } from "@/lib/format";
-import type { Campaign } from "@/lib/types";
+import { AdStudio } from "@/components/AdStudio";
+import { ReelPlayer } from "@/components/ReelPlayer";
+import { CampaignPodcast } from "@/components/CampaignPodcast";
+import { inr, compact, CAMPAIGN_COLOR, imageUrl } from "@/lib/format";
+import type { Campaign, Listing } from "@/lib/types";
 
 export const metadata = { title: "Campaign" };
 export const dynamic = "force-dynamic";
@@ -22,6 +25,9 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
   if (!user) redirect(`/signin?next=/campaigns/${id}`);
   const c = await api<Campaign>(`/v1/campaigns/${id}`, { token }).catch(() => null);
   if (!c) notFound();
+  const listing = c.listingId ? await api<Listing>(`/v1/listings/${c.listingId}`, { token }).catch(() => null) : null;
+  const photos = (listing?.media ?? []).filter((m) => m.kind === "image").map((m) => imageUrl(m, "large")).filter(Boolean) as string[];
+  const site = process.env.NEXT_PUBLIC_SITE_URL ?? "https://topsqill.ai";
   const p = c.plan, cr = c.creatives ?? {}, f = c.forecast;
 
   return (
@@ -114,34 +120,10 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
       ) : null}
 
       <h2 style={{ fontSize: 20, margin: "22px 0 12px" }}>Your ads</h2>
+      {cr.headlines?.length ? (
+        <AdStudio campaignId={c.id} creatives={cr} photo={photos[0] ?? null} advertiser={user.name} link={c.listingId ? `${site}/listings/${c.listingId}` : site} />
+      ) : null}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 16, alignItems: "start" }}>
-        {cr.headlines?.length ? (
-          <div className="card" style={{ overflow: "hidden" }}>
-            <div style={{ aspectRatio: "1", background: "linear-gradient(135deg,#1F1D33,#3A2E7A 55%,#2F6FD0)", color: "#fff", padding: 16, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-              <b style={{ font: '800 22px/1.15 "Bricolage Grotesque",system-ui,sans-serif' }}>{cr.headlines[0]}</b>
-              <span className="small" style={{ opacity: .9 }}>{cr.headlines[1]}</span>
-              <span style={{ alignSelf: "flex-start", marginTop: 8, background: "#fff", color: "#1F1D33", fontWeight: 800, fontSize: 12, padding: "6px 12px", borderRadius: 999 }}>Book a site visit</span>
-            </div>
-            <div className="pad small">
-              <b>Facebook and Instagram feed</b>
-              {cr.primaryTexts?.map((t) => <p key={t} style={{ margin: "6px 0 0" }}>{t}</p>)}
-              {cr.hinglish ? <p className="muted" style={{ margin: "6px 0 0" }}>Hinglish: {cr.hinglish}</p> : null}
-            </div>
-          </div>
-        ) : null}
-
-        {cr.googleAd ? (
-          <div className="card pad small">
-            <b>Google Search</b>
-            <div style={{ border: "1px solid var(--line)", borderRadius: 12, padding: 12, marginTop: 8 }}>
-              <span className="small muted">Sponsored · topsqill.ai</span>
-              <div style={{ color: "#1A56DB", fontWeight: 700, fontSize: 16, margin: "4px 0" }}>{cr.googleAd.headlines.slice(0, 3).join(" | ")}</div>
-              <div className="muted">{cr.googleAd.descriptions[0]}</div>
-            </div>
-            <p className="muted" style={{ margin: "8px 0 0" }}>Also: {cr.googleAd.headlines.slice(3).join(", ")}. {cr.googleAd.descriptions.slice(1).join(" ")}</p>
-          </div>
-        ) : null}
-
         {cr.carousel?.length ? (
           <div className="card pad small">
             <b>Carousel</b>
@@ -156,14 +138,8 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
           </div>
         ) : null}
 
-        {cr.reel?.length ? (
-          <div className="card pad small">
-            <b>Reel script, 5 scenes</b>
-            <ol style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-              {cr.reel.map((s, i) => <li key={i} style={{ marginBottom: 4 }}><b>{s.caption}</b>{s.sub ? <span className="muted"> · {s.sub}</span> : null}</li>)}
-            </ol>
-          </div>
-        ) : null}
+        {cr.reel?.length ? <ReelPlayer scenes={cr.reel} photos={photos} price={listing ? inr(listing.priceInr, listing.purpose === "rent") : ""} title={c.name} /> : null}
+        <CampaignPodcast campaignId={c.id} initial={(cr as { podcast?: never }).podcast ?? null} />
 
         {cr.whatsappTemplate ? (
           <div className="card pad small">

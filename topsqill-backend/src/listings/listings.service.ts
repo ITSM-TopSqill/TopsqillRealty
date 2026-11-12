@@ -218,6 +218,43 @@ export class ListingsService {
     return row;
   }
 
+  /**
+   * How prices have moved in this listing's locality over the last 12 months,
+   * next to this listing's own price: the median rate per sq ft (for sale) or
+   * median rent for the same bedrooms (for rent), month by month, with the
+   * whole city as a second line. Months with no listings are left out.
+   */
+  async priceTrend(id: string) {
+    return this.cache.wrap(`trend:${id}`, 3600, async () => {
+      const [l] = await this.read.select().from(listings).where(eq(listings.id, id)).limit(1);
+      if (!l || l.hidden) throw new NotFoundException("That listing is no longer available.");
+      const sale = l.purpose === "sale";
+      const metric = sale
+        ? sql<number>`percentile_cont(0.5) within group (order by ${listings.priceInr}::numeric / nullif(${listings.areaSqft}, 0))`
+        : sql<number>`percentile_cont(0.5) within group (order by ${listings.priceInr})`;
+      const month = sql<string>`to_char(date_trunc('month', coalesce(${listings.publishedAt}, ${listings.createdAt})), 'YYYY-MM')`;
+      const base = [
+        eq(listings.purpose, l.purpose), eq(listings.hidden, false), sql`lower(${listings.city}) = lower(${l.city})`,
+        sql`coalesce(${listings.publishedAt}, ${listings.createdAt}) > date_trunc('month', now()) - interval '11 months'`,
+        sql`${listings.priceInr} > 0`, ...(sale ? [sql`${listings.areaSqft} > 0`] : l.bhk ? [eq(listings.bhk, l.bhk)] : []),
+      ];
+      const series = (extra: ReturnType<typeof sql>[]) => this.read.select({ month, value: metric, n: sql<number>`count(*)::int` })
+        .from(listings).where(and(...base, ...extra)).groupBy(month).orderBy(month);
+      const [locality, city] = await Promise.all([series([sql`lower(${listings.locality}) = lower(${l.locality})`]), series([])]);
+      const round = (rows: { month: string; value: number; n: number }[]) => rows.map((r) => ({ month: r.month, value: Math.round(Number(r.value)), n: r.n }));
+      const own = sale ? (l.priceInr && l.areaSqft ? Math.round(l.priceInr / l.areaSqft) : null) : l.priceInr ?? null;
+      const loc = round(locality);
+      const last = loc.length ? loc[loc.length - 1].value : null;
+      const first = loc.length > 1 ? loc[0].value : null;
+      return {
+        locality: l.locality, city: l.city, unit: sale ? "per sq ft" : `a month${l.bhk ? ` (${l.bhk} BHK)` : ""}`,
+        listing: own, localitySeries: loc, citySeries: round(city),
+        changePct: first && last ? Math.round(((last - first) / first) * 1000) / 10 : null,
+        vsLocalityPct: own && last ? Math.round(((own - last) / last) * 1000) / 10 : null,
+      };
+    });
+  }
+
   /** Everyone who saved this home hears about a price cut. */
   private async alertSavers(listingId: string, title: string, from: number, to: number) {
     const savers = await this.read.select({ userId: savedItems.userId }).from(savedItems)

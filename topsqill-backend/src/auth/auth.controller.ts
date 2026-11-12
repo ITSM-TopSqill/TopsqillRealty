@@ -32,6 +32,7 @@ class VerifyOtpDto {
   @IsString() @Length(4, 8) code: string;
   @IsOptional() @IsString() device?: string;
 }
+class DemoDto { @IsOptional() @IsString() @MaxLength(160) device?: string; }
 class TokenDto { @IsString() refreshToken: string; @IsOptional() @IsString() device?: string; }
 
 @ApiTags("auth")
@@ -59,6 +60,9 @@ export class AuthController {
   verify(@Body() dto: VerifyOtpDto) {
     return this.auth.verifyCode({ channel: "phone", identifier: dto.phone, code: dto.code, intent: "auto", device: dto.device });
   }
+
+  @Public() @Post("demo") @ApiOperation({ summary: "Explore with a read-only demo profile, without signing up" })
+  demo(@Body() dto: DemoDto) { return this.auth.demoSignIn(dto.device); }
 
   @Public() @Post("refresh") @ApiOperation({ summary: "Get a new access token" })
   refresh(@Body() dto: TokenDto) { return this.auth.refresh(dto.refreshToken, dto.device); }

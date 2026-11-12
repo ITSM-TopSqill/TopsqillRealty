@@ -2,6 +2,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { getUser, getToken } from "@/lib/session";
 import { Shell } from "@/components/Shell";
+import { inr } from "@/lib/format";
 import { Empty } from "@/components/ui";
 import { LeadBoard } from "@/components/LeadBoard";
 import { redirect } from "next/navigation";
@@ -16,7 +17,9 @@ export default async function LeadsPage() {
 
   const [board, stats] = await Promise.all([
     api<{ columns: Record<string, Lead[]>; total: number }>("/v1/leads", { token }).catch(() => ({ columns: {}, total: 0 })),
-    api<{ last7Days: number; qualified: number; booked: number; averageScore: number; total: number; bySource: { source: string; n: number }[] }>(
+    api<{ last7Days: number; qualified: number; booked: number; averageScore: number; total: number; bySource: { source: string; n: number }[];
+      response?: { medianMinutes: number | null; withinHourPct: number | null; waiting: number };
+      cost?: { spendInr: number; perLead: number | null; perQualifiedLead: number | null; campaignLeads: number } }>(
       "/v1/leads/stats", { token }).catch(() => null),
   ]);
 
@@ -46,6 +49,20 @@ export default async function LeadsPage() {
               <div style={{ font: '800 28px/1 "Bricolage Grotesque", system-ui, sans-serif', marginTop: 6 }}>{value as number}</div>
             </div>
           ))}
+          <div className="card pad" title="From a lead arriving to your team's first call, message, note or stage change (last 90 days)">
+            <div className="small muted" style={{ fontWeight: 700 }}>First response</div>
+            <div style={{ font: '800 28px/1 "Bricolage Grotesque", system-ui, sans-serif', marginTop: 6 }}>{minutes(stats.response?.medianMinutes)}</div>
+            <div className="small muted" style={{ marginTop: 4 }}>
+              {stats.response?.withinHourPct != null ? `${stats.response.withinHourPct}% within an hour` : "median"}{stats.response?.waiting ? ` · ${stats.response.waiting} waiting` : ""}
+            </div>
+          </div>
+          <div className="card pad" title="What your campaigns spent, divided by the leads they brought">
+            <div className="small muted" style={{ fontWeight: 700 }}>Cost per lead</div>
+            <div style={{ font: '800 28px/1 "Bricolage Grotesque", system-ui, sans-serif', marginTop: 6 }}>{stats.cost?.perLead != null ? inr(stats.cost.perLead) : "—"}</div>
+            <div className="small muted" style={{ marginTop: 4 }}>
+              {stats.cost?.campaignLeads ? `${inr(stats.cost.spendInr)} for ${stats.cost.campaignLeads} campaign lead${stats.cost.campaignLeads === 1 ? "" : "s"}${stats.cost.perQualifiedLead != null ? ` · ${inr(stats.cost.perQualifiedLead)} per qualified` : ""}` : "No campaign spend yet"}
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -55,4 +72,12 @@ export default async function LeadsPage() {
             action={<Link href="/leads/sources" className="btn btn-ai">Connect a source</Link>} />}
     </Shell>
   );
+}
+
+/** "12 min", "3 h 5 min", "2 days". */
+function minutes(m?: number | null) {
+  if (m == null) return "—";
+  if (m < 60) return `${m} min`;
+  if (m < 1440) return `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`;
+  return `${Math.round(m / 1440)} day${Math.round(m / 1440) === 1 ? "" : "s"}`;
 }

@@ -93,6 +93,9 @@ export class ListingsController {
   @Get(":id/edit") @ApiOperation({ summary: "My listing, with everything the edit screen needs" })
   forEdit(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.forEdit(user.id, id); }
 
+  @Public() @Get(":id/price-trend") @ApiOperation({ summary: "Locality and city prices over 12 months, next to this listing" })
+  priceTrend(@Param("id") id: string) { return this.svc.priceTrend(id); }
+
   @Public() @Get(":id") @Header("cache-control", "public, max-age=30, s-maxage=60, stale-while-revalidate=300")
   getOne(@Param("id") id: string) { return this.svc.getById(id); }
 

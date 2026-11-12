@@ -1,6 +1,7 @@
 import { api } from "@/lib/api";
 import { getToken } from "@/lib/session";
 import { RefreshBrief } from "@/components/admin/RefreshBrief";
+import { AiSettingsForm } from "@/components/admin/AiSettingsForm";
 import { ReloadKeys } from "@/components/admin/ReloadKeys";
 
 type Usage = {
@@ -24,9 +25,10 @@ const NAMES: Record<string, string> = {
 
 export default async function AdminAi() {
   const token = await getToken();
-  const [usage, brief] = await Promise.all([
+  const [usage, brief, settings] = await Promise.all([
     api<Usage>("/v1/admin/ai", { token }),
     api<Brief>("/v1/admin/ai/brief", { token }).catch(() => null),
+    api<React.ComponentProps<typeof AiSettingsForm>>("/v1/admin/ai/settings", { token }).catch(() => null),
   ]);
   const peak = Math.max(1, ...usage.daily.map((d) => d.calls));
   const total = usage.features.reduce((n, f) => n + f.calls, 0);
@@ -36,6 +38,8 @@ export default async function AdminAi() {
     <>
       <h1 style={{ fontSize: 26, marginBottom: 4 }}>AI</h1>
       <p className="muted small" style={{ marginBottom: 18 }}>Today’s brief, and how members use the AI features.</p>
+
+      {settings ? <AiSettingsForm {...settings} /> : null}
 
       <section className="card pad" style={{ marginBottom: 16, border: "2px solid var(--vio)" }}>
         <div className="spread" style={{ marginBottom: 8 }}>

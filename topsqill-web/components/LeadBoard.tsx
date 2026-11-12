@@ -52,7 +52,7 @@ export function LeadBoard({ columns }: { columns: Record<string, Lead[]> }) {
                     {lead.budgetMax ? `Budget ${inr(lead.budgetMax)} · ` : ""}{timeAgo(lead.createdAt)}
                   </div>
                   <div className="row" style={{ marginTop: 8, gap: 6, flexWrap: "wrap" }}>
-                    <span className="tag">{lead.source.replace("portal_", "")}</span>
+                    <span className="tag">{lead.source === "channel_partner" ? "channel partner" : lead.source.replace("portal_", "")}</span>
                     <span className="small" style={{ marginLeft: "auto", fontWeight: 800, color: lead.score >= 75 ? "#E5484D" : lead.score >= 50 ? "#E08A00" : "#4A86D4" }}>
                       {lead.qualified ? "Qualified · " : ""}{lead.score}
                     </span>
@@ -115,7 +115,7 @@ function LeadDrawer({ lead, onClose, onMove }: { lead: Lead; onClose: () => void
         </div>
         <div className="pad col">
           <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
-            <span className="tag">{lead.source.replace("portal_", "")}</span>
+            <span className="tag">{lead.source === "channel_partner" ? "channel partner" : lead.source.replace("portal_", "")}</span>
             <span className="tag">Score {lead.score}</span>
             {lead.qualified ? <span className="tag" style={{ color: "#12B76A" }}>Qualified</span> : null}
           </div>

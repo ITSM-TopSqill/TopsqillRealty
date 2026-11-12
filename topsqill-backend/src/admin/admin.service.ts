@@ -1,7 +1,8 @@
 import { Injectable, Inject, NotFoundException, BadRequestException, ConflictException } from "@nestjs/common";
 import { and, desc, eq, sql, inArray, gte } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
-import { users, listings, posts, postComments, reports, verifications, auditLog, media } from "../db/schema";
+import { users, listings, posts, postComments, reports, verifications, auditLog, media, appSettings, adAccounts, whatsappAccounts, leadSources, instagramAccounts, aiUsage } from "../db/schema";
+import { AI_FEATURES, AI_MODELS, cleanAiSettings } from "../ai/ai-settings";
 import { CacheService } from "../redis/redis.module";
 import { NotificationsService } from "../notifications/notifications.service";
 import { MediaService } from "../media/media.service";
@@ -32,6 +33,60 @@ export class AdminService {
     const status = await apishKeys.status();
     await this.db.insert(auditLog).values({ id: newId(), actorId: adminId, action: "scraper.keys.reload", targetType: "settings", meta: { keys: status.keys.length, source: status.source } }).catch(() => {});
     return status;
+  }
+
+  /** AI settings for Admin → AI: on/off, per feature, and the model. */
+  async aiSettings() {
+    return { settings: await this.claude.settings(), features: AI_FEATURES, models: AI_MODELS, defaultModel: env.CLAUDE_MODEL, configured: this.claude.available };
+  }
+
+  async saveAiSettings(adminId: string, input: unknown) {
+    const value = cleanAiSettings(input);
+    await this.db.insert(appSettings).values({ key: "ai", value, updatedBy: adminId, updatedAt: new Date() })
+      .onConflictDoUpdate({ target: appSettings.key, set: { value, updatedBy: adminId, updatedAt: new Date() } });
+    this.claude.resetSettings();
+    await this.db.insert(auditLog).values({ id: newId(), actorId: adminId, action: "settings.ai", targetType: "settings", meta: value }).catch(() => {});
+    return this.aiSettings();
+  }
+
+  /**
+   * Every outside service Topsqill uses, and whether it's set up: from the
+   * settings that are present (never their values) and, where cheap, how it
+   * has been doing (AI calls in the last 24 hours, api.sh keys working).
+   */
+  async connectors() {
+    const [[ai24], [counts]] = await Promise.all([
+      this.read.select({ calls: sql<number>`count(*)::int`, failed: sql<number>`count(*) filter (where not ${aiUsage.ok})::int` })
+        .from(aiUsage).where(sql`${aiUsage.createdAt} > now() - interval '24 hours' and ${aiUsage.feature} not like 'fetch.%'`),
+      this.read.select({
+        ads: sql<number>`(select count(*) from ${adAccounts})::int`,
+        waBusiness: sql<number>`(select count(*) from ${whatsappAccounts} where status = 'connected')::int`,
+        sources: sql<number>`(select count(*) from ${leadSources})::int`,
+        instagram: sql<number>`(select count(*) from ${instagramAccounts})::int`,
+      }).from(sql`(select 1) one`),
+    ]);
+    const apish = apishKeys.configured ? await apishKeys.status() : null;
+    const settings = await this.claude.settings();
+    type C = { id: string; name: string; group: string; status: "on" | "off" | "warning"; detail: string; setup?: string };
+    const c: C[] = [
+      { id: "claude", name: "Claude (AI)", group: "AI", status: !this.claude.available ? "off" : !settings.enabled ? "warning" : (ai24?.calls && ai24.failed / ai24.calls > 0.5) ? "warning" : "on",
+        detail: !this.claude.available ? "No API key: built-in rules are used" : !settings.enabled ? "Switched off on Admin → AI" : `${this.claude.model} · ${ai24?.calls ?? 0} calls in 24 h${ai24?.failed ? `, ${ai24.failed} failed` : ""}`,
+        setup: "Store the key in the anthropic-key secret" },
+      { id: "apish", name: "api.sh (portal imports)", group: "Imports", status: !apish ? "off" : apish.keys.some((k) => k.state === "ok") ? "on" : "warning",
+        detail: apish ? `${apish.keys.length} key${apish.keys.length === 1 ? "" : "s"}, ${apish.keys.filter((k) => k.state === "ok").length} working` : "Not set: 99acres and similar links need pasted text", setup: "apish_enabled in Terraform" },
+      { id: "brightdata", name: "Bright Data", group: "Imports", status: env.BRIGHTDATA_API_KEY && env.BRIGHTDATA_ZONE ? "on" : "off", detail: env.BRIGHTDATA_ZONE ? `Zone ${env.BRIGHTDATA_ZONE}` : "Not set (optional)", setup: "brightdata_enabled in Terraform" },
+      { id: "storage", name: "Google Cloud Storage", group: "Media", status: env.GCS_BUCKET_PUBLIC && env.GCS_BUCKET_UPLOADS ? "on" : "warning", detail: env.GCS_BUCKET_PUBLIC ? `Photos in ${env.GCS_BUCKET_PUBLIC}` : "Files are kept on the server's disk (local only)" },
+      { id: "transcoder", name: "Video streaming (Transcoder)", group: "Media", status: env.GCP_PROJECT_ID ? "on" : "off", detail: env.GCP_PROJECT_ID ? "Videos get a streaming version" : "Videos play as uploaded" },
+      { id: "tts", name: "Text-to-Speech (podcasts)", group: "Media", status: env.GCP_PROJECT_ID ? "on" : "off", detail: env.GCP_PROJECT_ID ? "Indian English voices for campaign podcasts" : "Podcasts are read by the browser's voice" },
+      { id: "smtp", name: "Email (SMTP)", group: "Messaging", status: env.SMTP_HOST && env.EMAIL_FROM ? "on" : "off", detail: env.SMTP_HOST ? `Sign-in codes and alerts from ${env.EMAIL_FROM ?? "?"}` : "No email: sign-in codes can't be sent", setup: "smtp_host in Terraform" },
+      { id: "whatsapp", name: "Topsqill WhatsApp number", group: "Messaging", status: env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID ? "on" : "off", detail: env.WHATSAPP_PHONE_NUMBER_ID ? "Photo inbox and sign-in codes" : "Not set", setup: "whatsapp_enabled in Terraform" },
+      { id: "meta", name: "Meta webhooks (app secret)", group: "Messaging", status: env.META_APP_SECRET ? "on" : "off", detail: env.META_APP_SECRET ? "WhatsApp and lead-ad webhooks are checked" : "Webhooks from Meta are refused", setup: "meta-app-secret secret" },
+      { id: "instagram", name: "Instagram login", group: "Members' accounts", status: env.INSTAGRAM_APP_ID && env.INSTAGRAM_APP_SECRET ? "on" : "off", detail: `${counts?.instagram ?? 0} member${counts?.instagram === 1 ? "" : "s"} connected`, setup: "instagram_enabled in Terraform" },
+      { id: "wa-business", name: "Members' WhatsApp Business numbers", group: "Members' accounts", status: (counts?.waBusiness ?? 0) > 0 ? "on" : "off", detail: `${counts?.waBusiness ?? 0} connected` },
+      { id: "ads", name: "Ad accounts (Meta, Google, LinkedIn)", group: "Members' accounts", status: (counts?.ads ?? 0) > 0 ? "on" : "off", detail: `${counts?.ads ?? 0} connected` },
+      { id: "lead-sources", name: "Lead sources (webhooks)", group: "Members' accounts", status: (counts?.sources ?? 0) > 0 ? "on" : "off", detail: `${counts?.sources ?? 0} set up` },
+    ];
+    return { items: c };
   }
 
   async aiUsage() {

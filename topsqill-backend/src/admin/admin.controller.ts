@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
-import { IsOptional, IsString, IsIn, IsBoolean, IsInt } from "class-validator";
+import { IsOptional, IsString, IsIn, IsBoolean, IsInt, IsArray, ArrayMaxSize } from "class-validator";
 import { Type } from "class-transformer";
 import { AdminService } from "./admin.service";
 import { AdminGuard } from "../auth/jwt.guard";
@@ -28,6 +28,12 @@ class StatusDto {
   @IsOptional() @IsString() reason?: string;
 }
 
+class AiSettingsDto {
+  @IsBoolean() enabled: boolean;
+  @IsArray() @ArrayMaxSize(40) @IsString({ each: true }) disabled: string[];
+  @IsOptional() @IsString() model?: string | null;
+}
+
 @ApiTags("admin")
 @ApiBearerAuth()
 @UseGuards(AdminGuard)          // every route here is admin-only
@@ -43,6 +49,15 @@ export class AdminController {
 
   @Post("scraper/reload") @ApiOperation({ summary: "Re-read the api.sh keys now and forget which ones failed" })
   reloadScraperKeys(@CurrentUser() user: AuthUser) { return this.svc.reloadScraperKeys(user.id); }
+
+  @Get("connectors") @ApiOperation({ summary: "Every outside service and whether it is set up (never secret values)" })
+  connectors() { return this.svc.connectors(); }
+
+  @Get("ai/settings") @ApiOperation({ summary: "AI on/off, per feature, and the model" })
+  aiSettings() { return this.svc.aiSettings(); }
+
+  @Post("ai/settings")
+  saveAiSettings(@CurrentUser() user: AuthUser, @Body() dto: AiSettingsDto) { return this.svc.saveAiSettings(user.id, dto); }
 
   @Get("ai/brief") @ApiOperation({ summary: "Today's AI-written brief for the admin" })
   brief(@CurrentUser() user: AuthUser, @Query("refresh") refresh?: string) { return this.svc.aiBrief(user.id, refresh === "1"); }

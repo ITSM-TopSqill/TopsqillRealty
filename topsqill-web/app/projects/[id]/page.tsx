@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChannelPartner } from "@/components/ChannelPartner";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { api } from "@/lib/api";
@@ -153,7 +154,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             </section>
           ) : null}
 
-          {mine ? <Link href={`/campaigns/new`} className="btn btn-o">Promote with a campaign</Link> : null}
+          {mine ? <Link href={`/campaigns/new`} className="btn btn-o">Promote with a campaign</Link>
+            : p.published && user?.type !== "buyer" ? <ChannelPartner projectId={p.id} projectName={p.name} signedIn={!!user} /> : null}
         </div>
       </div>
     </Shell>

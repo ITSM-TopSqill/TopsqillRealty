@@ -4,7 +4,7 @@ import {
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { createHash, randomBytes } from "node:crypto";
-import { eq, and, gt, isNull, sql } from "drizzle-orm";
+import { eq, and, gt, isNull, sql, desc } from "drizzle-orm";
 import Redis from "ioredis";
 import { DB, type Database } from "../db/db.module";
 import { REDIS } from "../redis/redis.module";
@@ -38,6 +38,10 @@ const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const NO_ACCOUNT = { phone: "We couldn’t find an account with this mobile number.", email: "We couldn’t find an account with this email." };
 const HAS_ACCOUNT = { phone: "An account with this mobile number already exists. Sign in instead.", email: "An account with this email already exists. Sign in instead." };
 const INVALID = { phone: "Enter a valid mobile number.", email: "Enter a valid email address." };
+
+/** Seeded demo members live on this address; their sessions are read-only. */
+export const DEMO_DOMAIN = "@demo.topsqill.ai";
+export const isDemoEmail = (email?: string | null) => !!email && email.toLowerCase().endsWith(DEMO_DOMAIN);
 
 @Injectable()
 export class AuthService {
@@ -131,7 +135,7 @@ export class AuthService {
     }
     if (user.status === "suspended" || user.status === "removed") throw new ForbiddenException("This account is not active. Please contact support.");
 
-    const tokens = await this.issueTokens(user.id, user.type, user.isAdmin, input.device);
+    const tokens = await this.issueTokens(user.id, user.type, user.isAdmin, input.device, isDemoEmail(user.email));
     return { ...tokens, isNew, user: { id: user.id, name: user.name, type: user.type, city: user.city } };
   }
 
@@ -147,7 +151,7 @@ export class AuthService {
 
     const [user] = await this.db.select().from(users).where(eq(users.id, row.userId)).limit(1);
     if (!user || user.status !== "active") throw new BadRequestException("Please sign in again.");
-    const tokens = await this.issueTokens(user.id, user.type, user.isAdmin, device);
+    const tokens = await this.issueTokens(user.id, user.type, user.isAdmin, device, isDemoEmail(user.email));
     // The requests that lost the race get this same new pair for a short while,
     // instead of an error that would sign the member out. The pair sits in the
     // private Redis for 30 seconds, under a key only the old token can derive.
@@ -225,8 +229,23 @@ export class AuthService {
     if (!consumed) throw new BadRequestException("That code has already been used. Please request a new one.");
   }
 
-  private async issueTokens(userId: string, type: string, isAdmin: boolean, device?: string) {
-    const accessToken = await this.jwt.signAsync({ sub: userId, typ: type, adm: isAdmin }, { expiresIn: env.JWT_ACCESS_TTL });
+  /**
+   * "Explore with a demo profile": signs a visitor in as one of the seeded
+   * demo dealers (an @demo.topsqill.ai account, never a real member), with a
+   * read-only session: they can look at everything, and anything that would
+   * change data is refused by the guard. Never an admin.
+   */
+  async demoSignIn(device?: string) {
+    const [demo] = await this.db.select().from(users)
+      .where(and(sql`lower(${users.email}) like ${"%" + DEMO_DOMAIN}`, eq(users.status, "active"), eq(users.type, "dealer"), eq(users.isAdmin, false)))
+      .orderBy(desc(users.listingCount), desc(users.connectionCount)).limit(1);
+    if (!demo) throw new NotFoundException("The demo isn’t available right now. Please sign up instead.");
+    const tokens = await this.issueTokens(demo.id, demo.type, false, device, true);
+    return { ...tokens, isNew: false, demo: true, user: { id: demo.id, name: demo.name, type: demo.type, city: demo.city } };
+  }
+
+  private async issueTokens(userId: string, type: string, isAdmin: boolean, device?: string, demo = false) {
+    const accessToken = await this.jwt.signAsync({ sub: userId, typ: type, adm: isAdmin && !demo, ...(demo ? { demo: true } : {}) }, { expiresIn: env.JWT_ACCESS_TTL });
     const refreshToken = randomBytes(32).toString("base64url");
     await this.db.insert(refreshTokens).values({
       id: newId(), userId, tokenHash: sha(refreshToken), device: device?.slice(0, 160),

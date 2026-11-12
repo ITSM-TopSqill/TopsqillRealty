@@ -1,7 +1,7 @@
 import { Injectable, Inject, NotFoundException, BadRequestException, ConflictException } from "@nestjs/common";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
-import { projects, listings, users } from "../db/schema";
+import { projects, listings, users, leads } from "../db/schema";
 import { ClaudeService } from "./claude.service";
 import { SearchService } from "../search/search.service";
 import { ListingsService } from "../listings/listings.service";
@@ -9,6 +9,8 @@ import { extractProject, estimatePrices, type Extracted } from "./extract";
 import { newId } from "../common/ids";
 import { cleanUrl } from "../common/safe-fetch";
 import { PageFetcher } from "./page-fetcher.service";
+import { LeadsService } from "../leads/leads.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { scrubList, scrubSources } from "../common/sources";
 
 @Injectable()
@@ -20,7 +22,44 @@ export class ProjectsService {
     private readonly search: SearchService,
     private readonly listingsSvc: ListingsService,
     private readonly pages: PageFetcher,
+    private readonly leadsSvc: LeadsService,
+    private readonly notifs: NotificationsService,
   ) {}
+
+  /**
+   * "Become a channel partner": a dealer asks the builder to work with them on
+   * this project. The builder gets it as a lead (source "channel partner")
+   * with the dealer's details, RERA status and note, plus an alert. Asking
+   * twice doesn't create a second lead.
+   */
+  async requestPartnership(userId: string, projectId: string, message?: string) {
+    const [p] = await this.read.select({ id: projects.id, ownerId: projects.ownerId, name: projects.name, city: projects.city, locality: projects.locality, published: projects.published })
+      .from(projects).where(eq(projects.id, projectId)).limit(1);
+    if (!p || !p.published) throw new NotFoundException("That project could not be found.");
+    if (p.ownerId === userId) throw new BadRequestException("This is your own project.");
+    const externalId = `cp:${projectId}:${userId}`;
+    const [already] = await this.read.select({ id: leads.id }).from(leads).where(and(eq(leads.ownerId, p.ownerId), eq(leads.externalId, externalId))).limit(1);
+    if (already) return { ok: true, already: true };
+
+    const [me] = await this.read.select({ name: users.name, phone: users.phone, email: users.email, agency: users.agency, type: users.type,
+      reraNumber: users.reraNumber, reraVerified: users.reraVerified, yearsExperience: users.yearsExperience, city: users.city })
+      .from(users).where(eq(users.id, userId)).limit(1);
+    if (!me) throw new NotFoundException("Your profile could not be found.");
+    const about = [
+      `Wants to become a channel partner for ${p.name}.`,
+      me.agency ? `Agency: ${me.agency}.` : "",
+      me.reraNumber ? `RERA ${me.reraNumber}${me.reraVerified ? " (verified)" : " (not yet verified)"}.` : "No RERA number on profile.",
+      me.yearsExperience ? `${me.yearsExperience} years in real estate.` : "",
+      message?.trim() ? `Message: ${message.trim().slice(0, 600)}` : "",
+      `Profile: /profile/${userId}`,
+    ].filter(Boolean).join(" ");
+    await this.leadsSvc.capture(p.ownerId, {
+      name: me.name, phone: me.phone ?? undefined, email: me.email ?? undefined, source: "channel_partner",
+      sourceDetail: p.name.slice(0, 120), city: p.city, locality: p.locality, note: about, externalId, otpVerified: true,
+    });
+    await this.notifs.create({ userId: p.ownerId, kind: "lead", title: `${me.name} wants to be a channel partner`, body: p.name, actorId: userId, targetType: "project", targetId: p.id }).catch(() => null);
+    return { ok: true, already: false };
+  }
 
   /**
    * Builds a full project from a link plus (ideally) the page text.

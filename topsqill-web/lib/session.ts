@@ -20,6 +20,8 @@ export type SessionUser = {
   yearsExperience?: number | null; reraNumber?: string | null;
   avatar?: { urls?: Record<string, string>; blurhash?: string | null } | null;
   cover?: { urls?: Record<string, string> } | null;
+  /** A read-only demo session ("Explore with a demo profile"). */
+  demo?: boolean;
 };
 
 export async function setSession(tokens: Tokens) {

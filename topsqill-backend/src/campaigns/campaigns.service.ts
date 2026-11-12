@@ -7,6 +7,12 @@ import { SearchService } from "../search/search.service";
 import { buildPlan, forecast, segmentOf, type Plan } from "./planner";
 import { pincodesFor, HNI_FEEDERS } from "./pincodes";
 import { newId } from "../common/ids";
+import { speakMp3 } from "../common/tts";
+import { writePublic, publicBase } from "../media/storage";
+import { createHash } from "node:crypto";
+
+export type PodcastLine = { host: "Priya" | "Arjun"; line: string };
+export type Podcast = { script: PodcastLine[]; audioUrl: string | null; seconds: number; source: "claude" | "rules"; at: string };
 
 @Injectable()
 export class CampaignsService {
@@ -108,6 +114,80 @@ Never promise returns. Audience: ${plan.personas.map((p) => p.name).join(", ")}.
 Listing: ${JSON.stringify({ title: l.title, price: l.priceInr, bhk: l.bhk, area: l.areaSqft, city: l.city, locality: l.locality, possession: l.possession, furnishing: l.furnishing, facing: l.facing, amenities: l.amenities })}`;
     const { data } = await this.claude.json(prompt, fallback, { userId, feature: "campaign.creatives", maxTokens: 1800 });
     return data;
+  }
+
+  /** Saves the advertiser's edits to the ad text (from the live preview in the studio). */
+  async updateCreatives(userId: string, id: string, patch: { headlines?: string[]; primaryTexts?: string[]; cta?: string; googleHeadlines?: string[]; googleDescriptions?: string[] }) {
+    const c = await this.get(userId, id);
+    const cr = { ...(c.creatives ?? {}) } as Record<string, any>;
+    const clean = (xs: string[] | undefined, n: number, len: number) => xs?.map((x) => String(x).trim().slice(0, len)).filter(Boolean).slice(0, n);
+    if (patch.headlines) cr.headlines = clean(patch.headlines, 3, 60);
+    if (patch.primaryTexts) cr.primaryTexts = clean(patch.primaryTexts, 2, 400);
+    if (patch.cta !== undefined) cr.cta = String(patch.cta).trim().slice(0, 30) || null;
+    if (patch.googleHeadlines || patch.googleDescriptions) {
+      cr.googleAd = {
+        headlines: clean(patch.googleHeadlines, 4, 30) ?? cr.googleAd?.headlines ?? [],
+        descriptions: clean(patch.googleDescriptions, 2, 90) ?? cr.googleAd?.descriptions ?? [],
+      };
+    }
+    const [row] = await this.db.update(campaigns).set({ creatives: cr, updatedAt: new Date() }).where(eq(campaigns.id, id)).returning();
+    return row;
+  }
+
+  /**
+   * A 60 to 90 second audio "podcast" ad about the campaign's home: two hosts
+   * (Priya and Arjun) chat about it in Indian English. Written by AI from the
+   * listing's facts (or by rules), spoken by two Indian English voices, and
+   * saved as one MP3 the advertiser can play and download. Without
+   * Text-to-Speech, only the script is returned and the website reads it aloud.
+   */
+  async podcast(userId: string, id: string, regenerate = false): Promise<Podcast> {
+    const c = await this.get(userId, id);
+    const existing = (c.creatives as Record<string, any> | null)?.podcast as Podcast | undefined;
+    if (existing && !regenerate) return existing;
+    if (!c.listingId) throw new BadRequestException("This campaign has no listing to talk about.");
+    const [l] = await this.read.select().from(listings).where(eq(listings.id, c.listingId)).limit(1);
+    if (!l) throw new NotFoundException("The campaign's listing is no longer available.");
+
+    const bhk = l.bhk ? `${l.bhk} BHK` : l.kind.toLowerCase();
+    const price = inr(l.priceInr ?? 0) + (l.purpose === "rent" ? " a month" : "");
+    const amen = (l.amenities ?? []).slice(0, 4);
+    const fallback = (): { script: PodcastLine[] } => ({ script: [
+      { host: "Priya", line: `Hello and welcome to Home Hunt on Topsqill! I'm Priya.` },
+      { host: "Arjun", line: `And I'm Arjun. Today we're looking at a ${bhk} in ${l.locality}, ${l.city}.` },
+      { host: "Priya", line: `It's ${l.areaSqft ? `${l.areaSqft.toLocaleString("en-IN")} square feet` : "a generous size"}, and it's ${l.possession?.toLowerCase() ?? "ready to move"}.` },
+      { host: "Arjun", line: amen.length ? `The society has ${amen.join(", ").toLowerCase()}. That's a big plus for families.` : `It's in a well-connected part of ${l.city}, close to daily needs.` },
+      { host: "Priya", line: l.facing ? `And it's ${l.facing.toLowerCase()}, which a lot of buyers look for.` : `The layout makes good use of every room.` },
+      { host: "Arjun", line: `So what's the price?` },
+      { host: "Priya", line: `It's listed at ${price}.` },
+      { host: "Arjun", line: `If ${l.locality} is on your list, book a site visit this weekend.` },
+      { host: "Priya", line: `Just tap the link and message the seller on Topsqill. Happy house hunting!` },
+    ] });
+    const prompt = `Write a 60 to 90 second audio ad, as a friendly chat between two Indian podcast hosts, Priya and Arjun, about this home for sale or rent. Natural Indian English, warm and real, not salesy; 8 to 12 short lines in all, alternating hosts, each line at most 25 words. Use ONLY these facts; never invent amenities, distances, views, offers or returns. End with a clear call to book a site visit on Topsqill. Prices in Indian style (₹1.2 Cr, ₹85 L). Never mention any other website.
+Facts: ${JSON.stringify({ title: l.title, purpose: l.purpose, kind: l.kind, bhk: l.bhk, areaSqft: l.areaSqft, price, city: l.city, locality: l.locality, possession: l.possession, furnishing: l.furnishing, facing: l.facing, amenities: amen, highlights: (l.usps ?? []).slice(0, 3) })}
+Reply with JSON only: {"script":[{"host":"Priya","line":"..."},{"host":"Arjun","line":"..."}]}`;
+    const { data, source } = await this.claude.json<{ script: PodcastLine[] }>(prompt, fallback, { userId, feature: "campaign.podcast", maxTokens: 1500 });
+    let script = (Array.isArray(data.script) ? data.script : []).map((x) => ({ host: x?.host === "Arjun" ? "Arjun" as const : "Priya" as const, line: String(x?.line ?? "").trim().slice(0, 240) })).filter((x) => x.line).slice(0, 14);
+    if (script.length < 4) script = fallback().script;
+
+    // Each line in its host's voice, joined into one MP3 (MP3 frames can simply follow each other).
+    let audioUrl: string | null = null;
+    const parts: Buffer[] = [];
+    for (const x of script) {
+      const mp3 = await speakMp3(x.line, x.host === "Priya" ? "female" : "male");
+      if (!mp3) { parts.length = 0; break; }
+      parts.push(mp3);
+    }
+    if (parts.length) {
+      const audio = Buffer.concat(parts);
+      const path = `public/podcast/${c.id}/${createHash("sha1").update(audio).digest("hex").slice(0, 16)}.mp3`;
+      await writePublic(path, audio, "audio/mpeg");
+      audioUrl = `${publicBase()}/${path}`;
+    }
+    const words = script.reduce((n, x) => n + x.line.split(/\s+/).length, 0);
+    const podcast: Podcast = { script, audioUrl, seconds: Math.round(words / 2.5), source: source === "claude" && script !== fallback().script ? "claude" : source, at: new Date().toISOString() };
+    await this.db.update(campaigns).set({ creatives: { ...(c.creatives ?? {}), podcast }, updatedAt: new Date() }).where(eq(campaigns.id, id));
+    return podcast;
   }
 
   async list(userId: string) {

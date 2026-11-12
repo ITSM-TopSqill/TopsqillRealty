@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DemoButton } from "@/components/DemoButton";
 import { api } from "@/lib/api";
 import { getUser, getToken } from "@/lib/session";
 import { Shell } from "@/components/Shell";
@@ -37,6 +38,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
           <div className="row">
             <Link href="/signup" className="btn" style={{ background: "#fff", color: "#1F1D33" }}>Join Topsqill.ai</Link>
             <Link href="/listings" className="btn" style={{ border: "2px solid rgba(255,255,255,.7)", color: "#fff" }}>Browse listings</Link>
+            <DemoButton className="btn" style={{ border: "2px solid rgba(255,255,255,.7)", color: "#fff", background: "transparent" }} />
           </div>
         </section>
         <h2 style={{ fontSize: 22, margin: "0 0 12px" }}>Latest listings</h2>
