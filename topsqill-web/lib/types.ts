@@ -1,6 +1,6 @@
 /** Shapes returned by the Topsqill.ai API, kept in one place. */
 
-export type Media = { id: string; kind: string; status: string; label?: string | null; urls?: Record<string, string>; blurhash?: string | null };
+export type Media = { id: string; kind: string; status: string; label?: string | null; group?: string | null; urls?: Record<string, string>; blurhash?: string | null };
 
 export type PersonCard = {
   id: string; name: string; type: string; headline?: string | null;

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Put, Query, Req, Res, NotFoundException, ForbiddenException, BadRequestException } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { IsBoolean } from "class-validator";
+import { IsBoolean, IsIn } from "class-validator";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import { IsString, IsInt, IsOptional, Min, IsArray, ArrayMaxSize, ArrayMinSize, MaxLength, Equals } from "class-validator";
 import { MediaService } from "./media.service";
@@ -16,6 +16,8 @@ class CreateUploadDto {
   @IsOptional() @IsString() filename?: string;
   /** KYC and RERA documents: kept private, never processed or published. */
   @IsOptional() @IsBoolean() private?: boolean;
+  /** Which section of the listing it belongs to: photo, video, reel, floorplan, siteplan, locationmap, brochure, pricelist, model. */
+  @IsOptional() @IsIn(["photo", "video", "reel", "floorplan", "siteplan", "locationmap", "brochure", "pricelist", "model"]) category?: string;
 }
 
 @ApiTags("media")

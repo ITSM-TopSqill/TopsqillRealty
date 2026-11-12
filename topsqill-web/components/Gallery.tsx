@@ -3,6 +3,7 @@
 import { createElement, useEffect, useState } from "react";
 import { imageUrl } from "@/lib/format";
 import type { Media } from "@/lib/types";
+import { isPlanOrDoc } from "./PlansAndDocs";
 
 /**
  * Photos, videos and 3D models, with thumbnails. Videos play in place and 3D
@@ -10,7 +11,8 @@ import type { Media } from "@/lib/types";
  * support it. Falls back to a plain panel when there is nothing to show.
  */
 export function Gallery({ media, title }: { media: Media[]; title: string }) {
-  const items = (media ?? []).filter((m) => m.urls && Object.keys(m.urls).length && (
+  // Plans and documents have their own section (PlansAndDocs); the gallery is photos, videos and 3D.
+  const items = (media ?? []).filter((m) => m.urls && Object.keys(m.urls).length && !isPlanOrDoc(m) && (
     m.kind === "image" || (m.kind === "video" && (m.urls.mp4 || m.urls.hls)) || (m.kind === "model3d" && m.urls.full)));
   const [index, setIndex] = useState(0);
 

@@ -4,8 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
 import Link from "next/link";
-import { MediaUploader, type UploadedItem } from "./MediaUploader";
-import { MediaSources } from "./MediaSources";
+import type { UploadedItem } from "./MediaUploader";
+import { MediaSteps, orderMedia } from "./MediaSteps";
 import { refreshPages } from "@/lib/refresh";
 import type { Listing } from "@/lib/types";
 import { ImportFromLink, type ImportDraft, type ImportConfig } from "./ImportFromLink";
@@ -122,7 +122,7 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
         amenities: form.amenities.split(",").map((s) => s.trim()).filter(Boolean),
         usps: form.usps.split("\n").map((s) => s.trim()).filter(Boolean),
         // Only files that finished processing are attached.
-        mediaIds: media.filter((m) => m.status === "ready").map((m) => m.mediaId),
+        mediaIds: orderMedia(media).filter((m) => m.status === "ready").map((m) => m.mediaId),
         videoUrl: form.videoUrl.trim() || (editing ? "" : undefined),
         tourUrl: form.tourUrl.trim() || (editing ? "" : undefined),
         reraNumber: form.reraNumber.trim() || (editing ? "" : undefined),
@@ -235,13 +235,11 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
             ) : <p className="small muted" style={{ margin: 0 }}>No map location yet. Importing from a link adds one when the page has it, or the locality’s centre.</p>}
           </div>
           <div className="field" style={{ gridColumn: "1 / -1" }}>
-            <label>Photos, videos and 3D models</label>
-            <MediaSources room={20 - media.length} have={media.map((m) => m.mediaId)}
-              onAdd={(items) => setMedia((m) => [...m, ...items.filter((i) => !m.some((x) => x.mediaId === i.mediaId))].slice(0, 20))} />
-            <MediaUploader items={media} onChange={setMedia} max={20} coverFirst accept="image/*,video/*,application/pdf,.glb,model/gltf-binary"
-              hint="Drag them here, or click to choose. Exterior, rooms, amenities, a walkthrough video, or a 3D model (.glb)." />
+            <label style={{ fontSize: 16, marginBottom: 2 }}>Photos, videos, plans and brochure</label>
+            <p className="small muted" style={{ margin: "0 0 10px" }}>Tap a card to add files. Upload from this device, or pick from WhatsApp or Instagram.</p>
+            <MediaSteps items={media} onChange={setMedia} />
             {media.some((m) => m.status !== "ready" && m.status !== "failed")
-              ? <p className="small muted">Your photos are still processing. You can publish once they are ready.</p>
+              ? <p className="small muted">Your files are still processing. You can publish once they are ready.</p>
               : null}
           </div>
         </div>

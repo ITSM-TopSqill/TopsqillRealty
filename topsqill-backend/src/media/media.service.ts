@@ -17,6 +17,19 @@ export function sniffImage(b: Buffer): { mime: string; ext: string } | null {
   return null;
 }
 
+/** What a listing file is, chosen by the section it was uploaded in: its label on the listing and its group. */
+export const MEDIA_CATEGORIES: Record<string, { label: string | null; group: string | null }> = {
+  photo: { label: null, group: null },
+  video: { label: "Walkthrough video", group: null },
+  reel: { label: "Reel", group: null },
+  floorplan: { label: "Floor plan", group: "plan" },
+  siteplan: { label: "Site plan", group: "plan" },
+  locationmap: { label: "Location map", group: "plan" },
+  brochure: { label: "Brochure", group: "other" },
+  pricelist: { label: "Price list", group: "other" },
+  model: { label: "3D model", group: null },
+};
+
 const IMAGE = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/avif"];
 const VIDEO = ["video/mp4", "video/quicktime", "video/webm"];
 const MODEL = ["model/gltf-binary", "application/octet-stream"];
@@ -75,7 +88,7 @@ export class MediaService {
    * upload link, the file goes straight to Cloud Storage, and we then process it
    * in the background. The API stays fast no matter how big the video is.
    */
-  async createUpload(userId: string, input: { mimeType: string; bytes: number; filename?: string; private?: boolean }) {
+  async createUpload(userId: string, input: { mimeType: string; bytes: number; filename?: string; private?: boolean; category?: string }) {
     const kind = IMAGE.includes(input.mimeType) ? "image"
       : VIDEO.includes(input.mimeType) ? "video"
       : DOC.includes(input.mimeType) ? "document"
@@ -92,7 +105,10 @@ export class MediaService {
 
     await this.db.insert(media).values({
       id, ownerId: userId, kind: (input.private ? "document" : kind) as never, status: "uploading", objectPath, mimeType: input.mimeType, bytes: input.bytes,
-      groupName: input.private ? "private" : null, label: input.filename?.slice(0, 60) ?? null, source: input.private ? null : "upload",
+      groupName: input.private ? "private" : MEDIA_CATEGORIES[input.category ?? ""]?.group ?? null,
+      // A category gives the file its name on the listing ("Floor plan", "Reel"); plain photos are named by AI later.
+      label: !input.private && MEDIA_CATEGORIES[input.category ?? ""]?.label ? MEDIA_CATEGORIES[input.category!].label : input.filename?.slice(0, 60) ?? null,
+      source: input.private ? null : "upload",
     });
     const url = await uploadUrl(id, objectPath, input.mimeType);
     return { mediaId: id, uploadUrl: url, method: "PUT", headers: { "content-type": input.mimeType }, expiresInSeconds: 900 };

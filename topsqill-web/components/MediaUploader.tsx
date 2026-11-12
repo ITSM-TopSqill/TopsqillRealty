@@ -12,16 +12,24 @@ import type { Media } from "@/lib/types";
  * link, the browser PUTs to it, then tells the API the upload finished. That
  * keeps big videos fast and the API free to answer other requests.
  */
-export type UploadedItem = { mediaId: string; name: string; progress: number; status: "uploading" | "processing" | "ready" | "failed"; media?: Media; error?: string; previewUrl?: string };
+export type UploadedItem = {
+  mediaId: string; name: string; progress: number; status: "uploading" | "processing" | "ready" | "failed"; media?: Media; error?: string; previewUrl?: string;
+  /** Which listing section it was added in (photo, video, reel, floorplan…). */
+  category?: string;
+};
 
 const MAX = { image: 25e6, video: 500e6, document: 25e6, model: 80e6 } as const;
 
-export function MediaUploader({ items, onChange, max = 20, accept = "image/*,video/*,application/pdf", privateFiles = false, title, hint, coverFirst = false }: {
+export function MediaUploader({ items, onChange, max = 20, accept = "image/*,video/*,application/pdf", privateFiles = false, title, hint, coverFirst = false, category, icon, compact = false }: {
   items: UploadedItem[]; onChange: (items: UploadedItem[]) => void; max?: number; accept?: string;
   /** The first photo is the cover: it is marked, and any other can be made the cover. */
   coverFirst?: boolean;
   /** Documents for verification: stored privately, never published. */
   privateFiles?: boolean; title?: string; hint?: string;
+  /** The listing section these files belong to; sent with each upload so the file is labelled ("Floor plan"). */
+  category?: string;
+  icon?: string;
+  compact?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -60,10 +68,10 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
       try {
         // 1. Ask the API where to put it.
         const ticket = await clientApi<{ mediaId: string; uploadUrl: string; method: string; headers: Record<string, string> }>(
-          "/v1/media/uploads", { method: "POST", body: { mimeType: file.type || "application/octet-stream", bytes: file.size, filename: file.name, ...(privateFiles ? { private: true } : {}) } },
+          "/v1/media/uploads", { method: "POST", body: { mimeType: file.type || (/\.glb$/i.test(file.name) ? "model/gltf-binary" : "application/octet-stream"), bytes: file.size, filename: file.name, ...(privateFiles ? { private: true } : {}), ...(category ? { category } : {}) } },
         );
         const entry: UploadedItem = {
-          mediaId: ticket.mediaId, name: file.name, progress: 0, status: "uploading",
+          mediaId: ticket.mediaId, name: file.name, progress: 0, status: "uploading", category,
           previewUrl: kind === "image" ? URL.createObjectURL(file) : undefined,
         };
         commit([...latest.current, entry]);
@@ -111,11 +119,11 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") input.current?.click(); }}
         style={{
           border: `2px dashed ${dragging ? "var(--vio)" : "var(--line)"}`, borderRadius: 14,
-          padding: "26px 18px", textAlign: "center", cursor: "pointer",
+          padding: compact ? "16px 14px" : "26px 18px", textAlign: "center", cursor: "pointer",
           background: dragging ? "color-mix(in srgb, var(--vio) 7%, var(--card))" : "var(--soft)",
         }}
       >
-        <div style={{ fontSize: 28 }} aria-hidden>{privateFiles ? "🔒" : "📷"}</div>
+        <div style={{ fontSize: compact ? 22 : 28 }} aria-hidden>{icon ?? (privateFiles ? "🔒" : "📷")}</div>
         <b>{title ?? "Add photos and videos"}</b>
         <div className="small muted">{hint ?? "Drag them here, or click to choose. Exterior, rooms, amenities and a walkthrough video."}</div>
       </div>
@@ -139,7 +147,7 @@ export function MediaUploader({ items, onChange, max = 20, accept = "image/*,vid
                   style={{ width: "100%", height: "100%", objectFit: "cover", opacity: it.status === "ready" ? 1 : 0.6 }} />
               ) : (
                 <div style={{ display: "grid", placeItems: "center", height: "100%", fontSize: 24, padding: 6, textAlign: "center" }}>
-                  <span aria-hidden>{privateFiles ? "📄" : /\.glb$/i.test(it.name) ? "🧊" : "🎬"}</span>
+                  <span aria-hidden>{privateFiles || /\.pdf$/i.test(it.name) || it.media?.kind === "document" ? "📄" : /\.glb$/i.test(it.name) || it.media?.kind === "model3d" ? "🧊" : "🎬"}</span>
                   <span style={{ fontSize: 11, wordBreak: "break-all" }}>{it.name}</span>
                 </div>
               )}
