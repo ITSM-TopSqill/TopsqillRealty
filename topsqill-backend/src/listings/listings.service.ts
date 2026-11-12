@@ -1,4 +1,3 @@
-import { assertOwnVideo } from "../common/video-owner";
 import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException } from "@nestjs/common";
 import { videoEmbed, tourEmbed } from "../common/embeds";
 import { and, eq, lt, or, gte, lte, desc, sql, inArray } from "drizzle-orm";
@@ -189,7 +188,6 @@ export class ListingsService {
   async create(userId: string, input: Partial<typeof listings.$inferInsert> & { mediaIds?: string[] }) {
     const id = newId();
     const { mediaIds: requested = [], ...rest } = cleanLinks(input);
-    await assertOwnVideo(rest.videoUrl);
     const mediaIds = await this.ownMedia(userId, requested);
     const row = await this.db.transaction(async (tx) => {
       const [created] = await tx.insert(listings).values({
@@ -218,7 +216,6 @@ export class ListingsService {
     // Only fields an owner may change. Flags such as `verified`, `hidden`, the
     // counters and the owner itself are set by the platform, never by the member.
     patch = cleanLinks(patch);
-    await assertOwnVideo(patch.videoUrl);
     const data: Record<string, unknown> = {};
     for (const k of LISTING_EDITABLE) if (k in patch && (patch as Record<string, unknown>)[k] !== undefined) data[k] = (patch as Record<string, unknown>)[k];
     if (data.status === "active" && !existing.publishedAt) data.publishedAt = new Date();

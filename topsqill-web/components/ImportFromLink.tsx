@@ -24,10 +24,8 @@ export type ImportDraft = {
  * member checks the form and presses Publish. Photos are only copied when
  * the member picks them and confirms they may use them.
  */
-export function ImportFromLink({ onDraft, onConfig, onPhotos, onLink, room }: {
+export function ImportFromLink({ onDraft, onConfig, onPhotos, room }: {
   onDraft: (d: ImportDraft) => void;
-  /** Puts a found video or 3D tour link on the listing, once the member chooses to. */
-  onLink: (kind: "videoUrl" | "tourUrl", url: string) => void;
   onConfig: (c: ImportConfig, d: ImportDraft) => void;
   onPhotos: (items: UploadedItem[]) => void;
   /** How many more files the listing can take. */
@@ -43,7 +41,6 @@ export function ImportFromLink({ onDraft, onConfig, onPhotos, onLink, room }: {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [rights, setRights] = useState(false);
   const [photoNote, setPhotoNote] = useState("");
-  const [used, setUsed] = useState<Set<string>>(new Set());
 
   async function run(e?: React.FormEvent) {
     e?.preventDefault();
@@ -51,7 +48,7 @@ export function ImportFromLink({ onDraft, onConfig, onPhotos, onLink, room }: {
     setBusy("read"); setError(""); setPhotoNote("");
     try {
       const d = await clientApi<ImportDraft>("/v1/ai/listings/import", { method: "POST", body: { url: url.trim(), text: text.trim() || undefined } });
-      setDraft(d); setConfig(0); setRights(false); setUsed(new Set());
+      setDraft(d); setConfig(0); setRights(false);
       // Portal photos usually carry the portal's watermark, so none start selected.
       setPicked(PORTAL_HOST.test(d.site) ? new Set() : new Set(d.images.slice(0, Math.min(room, 12)).map((i) => i.url)));
       onDraft(d);
@@ -164,37 +161,9 @@ export function ImportFromLink({ onDraft, onConfig, onPhotos, onLink, room }: {
 
           <p className="small muted" style={{ margin: 0 }}>
             {draft.lat != null ? (draft.locationExact ? "📍 Map location taken from the page. " : "📍 Map set to the locality’s centre (the page had no pin). ") : "No map location found. "}
+            {draft.videoUrl ? "🎬 Walkthrough video found. " : ""}
+            {draft.tourUrl ? "🧭 3D tour found. " : ""}
           </p>
-
-          {draft.videoUrl ? (
-            <div style={{ background: "var(--soft)", borderRadius: 12, padding: "10px 14px" }}>
-              <b className="small">🎬 This listing has a walkthrough video</b>
-              <p className="small" style={{ margin: "4px 0 8px" }}>
-                Upload your original video file (from your phone or WhatsApp). Topsqill’s AI watches it, names each room, and turns it into a guided video
-                with captions and a voice-over, with no other site’s name or logo on it.
-              </p>
-              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                <button type="button" className="btn btn-p sm" onClick={() => {
-                  const el = document.getElementById("listing-media-input") as HTMLInputElement | null;
-                  el?.scrollIntoView({ behavior: "smooth", block: "center" });
-                  el?.click();
-                }}>📤 Upload your video</button>
-                {used.has("videoUrl")
-                  ? <span className="small muted">✓ Your YouTube video was added</span>
-                  : !PORTAL_HOST.test(draft.site)
-                    ? <button type="button" className="linklike small" onClick={() => { onLink("videoUrl", draft.videoUrl); setUsed((u) => new Set(u).add("videoUrl")); }}>It’s on my own YouTube channel: use the link</button>
-                    : null}
-              </div>
-            </div>
-          ) : null}
-          {draft.tourUrl ? (
-            <div className="row small" style={{ gap: 8, flexWrap: "wrap" }}>
-              <span>🧭 3D tour found on the page (not added). Add it only if it’s yours:</span>
-              {used.has("tourUrl")
-                ? <span className="muted">✓ Added to the listing</span>
-                : <button type="button" className="btn btn-o sm" onClick={() => { onLink("tourUrl", draft.tourUrl); setUsed((u) => new Set(u).add("tourUrl")); }}>It’s mine: add it</button>}
-            </div>
-          ) : null}
 
           {draft.notes.length ? (
             <div style={{ background: "var(--soft)", borderRadius: 12, padding: "10px 14px" }}>

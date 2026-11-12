@@ -4,7 +4,6 @@ import { WriterService } from "./writer.service";
 import { ProjectsService } from "./projects.service";
 import { AssistantService } from "./assistant.service";
 import { ListingChatService } from "./listing-chat.service";
-import { GuidedVideoService } from "./guided-video.service";
 import { ListingImportService } from "./listing-import.service";
 import { PageFetcher } from "./page-fetcher.service";
 import { AiController } from "./ai.controller";
@@ -14,7 +13,7 @@ import { ListingsModule } from "../listings/listings.module";
 @Global()
 @Module({
   imports: [SearchModule, ListingsModule],
-  providers: [ClaudeService, WriterService, ProjectsService, AssistantService, ListingChatService, ListingImportService, GuidedVideoService, PageFetcher],
+  providers: [ClaudeService, WriterService, ProjectsService, AssistantService, ListingChatService, ListingImportService, PageFetcher],
   controllers: [AiController],
   exports: [ClaudeService, WriterService, ProjectsService, PageFetcher],
 })

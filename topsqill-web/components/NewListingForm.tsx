@@ -70,8 +70,7 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
       possession: d.possession === "Ready to move" ? "Ready to move" : "Under construction",
       furnishing: d.furnishing || f.furnishing, facing: d.facing,
       description: d.description || f.description, amenities: d.amenities.join(", "), usps: d.usps.join("\n"),
-      // A video or tour found on the page is only offered; the member adds it if it is theirs.
-      videoUrl: "", tourUrl: "", reraNumber: d.reraNumber,
+      videoUrl: d.videoUrl, tourUrl: d.tourUrl, reraNumber: d.reraNumber,
       lat: d.lat, lng: d.lng, exact: d.locationExact, sourceUrl: d.sourceUrl,
     }));
   }
@@ -145,7 +144,6 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
     <div className="col">
       {!editing ? (
         <ImportFromLink onDraft={applyDraft} onConfig={applyConfig} room={20 - media.length}
-          onLink={(k, url) => setForm((f) => ({ ...f, [k]: url }))}
           onPhotos={(items) => setMedia((m) => [...m, ...items].slice(0, 20))} />
       ) : null}
       <div className="card pad" style={{ border: "2px solid var(--vio)" }}>
@@ -238,8 +236,8 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
           </div>
           <div className="field" style={{ gridColumn: "1 / -1" }}>
             <label>Photos, videos and 3D models</label>
-            <MediaUploader items={media} onChange={setMedia} max={20} coverFirst inputId="listing-media-input" accept="image/*,video/*,application/pdf,.glb,model/gltf-binary"
-              hint="Drag them here, or click to choose. Exterior, rooms, amenities, a walkthrough video (AI adds captions and a voice-over to it), or a 3D model (.glb)." />
+            <MediaUploader items={media} onChange={setMedia} max={20} coverFirst accept="image/*,video/*,application/pdf,.glb,model/gltf-binary"
+              hint="Drag them here, or click to choose. Exterior, rooms, amenities, a walkthrough video, or a 3D model (.glb)." />
             {media.some((m) => m.status !== "ready" && m.status !== "failed")
               ? <p className="small muted">Your photos are still processing. You can publish once they are ready.</p>
               : null}

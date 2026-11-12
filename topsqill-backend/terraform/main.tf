@@ -25,7 +25,6 @@ resource "google_project_service" "apis" {
     "compute.googleapis.com", "vpcaccess.googleapis.com", "servicenetworking.googleapis.com",
     "artifactregistry.googleapis.com", "cloudbuild.googleapis.com", "secretmanager.googleapis.com",
     "transcoder.googleapis.com", "storage.googleapis.com", "iamcredentials.googleapis.com", "monitoring.googleapis.com", "logging.googleapis.com",
-    "texttospeech.googleapis.com", # the guided video's Indian English voice-over
   ])
   service            = each.value
   disable_on_destroy = false

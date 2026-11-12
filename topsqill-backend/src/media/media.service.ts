@@ -154,7 +154,6 @@ export class MediaService {
       id: row.id, kind: row.kind, status: row.status, label: row.label, group: row.groupName,
       caption: row.caption, width: row.width, height: row.height, durationMs: row.durationMs,
       blurhash: row.blurhash, urls,
-      ...(row.kind === "video" && row.scenes ? { scenes: row.scenes } : {}),
     };
   }
 }

@@ -92,8 +92,6 @@ export const media = pgTable("media", {
   groupName: varchar("group_name", { length: 24 }),               // exterior | interior | amenity | plan | other
   caption: varchar("caption", { length: 200 }),
   variants: jsonb("variants").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
-  /** For videos: what AI saw at each moment (room, caption, narration); see worker/video-scenes.ts. */
-  scenes: jsonb("scenes").$type<{ branded?: boolean; items: { t: number; room: string; caption: string; line: string }[] }>(),
   error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
