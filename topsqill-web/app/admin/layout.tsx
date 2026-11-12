@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 
 const NAV = [
   { href: "/admin", label: "Overview", icon: "📊" },
-  { href: "/admin/approvals", label: "Approvals", icon: "✅" },
+  { href: "/admin/listings", label: "Listing reviews", icon: "🏠" },
+  { href: "/admin/approvals", label: "KYC & RERA", icon: "✅" },
   { href: "/admin/moderation", label: "Moderation", icon: "🛡" },
   { href: "/admin/members", label: "Members", icon: "👥" },
   { href: "/admin/ai", label: "AI", icon: "✨" },

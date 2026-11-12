@@ -12,7 +12,7 @@ import { sql } from "drizzle-orm";
 
 export const profileType = pgEnum("profile_type", ["buyer", "seller", "dealer", "builder"]);
 export const userStatus = pgEnum("user_status", ["pending", "active", "suspended", "removed"]);
-export const listingStatus = pgEnum("listing_status", ["draft", "pending", "active", "sold", "archived"]);
+export const listingStatus = pgEnum("listing_status", ["draft", "pending", "active", "sold", "archived", "rejected"]);
 export const purposeEnum = pgEnum("purpose", ["sale", "rent"]);
 export const mediaKind = pgEnum("media_kind", ["image", "video", "model3d", "document"]);
 export const mediaStatus = pgEnum("media_status", ["uploading", "processing", "ready", "failed", "blocked"]);
@@ -123,6 +123,12 @@ export const listings = pgTable("listings", {
   lat: doublePrecision("lat"),
   lng: doublePrecision("lng"),
   locationExact: boolean("location_exact").notNull().default(true),     // false: buyers see only the area
+  // The latest admin review (see listing_reviews for the history).
+  reviewDecision: varchar("review_decision", { length: 16 }),             // approved | changes | rejected
+  reviewReasons: jsonb("review_reasons").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  reviewNote: text("review_note"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }),
   possession: varchar("possession", { length: 32 }),
   furnishing: varchar("furnishing", { length: 32 }),
   facing: varchar("facing", { length: 40 }),
@@ -262,6 +268,24 @@ export const requirementMatches = pgTable("requirement_matches", {
   bestIdx: index("requirement_matches_idx").on(t.requirementId, t.score.desc()),
 }));
 
+/** Every listing submission and the admin's decision on it. */
+export const listingReviews = pgTable("listing_reviews", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  listingId: varchar("listing_id", { length: 36 }).notNull(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),   // pending | approved | changes | rejected
+  checks: jsonb("checks").$type<{ id: string; label: string; ok: boolean; detail?: string }[]>().notNull().default(sql`'[]'::jsonb`),
+  risk: varchar("risk", { length: 8 }),
+  reasons: jsonb("reasons").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  note: text("note"),
+  reviewerId: varchar("reviewer_id", { length: 36 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+}, (t) => ({
+  queueIdx: index("listing_reviews_queue_idx").on(t.status, t.createdAt),
+  listingIdx: index("listing_reviews_listing_idx").on(t.listingId, t.createdAt.desc()),
+}));
+
 /** Who viewed a profile: one row per viewer per day. */
 export const profileViews = pgTable("profile_views", {
   profileId: varchar("profile_id", { length: 36 }).notNull(),
@@ -325,7 +349,7 @@ export const verifications = pgTable("verifications", {
 
 export const leadStage = pgEnum("lead_stage", ["new", "contacted", "site_visit", "negotiation", "booked", "lost"]);
 export const leadSource = pgEnum("lead_source", ["website", "meta", "google", "linkedin", "whatsapp", "portal_99acres", "portal_magicbricks", "portal_housing", "call", "topsqill", "manual", "other", "channel_partner"]);
-export const notifKind = pgEnum("notif_kind", ["connection", "message", "lead", "match", "post", "comment", "system", "job"]);
+export const notifKind = pgEnum("notif_kind", ["connection", "message", "lead", "match", "post", "comment", "system", "job", "listing"]);
 
 export const conversations = pgTable("conversations", {
   id: varchar("id", { length: 36 }).primaryKey(),

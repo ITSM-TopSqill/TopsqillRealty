@@ -25,7 +25,12 @@ export const revalidate = 60;
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
   const listing = await api<Listing>(`/v1/listings/${id}`, { revalidate: 60 }).catch(() => null);
-  if (!listing) return { title: "Listing not found" };
+  if (!listing) {
+    // Not live yet: its owner and admins still get a proper title, and search engines are kept out.
+    const token = await getToken();
+    const own = token ? await api<Listing>(`/v1/listings/${id}`, { token }).catch(() => null) : null;
+    return own ? { title: `${own.title} (not live)`, robots: { index: false } } : { title: "Listing not found" };
+  }
   const price = inr(listing.priceInr, listing.purpose === "rent");
   const title = `${listing.title} | ${price}`;
   const description = `${listing.bhk ? `${listing.bhk} BHK ` : ""}${listing.kind} in ${listing.locality}, ${listing.city}. ${sqft(listing.areaSqft)}. ${price}.`;
@@ -37,13 +42,46 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   };
 }
 
+/** What the owner (or an admin) sees on a listing that isn't live yet. */
+function ReviewBanner({ listing, mine }: { listing: Listing; mine: boolean }) {
+  const s = listing.status;
+  const changes = s === "rejected" && listing.reviewDecision === "changes";
+  const tone = s === "pending" ? "#2F7FE6" : changes ? "#E08A00" : s === "rejected" ? "#E5484D" : "#6B6880";
+  const why = [...(listing.reviewReasons ?? [])];
+  return (
+    <div className="card pad" role="status" style={{ marginBottom: 12, borderLeft: `4px solid ${tone}`, background: `color-mix(in srgb, ${tone} 7%, var(--card))` }}>
+      <b style={{ color: tone }}>
+        {s === "pending" ? "🕒 In review" : changes ? "↩ Changes requested" : s === "rejected" ? "✕ Not approved" : "📝 Draft"}
+      </b>
+      <p className="small" style={{ margin: "4px 0 0" }}>
+        {s === "pending"
+          ? `Our team checks every new listing before buyers see it, usually within a few hours.${listing.submittedAt ? ` Submitted ${timeAgo(listing.submittedAt)}.` : ""} You'll get a notification and an email with the decision.`
+          : changes ? "Almost there. Fix the points below and save: it comes straight back to us for review."
+          : s === "rejected" ? "This listing can't go live as it is. You can edit it and send it again if you can fix the points below."
+          : "Only you can see this. Edit and save it to send it for review."}
+      </p>
+      {s !== "pending" && (why.length || listing.reviewNote) ? (
+        <div className="small" style={{ marginTop: 8 }}>
+          {why.length ? <ul style={{ margin: "0 0 4px", paddingLeft: 18 }}>{why.map((r) => <li key={r}>{r}</li>)}</ul> : null}
+          {listing.reviewNote ? <p style={{ margin: 0, whiteSpace: "pre-wrap" }}><b>Note from our team:</b> {listing.reviewNote}</p> : null}
+        </div>
+      ) : null}
+      {mine && s !== "pending" ? <Link href={`/listings/${listing.id}/edit`} className="btn btn-ai sm" style={{ marginTop: 10 }}>✏️ Edit and resubmit</Link> : null}
+      {!mine ? <p className="small muted" style={{ margin: "6px 0 0" }}>You can see this because you're an admin. <Link href="/admin/listings">Open listing reviews</Link></p> : null}
+    </div>
+  );
+}
+
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [listing, user, token] = await Promise.all([
+  // eslint-disable-next-line prefer-const
+  let [listing, user, token] = await Promise.all([
     api<Listing>(`/v1/listings/${id}`, { revalidate: 60 }).catch(() => null),
     getUser(),
     getToken(),
   ]);
+  // A listing waiting for review, or not approved, is only shown to its owner and admins.
+  if (!listing && token) listing = await api<Listing>(`/v1/listings/${id}`, { token }).catch(() => null);
   if (!listing) notFound();
   const saved = token ? (await api<{ saved: boolean }>(`/v1/saved/check?type=listing&id=${encodeURIComponent(id)}`, { token }).catch(() => ({ saved: false }))).saved : false;
   const drop = priceDrop(listing);
@@ -51,7 +89,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   const rent = listing.purpose === "rent";
   const ownerId = listing.owner?.id ?? listing.ownerId ?? "";
   const mine = !!user && user.id === ownerId;
-  const status = (listing.status ?? "active") as "active" | "sold" | "archived";
+  const status = (listing.status ?? "active") as "active" | "sold" | "archived" | "pending" | "rejected" | "draft";
   const rate = listing.priceInr && listing.areaSqft ? Math.round(listing.priceInr / listing.areaSqft) : null;
 
   // Structured data, so Google can show the price and location in results.
@@ -74,7 +112,8 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     <Shell user={user} current="/listings">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
-      {status !== "active" ? (
+      {status === "pending" || status === "rejected" || status === "draft" ? <ReviewBanner listing={listing} mine={mine} /> : null}
+      {status === "sold" || status === "archived" ? (
         <div className="card pad" role="status" style={{ marginBottom: 12, background: "var(--soft)", fontWeight: 700 }}>
           {status === "sold" ? (rent ? "🔑 This home has been rented." : "🤝 This property has been sold.") : "This listing is no longer on the market."}
           {mine ? <span className="small muted" style={{ fontWeight: 400 }}> Only you can still find it from your profile. Relist it below to put it back on the market.</span> : null}

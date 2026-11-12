@@ -7,7 +7,7 @@ import { REDIS } from "../redis/redis.module";
 import { QueueService, QUEUES } from "../queue/queue.module";
 import { newId, encodeCursor, decodeCursor } from "../common/ids";
 
-export type NotifKind = "connection" | "message" | "lead" | "match" | "post" | "comment" | "system" | "job";
+export type NotifKind = "connection" | "message" | "lead" | "match" | "post" | "comment" | "system" | "job" | "listing";
 export type NewNotification = {
   userId: string;
   kind: NotifKind;
@@ -23,7 +23,7 @@ export type NewNotification = {
  * so someone already chatting in the app is not emailed about every reply;
  * the worker skips the email if the alert was read in the meantime.
  */
-const EMAIL_DELAY_MS: Partial<Record<NotifKind, number>> = { message: 120_000, connection: 30_000, lead: 0, job: 30_000, match: 60_000, comment: 60_000 };
+const EMAIL_DELAY_MS: Partial<Record<NotifKind, number>> = { message: 120_000, connection: 30_000, lead: 0, job: 30_000, match: 60_000, comment: 60_000, listing: 0 };
 
 @Injectable()
 export class NotificationsService {

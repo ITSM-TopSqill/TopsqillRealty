@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Header } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, Header, Res, ForbiddenException } from "@nestjs/common";
+import type { FastifyReply } from "fastify";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import { IsOptional, IsString, IsInt, IsIn, Min, Max, IsArray, MaxLength, IsNumber } from "class-validator";
 import { IsBoolean } from "class-validator";
 import { Type } from "class-transformer";
 import { ListingsService } from "./listings.service";
+import { ListingReviewService } from "./review.service";
 import { CurrentUser, AuthUser, Public } from "../auth/public.decorator";
 
 class SearchDto {
@@ -82,7 +84,7 @@ class UpdateListingDto {
 @ApiTags("listings")
 @Controller("v1/listings")
 export class ListingsController {
-  constructor(private readonly svc: ListingsService) {}
+  constructor(private readonly svc: ListingsService, private readonly review: ListingReviewService) {}
 
   /** Public search. The CDN may hold this for 30 seconds, which absorbs traffic spikes. */
   @Public() @Get() @Header("cache-control", "public, max-age=15, s-maxage=30, stale-while-revalidate=120")
@@ -99,8 +101,21 @@ export class ListingsController {
   @Public() @Get(":id/price-trend") @ApiOperation({ summary: "Locality and city prices over 12 months, next to this listing" })
   priceTrend(@Param("id") id: string) { return this.svc.priceTrend(id); }
 
-  @Public() @Get(":id") @Header("cache-control", "public, max-age=30, s-maxage=60, stale-while-revalidate=300")
-  getOne(@Param("id") id: string) { return this.svc.getById(id); }
+  /** Public for live listings; the owner and admins also see one that's in review or rejected (never cached publicly). */
+  @Public() @Get(":id")
+  async getOne(@Param("id") id: string, @CurrentUser() user: AuthUser | undefined, @Res({ passthrough: true }) res: FastifyReply) {
+    const l = await this.svc.getById(id, user ? { id: user.id, isAdmin: user.isAdmin } : null);
+    const open = ["active", "sold", "archived"].includes(String(l.status));
+    res.header("cache-control", open ? "public, max-age=30, s-maxage=60, stale-while-revalidate=300" : "private, no-store");
+    return l;
+  }
+
+  @Get(":id/review") @ApiOperation({ summary: "My listing's review history (submitted, decisions, notes)" })
+  async reviewHistory(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    const l = await this.svc.getById(id, { id: user.id, isAdmin: user.isAdmin });
+    if (l.ownerId !== user.id && !user.isAdmin) throw new ForbiddenException("Only the owner can see this.");
+    return this.review.history(id);
+  }
 
   @Post() @ApiOperation({ summary: "Publish a listing" })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateListingDto) { return this.svc.create(user.id, dto as any); }

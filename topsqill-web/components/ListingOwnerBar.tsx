@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
 import { refreshPages } from "@/lib/refresh";
 
-type Status = "active" | "sold" | "archived";
+type Status = "active" | "sold" | "archived" | "pending" | "rejected" | "draft";
 
 /** Shown to the owner on their own listing, in place of "Contact seller". */
 export function ListingOwnerBar({ id, ownerId, status, rent }: { id: string; ownerId: string; status: Status; rent: boolean }) {
@@ -35,11 +35,11 @@ export function ListingOwnerBar({ id, ownerId, status, rent }: { id: string; own
             <button className="btn btn-o" onClick={() => set("sold")} disabled={!!busy}>{busy === "sold" ? "Saving…" : `Mark as ${closed}`}</button>
             <button className="btn btn-g" onClick={() => set("archived")} disabled={!!busy}>{busy === "archived" ? "Saving…" : "Unlist"}</button>
           </>
-        ) : (
+        ) : status === "pending" || status === "rejected" || status === "draft" ? null : (
           <button className="btn btn-o" onClick={() => set("active")} disabled={!!busy}>{busy === "active" ? "Saving…" : "Relist"}</button>
         )}
       </div>
-      <span className="small muted">This is your listing{status === "active" ? "" : status === "sold" ? ` (marked ${closed})` : " (unlisted)"}.</span>
+      <span className="small muted">This is your listing{status === "active" ? "" : status === "sold" ? ` (marked ${closed})` : status === "pending" ? " (in review)" : status === "rejected" ? " (not live yet)" : status === "draft" ? " (draft)" : " (unlisted)"}.</span>
       {error ? <p className="error small" role="alert">{error}</p> : null}
     </div>
   );

@@ -16,12 +16,13 @@ export function alertPath(targetType?: string | null, targetId?: string | null):
     case "job": return `/jobs/${targetId}`;
     case "requirement": return `/requirements?r=${targetId}`;
     case "verification": return "/profile/verify";
+    case "review": return "/admin/listings";
     default: return "/notifications";
   }
 }
 
 const BUTTON: Record<string, string> = {
-  message: "Reply", connection: "View profile", lead: "Open the lead", job: "View", match: "See the match", comment: "View the post", post: "View the post", system: "Open Topsqill.ai",
+  message: "Reply", connection: "View profile", lead: "Open the lead", job: "View", match: "See the match", comment: "View the post", post: "View the post", system: "Open Topsqill.ai", listing: "View your listing",
 };
 
 export function renderAlertEmail(input: { kind: string; title: string; body?: string | null; url: string; name?: string | null }) {

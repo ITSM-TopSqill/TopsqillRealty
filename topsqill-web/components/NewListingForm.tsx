@@ -50,6 +50,8 @@ function fromListing(l: Listing): Form {
 export function NewListingForm({ defaultCity, listing }: { defaultCity: string; listing?: Listing }) {
   const router = useRouter();
   const editing = !!listing;
+  // A listing sent back by the review team goes back for review when saved.
+  const resubmit = listing?.status === "rejected" || listing?.status === "draft";
   const [raw, setRaw] = useState("");
   const [form, setForm] = useState<Form>(listing ? fromListing(listing) : { ...EMPTY, city: defaultCity });
   const [media, setMedia] = useState<UploadedItem[]>(() =>
@@ -133,19 +135,28 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
         ...(!editing && form.sourceUrl ? { sourceUrl: form.sourceUrl } : {}),
       };
       if (listing) {
-        await clientApi(`/v1/listings/${listing.id}`, { method: "PATCH", body });
+        const saved = await clientApi<{ inReview?: boolean }>(`/v1/listings/${listing.id}`, { method: "PATCH", body });
+        if (saved?.inReview) alert("Thanks! Your changes are with our team for review. We'll notify you when it's live.");
         await refreshPages([`/listings/${listing.id}`, "/listings", `/profile/${listing.ownerId}`]);
         router.push(`/listings/${listing.id}`);
         router.refresh();
         return;
       }
-      const created = await clientApi<{ id: string }>("/v1/listings", { method: "POST", body });
+      const created = await clientApi<{ id: string; inReview?: boolean }>("/v1/listings", { method: "POST", body });
+      if (created.inReview) alert("Submitted! Our team checks every new listing before buyers see it, usually within a few hours. We'll notify you of the decision.");
       router.push(`/listings/${created.id}`);
     } catch (e) { setError((e as Error).message); setBusy(null); }
   }
 
   return (
     <div className="col">
+      {resubmit && (listing?.reviewReasons?.length || listing?.reviewNote) ? (
+        <div className="card pad" role="status" style={{ borderLeft: "4px solid #E08A00" }}>
+          <b>{listing?.reviewDecision === "changes" ? "↩ What to fix before resubmitting" : "✕ Why it wasn't approved"}</b>
+          {listing?.reviewReasons?.length ? <ul className="small" style={{ margin: "6px 0 0", paddingLeft: 18 }}>{listing.reviewReasons.map((r) => <li key={r}>{r}</li>)}</ul> : null}
+          {listing?.reviewNote ? <p className="small" style={{ margin: "6px 0 0", whiteSpace: "pre-wrap" }}><b>Note from our team:</b> {listing.reviewNote}</p> : null}
+        </div>
+      ) : null}
       {!editing ? (
         <ImportFromLink onDraft={applyDraft} onConfig={applyConfig} />
       ) : null}
@@ -254,7 +265,7 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
         <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
           {editing ? <Link href={`/listings/${listing!.id}`} className="btn btn-g">Cancel</Link> : null}
           <button className="btn btn-ai" onClick={save} disabled={busy !== null || media.some((m) => m.status === "uploading" || m.status === "processing")}>
-            {busy === "save" ? (editing ? "Saving…" : "Publishing…") : editing ? "Save changes" : "Publish listing"}
+            {busy === "save" ? (editing ? "Saving…" : "Submitting…") : resubmit ? "Save and resubmit" : editing ? "Save changes" : "Submit listing"}
           </button>
         </div>
       </div>

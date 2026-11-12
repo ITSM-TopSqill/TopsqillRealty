@@ -16,7 +16,10 @@ export type Listing = {
   coverMediaId?: string | null; cover?: Media | null; media?: Media[];
   owner?: PersonCard | null; ownerId?: string;
   projectSourceId?: string | null; reraNumber?: string | null;
-  status?: "draft" | "pending" | "active" | "sold" | "archived";
+  status?: "draft" | "pending" | "active" | "sold" | "archived" | "rejected";
+  /** The admin review: approved, changes (fix and resubmit) or rejected, with what the owner is told. */
+  reviewDecision?: "approved" | "changes" | "rejected" | null; reviewReasons?: string[]; reviewNote?: string | null;
+  reviewedAt?: string | null; submittedAt?: string | null; inReview?: boolean;
   lat?: number | null; lng?: number | null; videoUrl?: string | null; tourUrl?: string | null; sourceUrl?: string | null;
   previousPriceInr?: number | null; priceDroppedAt?: string | null; locationExact?: boolean;
 };

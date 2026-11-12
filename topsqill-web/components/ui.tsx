@@ -43,7 +43,7 @@ export function ListingCard({ listing }: { listing: Listing }) {
           <span className="pill" style={{ position: "absolute", right: 12, top: 12, background: "#E03E52", color: "#fff" }} title={`Was ${inr(drop.from, rent)}`}>↓ Price drop {drop.pct}%</span>
         ) : null}
         <span className="pill" style={{ position: "absolute", left: 12, top: 12, background: listing.status && listing.status !== "active" ? "#1F1D33" : "rgba(255,255,255,.94)", color: listing.status && listing.status !== "active" ? "#fff" : "#1F1D33" }}>
-          {listing.status === "sold" ? (rent ? "Rented" : "Sold") : listing.status === "archived" ? "Unlisted" : listing.status === "draft" ? "Draft" : rent ? "For rent" : "For sale"}
+          {listing.status === "sold" ? (rent ? "Rented" : "Sold") : listing.status === "archived" ? "Unlisted" : listing.status === "draft" ? "Draft" : listing.status === "pending" ? "🕒 In review" : listing.status === "rejected" ? (listing.reviewDecision === "changes" ? "Changes needed" : "Not approved") : rent ? "For rent" : "For sale"}
         </span>
       </div>
       <div className="lb">

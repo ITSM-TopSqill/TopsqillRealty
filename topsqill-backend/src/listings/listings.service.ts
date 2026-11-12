@@ -4,6 +4,7 @@ import { and, eq, lt, or, gte, lte, desc, sql, inArray } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { listings, listingMedia, media, users, savedItems } from "../db/schema";
 import { NotificationsService } from "../notifications/notifications.service";
+import { ListingReviewService } from "./review.service";
 import { inr } from "../ai/query";
 import { CacheService } from "../redis/redis.module";
 import { MediaService } from "../media/media.service";
@@ -59,6 +60,7 @@ export class ListingsService {
     private readonly mediaSvc: MediaService,
     private readonly queue: QueueService,
     private readonly notifs: NotificationsService,
+    private readonly review: ListingReviewService,
   ) {}
 
   /**
@@ -144,14 +146,32 @@ export class ListingsService {
   }
 
   /** A single listing, cached for a minute: this is the most-opened screen in the app. */
-  async getById(id: string) {
-    return this.cache.wrap(`listing:${id}`, 60, async () => {
-      const [row] = await this.read.select().from(listings).where(eq(listings.id, id)).limit(1);
-      // Hidden and draft listings are not public. Sold and archived ones stay
-      // viewable, so shared links do not break once a deal closes.
-      if (!row || row.hidden || row.status === "draft" || row.status === "pending") {
-        throw new NotFoundException("That listing is no longer available.");
-      }
+  /**
+   * One listing. The public sees live, sold and archived ones (shared links
+   * keep working after a deal closes); a listing in review, with changes
+   * requested, rejected or a draft is visible only to its owner and admins.
+   */
+  async getById(id: string, viewer?: { id: string; isAdmin?: boolean } | null) {
+    try {
+      return await this.cache.wrap(`listing:${id}`, 60, async () => {
+        const [row] = await this.read.select().from(listings).where(eq(listings.id, id)).limit(1);
+        if (!row || row.hidden || row.status === "draft" || row.status === "pending" || row.status === "rejected") {
+          throw new NotFoundException("That listing is no longer available.");
+        }
+        const { reviewNote: _n, reviewReasons: _r, ...pub } = await this.hydrate(row);
+        return pub;
+      });
+    } catch (e) {
+      if (!(e instanceof NotFoundException) || !viewer) throw e;
+      const [row] = await this.db.select().from(listings).where(eq(listings.id, id)).limit(1);
+      if (!row || (row.ownerId !== viewer.id && !viewer.isAdmin)) throw e;
+      return this.hydrate(row);
+    }
+  }
+
+  private async hydrate(row: typeof listings.$inferSelect) {
+    const id = row.id;
+    {
       const [mediaRows, owner] = await Promise.all([
         this.read.select({ m: media, position: listingMedia.position })
           .from(listingMedia).innerJoin(media, eq(media.id, listingMedia.mediaId))
@@ -161,7 +181,7 @@ export class ListingsService {
       // Where an imported listing came from is kept for audit, never shown publicly.
       const { sourceUrl: _source, ...pub } = row;
       return { ...pub, media: mediaRows.map((r) => this.mediaSvc.publicView(r.m)), owner: owner.get(row.ownerId) ?? null };
-    });
+    }
   }
 
   async mine(userId: string) {
@@ -171,7 +191,7 @@ export class ListingsService {
       city: listings.city, locality: listings.locality, publishedAt: listings.publishedAt,
       viewCount: listings.viewCount, leadCount: listings.leadCount,
       possession: listings.possession, coverMediaId: listings.coverMediaId, ownerId: listings.ownerId,
-      previousPriceInr: listings.previousPriceInr, priceDroppedAt: listings.priceDroppedAt,
+      previousPriceInr: listings.previousPriceInr, priceDroppedAt: listings.priceDroppedAt, reviewDecision: listings.reviewDecision,
     }).from(listings).where(eq(listings.ownerId, userId)).orderBy(desc(listings.createdAt)).limit(100);
     const covers = await this.coversFor(rows.map((r) => r.coverMediaId).filter(Boolean) as string[]);
     return { items: rows.map((r) => ({ ...r, cover: r.coverMediaId ? covers.get(r.coverMediaId) ?? null : null })) };
@@ -200,11 +220,15 @@ export class ListingsService {
     const id = newId();
     const { mediaIds: requested = [], ...rest } = cleanLinks(input);
     const mediaIds = await this.ownMedia(userId, requested);
+    // Unless it's a draft, a listing waits for an admin's approval when the review setting asks for it.
+    const review = rest.status !== "draft" && await this.review.needsReview(userId);
+    const status = review ? "pending" : rest.status ?? "active";
     const row = await this.db.transaction(async (tx) => {
       const [created] = await tx.insert(listings).values({
         ...rest, id, ownerId: userId,
-        status: rest.status ?? "active",
-        publishedAt: (rest.status ?? "active") === "active" ? new Date() : null,
+        status,
+        publishedAt: status === "active" ? new Date() : null,
+        ...(status === "active" ? { reviewDecision: "approved", reviewedAt: new Date() } : {}),
         coverMediaId: rest.coverMediaId ?? mediaIds[0] ?? null,
       } as typeof listings.$inferInsert).returning();
       if (mediaIds.length) {
@@ -213,9 +237,10 @@ export class ListingsService {
       await tx.update(users).set({ listingCount: sql`${users.listingCount} + 1` }).where(eq(users.id, userId));
       return created;
     });
-    // Buyers whose requirements match this listing are matched in the background.
-    if (row.status === "active") await this.queue.add(QUEUES.ai, "match:listing", { listingId: row.id }, `matchl-${row.id}`);
-    return row;
+    // Buyers whose requirements match this listing are matched in the background (once it's live).
+    if (review) await this.review.submit(row.id, userId);
+    else if (row.status === "active") await this.queue.add(QUEUES.ai, "match:listing", { listingId: row.id }, `matchl-${row.id}`);
+    return { ...row, inReview: review };
   }
 
   /**
@@ -271,7 +296,7 @@ export class ListingsService {
   }
 
   async update(userId: string, id: string, patch: ListingPatch & { mediaIds?: string[] }) {
-    const [existing] = await this.db.select({ ownerId: listings.ownerId, publishedAt: listings.publishedAt, status: listings.status, priceInr: listings.priceInr, title: listings.title })
+    const [existing] = await this.db.select({ ownerId: listings.ownerId, publishedAt: listings.publishedAt, status: listings.status, priceInr: listings.priceInr, title: listings.title, reviewDecision: listings.reviewDecision })
       .from(listings).where(eq(listings.id, id)).limit(1);
     if (!existing) throw new NotFoundException("That listing is no longer available.");
     if (existing.ownerId !== userId) throw new ForbiddenException("You can only edit your own listings.");
@@ -281,6 +306,17 @@ export class ListingsService {
     patch = cleanLinks(patch);
     const data: Record<string, unknown> = {};
     for (const k of LISTING_EDITABLE) if (k in patch && (patch as Record<string, unknown>)[k] !== undefined) data[k] = (patch as Record<string, unknown>)[k];
+    // Review rules: a listing in review stays in review; one with changes requested
+    // or rejected goes back for review when saved; relisting one that was never
+    // approved also needs review. Only an admin can make a listing live otherwise.
+    let resubmit = false;
+    const needs = await this.review.needsReview(userId);
+    if (existing.status === "pending") delete data.status;
+    else if (existing.status === "rejected" || existing.status === "draft") {
+      if (data.status !== "archived") { delete data.status; if (needs) resubmit = true; else { data.status = "active"; data.reviewDecision = "approved"; } }
+    } else if (data.status === "active" && existing.status !== "active" && existing.reviewDecision !== "approved" && needs) {
+      delete data.status; resubmit = true;
+    }
     if (data.status === "active" && !existing.publishedAt) data.publishedAt = new Date();
     data.updatedAt = new Date();
     // A lower price shows a "Price drop" badge for 30 days; raising it again removes the badge.
@@ -303,6 +339,7 @@ export class ListingsService {
       return updated;
     });
     await this.cache.invalidate(`listing:${id}`);
+    if (resubmit) { await this.review.submit(id, userId, true); return { ...row, status: "pending" as const, inReview: true }; }
     if (dropped && row.status === "active") await this.alertSavers(id, existing.title, existing.priceInr!, newPrice!).catch(() => null);
     // A live listing whose price, place or size changed may now suit different buyers.
     const rematch = ["priceInr", "city", "locality", "bhk", "areaSqft", "purpose", "kind", "possession"].some((k) => k in data);
