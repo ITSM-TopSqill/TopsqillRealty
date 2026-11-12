@@ -6,10 +6,10 @@ import { clientApi } from "@/lib/api";
 import Link from "next/link";
 import type { UploadedItem } from "./MediaUploader";
 import { MediaSteps, orderMedia } from "./MediaSteps";
+import { LocationPicker } from "./LocationPicker";
 import { refreshPages } from "@/lib/refresh";
 import type { Listing } from "@/lib/types";
 import { ImportFromLink, type ImportDraft, type ImportConfig } from "./ImportFromLink";
-import { Map3D } from "./Map3D";
 import { videoEmbed, tourEmbed } from "@/lib/embeds";
 import { buildPlan, canPlan } from "@/lib/floorplan";
 import { PlanSvg } from "./HomeViews";
@@ -126,7 +126,9 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
         videoUrl: form.videoUrl.trim() || (editing ? "" : undefined),
         tourUrl: form.tourUrl.trim() || (editing ? "" : undefined),
         reraNumber: form.reraNumber.trim() || (editing ? "" : undefined),
-        lat: form.lat ?? (editing ? null : undefined), lng: form.lng ?? (editing ? null : undefined),
+        // "Approximate area only" saves the point rounded to about 150 m, so the exact building isn't shown.
+        lat: form.lat != null ? (form.exact ? form.lat : Math.round(form.lat * 700) / 700) : (editing ? null : undefined),
+        lng: form.lng != null ? (form.exact ? form.lng : Math.round(form.lng * 700) / 700) : (editing ? null : undefined),
         ...(!editing && form.sourceUrl ? { sourceUrl: form.sourceUrl } : {}),
       };
       if (listing) {
@@ -226,13 +228,16 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
             </div>
           ) : null}
           <div className="field" style={{ gridColumn: "1 / -1" }}>
-            <label>Map location</label>
-            {form.lat != null && form.lng != null ? (
-              <div>
-                <Map3D lat={form.lat} lng={form.lng} label={form.locality} approximate={!form.exact} height={240} />
-                <button type="button" className="linklike small" style={{ marginTop: 4 }} onClick={() => setForm((f) => ({ ...f, lat: null, lng: null }))}>Remove the map location</button>
-              </div>
-            ) : <p className="small muted" style={{ margin: 0 }}>No map location yet. Importing from a link adds one when the page has it, or the locality’s centre.</p>}
+            <label style={{ fontSize: 16, marginBottom: 2 }}>Location on the map</label>
+            <p className="small muted" style={{ margin: "0 0 8px" }}>Buyers see it as a 3D neighbourhood map. Search, use your current location, or click on the map and drag the pin onto the building.</p>
+            <LocationPicker lat={form.lat} lng={form.lng} exact={form.exact} locality={form.locality} city={form.city}
+              onChange={(v) => setForm((f) => ({ ...f, lat: v.lat, lng: v.lng, ...(v.exact !== undefined ? { exact: v.exact } : {}) }))}
+              onPlace={(p) => setForm((f) => ({
+                ...f,
+                // Only fills what's empty: the seller's own words win.
+                locality: f.locality.trim() ? f.locality : p.locality ?? f.locality,
+                city: !f.city && p.city ? p.city : f.city,
+              }))} />
           </div>
           <div className="field" style={{ gridColumn: "1 / -1" }}>
             <label style={{ fontSize: 16, marginBottom: 2 }}>Photos, videos, plans and brochure</label>

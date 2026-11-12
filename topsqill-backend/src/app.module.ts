@@ -14,6 +14,7 @@ import { FeedModule } from "./feed/feed.module";
 import { RequirementsModule } from "./requirements/requirements.module";
 import { SearchModule } from "./search/search.module";
 import { SavedModule } from "./saved/saved.module";
+import { GeoModule } from "./geo/geo.module";
 import { AdminModule } from "./admin/admin.module";
 import { MessagingModule } from "./messaging/messaging.module";
 import { NotificationsModule } from "./notifications/notifications.module";
@@ -49,7 +50,7 @@ import { isProd, getEnv } from "./common/env";
     }),
     DbModule, RedisModule, QueueModule,
     AuthModule, ProfilesModule, ListingsModule, MediaModule, FeedModule,
-    RequirementsModule, SearchModule, SavedModule, AdminModule,
+    RequirementsModule, SearchModule, SavedModule, AdminModule, GeoModule,
     NotificationsModule, MessagingModule, LeadsModule,
     AiModule, JobsModule, CampaignsModule, IntegrationsModule,
   ],
