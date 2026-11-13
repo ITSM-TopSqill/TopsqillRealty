@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { createServer } from "node:http";
-import { Worker, Job } from "bullmq";
+import { Worker, Job, Queue } from "bullmq";
 import Redis from "ioredis";
 import { Pool } from "pg";
 import { env } from "../src/common/env";
@@ -43,7 +43,8 @@ for (const w of workers) {
 const timer = setInterval(() => flushCounters(pool, connection).catch((e) => console.error("counter flush", e.message)), 30_000);
 // Ad platforms are polled every 15 minutes: often enough to be useful, far
 // below the rate limits, and it keeps the member's spend figures honest.
-const statsTimer = setInterval(() => syncLiveCampaigns(pool).catch((e) => console.error("campaign sync", e.message)), 15 * 60_000);
+const notifyQueue = new Queue(QUEUES.notify, { connection });
+const statsTimer = setInterval(() => syncLiveCampaigns(pool, notifyQueue).catch((e) => console.error("campaign sync", e.message)), 15 * 60_000);
 // Finished streaming versions of uploaded videos are picked up every minute.
 const videoTimer = setInterval(() => checkTranscodes(pool, connection).catch((e) => console.error("transcode check", e.message)), 60_000);
 

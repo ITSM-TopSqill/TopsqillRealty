@@ -11,7 +11,6 @@ class CreateCampaignDto {
   @IsOptional() @IsString() goal?: string;
   @IsOptional() @IsString() @MaxLength(400) notes?: string;
 }
-class StatusDto { @IsIn(["active", "paused", "completed"]) status: "active" | "paused" | "completed"; }
 
 class CreativesDto {
   @IsOptional() @IsArray() @ArrayMaxSize(3) @IsString({ each: true }) @MaxLength(60, { each: true }) headlines?: string[];
@@ -40,12 +39,4 @@ export class CampaignsController {
 
   @Post(":id/podcast") @ApiOperation({ summary: "Make (or remake) the campaign's audio podcast ad" })
   podcast(@CurrentUser() user: AuthUser, @Param("id") id: string, @Query("regenerate") regenerate?: string) { return this.svc.podcast(user.id, id, regenerate === "1"); }
-
-  @Post(":id/launch")
-  launch(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.launch(user.id, id); }
-
-  @Post(":id/status")
-  status(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: StatusDto) {
-    return this.svc.setStatus(user.id, id, dto.status);
-  }
 }

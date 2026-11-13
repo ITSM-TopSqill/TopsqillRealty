@@ -1,3 +1,5 @@
+import { normaliseAds } from "../ads/settings";
+import { adsSecret } from "../ads/secrets";
 import { Injectable, Inject, NotFoundException, BadRequestException, ConflictException } from "@nestjs/common";
 import { and, desc, eq, sql, inArray, gte } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
@@ -66,6 +68,9 @@ export class AdminService {
       }).from(sql`(select 1) one`),
     ]);
     const apish = apishKeys.configured ? await apishKeys.status() : null;
+    const [adsRow] = await this.read.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, "ads")).limit(1);
+    const ads = normaliseAds(adsRow?.value as never);
+    const [metaTok, gDev, gOauth, rpSecret, rpHook] = await Promise.all(["meta-ads-token", "google-ads-developer-token", "google-ads-oauth", "razorpay-key-secret", "razorpay-webhook-secret"].map((n) => adsSecret(n as never)));
     const settings = await this.claude.settings();
     type C = { id: string; name: string; group: string; status: "on" | "off" | "warning"; detail: string; setup?: string };
     const c: C[] = [
@@ -83,7 +88,13 @@ export class AdminService {
       { id: "meta", name: "Meta webhooks (app secret)", group: "Messaging", status: env.META_APP_SECRET ? "on" : "off", detail: env.META_APP_SECRET ? "WhatsApp and lead-ad webhooks are checked" : "Webhooks from Meta are refused", setup: "meta-app-secret secret" },
       { id: "instagram", name: "Instagram login", group: "Members' accounts", status: env.INSTAGRAM_APP_ID && env.INSTAGRAM_APP_SECRET ? "on" : "off", detail: `${counts?.instagram ?? 0} member${counts?.instagram === 1 ? "" : "s"} connected`, setup: "instagram_enabled in Terraform" },
       { id: "wa-business", name: "Members' WhatsApp Business numbers", group: "Members' accounts", status: (counts?.waBusiness ?? 0) > 0 ? "on" : "off", detail: `${counts?.waBusiness ?? 0} connected` },
-      { id: "ads", name: "Ad accounts (Meta, Google, LinkedIn)", group: "Members' accounts", status: (counts?.ads ?? 0) > 0 ? "on" : "off", detail: `${counts?.ads ?? 0} connected` },
+      { id: "ads-switch", name: "Managed ads", group: "Ads and payments", status: ads.enabled ? "on" : "off", detail: ads.enabled ? `On · fee ${ads.feePct}%` : "Off: members can plan campaigns but not run them", setup: "Admin → Ads" },
+      { id: "meta-ads", name: "Meta ads (Facebook, Instagram)", group: "Ads and payments", status: metaTok && ads.meta.adAccountId && ads.meta.pageId ? "on" : metaTok || ads.meta.adAccountId ? "warning" : "off",
+        detail: metaTok && ads.meta.adAccountId && ads.meta.pageId ? `Ad account ${ads.meta.adAccountId} · Page ${ads.meta.pageId}` : `Missing: ${[!metaTok && "token", !ads.meta.adAccountId && "ad account", !ads.meta.pageId && "Page"].filter(Boolean).join(", ")}`, setup: "meta-ads-token secret, ids on Admin → Ads" },
+      { id: "google-ads", name: "Google Ads (Search)", group: "Ads and payments", status: gDev && gOauth && ads.google.customerId ? "on" : gDev || gOauth || ads.google.customerId ? "warning" : "off",
+        detail: gDev && gOauth && ads.google.customerId ? `Account ${ads.google.customerId}` : `Missing: ${[!gDev && "developer token", !gOauth && "OAuth", !ads.google.customerId && "customer id"].filter(Boolean).join(", ")}`, setup: "google-ads-* secrets, ids on Admin → Ads" },
+      { id: "razorpay", name: "Razorpay (wallet top-ups)", group: "Ads and payments", status: rpSecret && ads.razorpay.keyId ? (rpHook ? "on" : "warning") : "off",
+        detail: rpSecret && ads.razorpay.keyId ? (rpHook ? `Key ${ads.razorpay.keyId.slice(0, 12)}…` : "Webhook secret missing: payments rely on the page confirming") : "Not set: members can't add money", setup: "razorpay-* secrets, key id on Admin → Ads" },
       { id: "lead-sources", name: "Lead sources (webhooks)", group: "Members' accounts", status: (counts?.sources ?? 0) > 0 ? "on" : "off", detail: `${counts?.sources ?? 0} set up` },
     ];
     return { items: c };

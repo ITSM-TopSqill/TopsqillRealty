@@ -33,7 +33,7 @@ export async function deliverNotification(job: Job<{ notificationId: string }>, 
   if (n.status !== "active" || !n.email || !n.email_verified) return { skipped: "no verified email" };
 
   // Messages and listing decisions are throttled per chat / per listing, so each listing's decision is emailed.
-  const key = `mail:${n.user_id}:${n.kind}:${n.kind === "message" || n.kind === "listing" ? n.target_id : ""}`;
+  const key = `mail:${n.user_id}:${n.kind}:${n.kind === "message" || n.kind === "listing" || n.kind === "campaign" ? n.target_id : ""}`;
   const fresh = await redis.set(key, "1", "EX", THROTTLE_SECONDS[n.kind] ?? 600, "NX");
   if (!fresh) return { skipped: "throttled" };
 

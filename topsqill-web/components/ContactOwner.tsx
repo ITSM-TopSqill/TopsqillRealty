@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
+import { adFor } from "./AdTracker";
 import { openChat } from "./MessageDock";
 
 /**
@@ -27,7 +28,7 @@ export function ContactOwner({ listingId, ownerId, signedIn, title }: {
       const convo = await clientApi<{ id: string }>(`/v1/conversations/with/${ownerId}`, { method: "POST" });
       await clientApi(`/v1/conversations/${convo.id}/messages`, {
         method: "POST",
-        body: { body: `Hi, I’m interested in ${title}. Is it still available? I’d like to arrange a site visit.`, refType: "listing", refId: listingId },
+        body: { body: `Hi, I’m interested in ${title}. Is it still available? I’d like to arrange a site visit.`, refType: "listing", refId: listingId, adCampaignId: adFor(listingId) },
       });
       if (openChat(convo.id)) setBusy(false); else router.push(`/messages?c=${convo.id}`);
     } catch (e) {

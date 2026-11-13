@@ -32,7 +32,7 @@ export default async function CampaignsPage() {
               <div className="spread">
                 <b>{c.name}</b>
                 <span className="pill" style={{ background: `color-mix(in srgb,${STATUS_COLOR[c.status] ?? "#8D8AA3"} 16%,transparent)`, color: STATUS_COLOR[c.status] }}>
-                  {c.status[0].toUpperCase() + c.status.slice(1)}
+                  {({ draft: "Draft", review: "In review", rejected: "Not approved", active: "Live", paused: "Paused", completed: "Finished" } as Record<string, string>)[c.status] ?? c.status}
                 </span>
               </div>
               <div className="small muted" style={{ marginTop: 4 }}>

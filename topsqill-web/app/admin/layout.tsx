@@ -10,6 +10,8 @@ const NAV = [
   { href: "/admin", label: "Overview", icon: "📊" },
   { href: "/admin/listings", label: "Listing reviews", icon: "🏠" },
   { href: "/admin/approvals", label: "KYC & RERA", icon: "✅" },
+  { href: "/admin/campaigns", label: "Campaign reviews", icon: "📣" },
+  { href: "/admin/ads", label: "Ads & wallets", icon: "👛" },
   { href: "/admin/moderation", label: "Moderation", icon: "🛡" },
   { href: "/admin/members", label: "Members", icon: "👥" },
   { href: "/admin/ai", label: "AI", icon: "✨" },

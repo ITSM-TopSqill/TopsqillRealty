@@ -1,5 +1,4 @@
 import { Module } from "@nestjs/common";
-import { AdPlatformsService } from "./ad-platforms.service";
 import { WhatsAppService } from "./whatsapp.service";
 import { SecretsService } from "./secrets.service";
 import { IntegrationsController } from "./integrations.controller";
@@ -10,8 +9,8 @@ import { InstagramService } from "./instagram.service";
 
 @Module({
   imports: [LeadsModule, MediaModule],
-  providers: [AdPlatformsService, WhatsAppService, SecretsService, MediaInboxService, InstagramService],
+  providers: [WhatsAppService, SecretsService, MediaInboxService, InstagramService],
   controllers: [IntegrationsController],
-  exports: [AdPlatformsService, WhatsAppService, SecretsService],
+  exports: [WhatsAppService, SecretsService],
 })
 export class IntegrationsModule {}

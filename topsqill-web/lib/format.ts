@@ -59,5 +59,5 @@ export const STAGE_LABEL: Record<string, string> = {
   negotiation: "Negotiation", booked: "Booked", lost: "Lost",
 };
 export const CAMPAIGN_COLOR: Record<string, string> = {
-  draft: "#8D8AA3", scheduled: "#2F7FE6", active: "#12B76A", paused: "#E08A00", completed: "#6A3FE0",
+  draft: "#8D8AA3", scheduled: "#2F7FE6", active: "#12B76A", paused: "#E08A00", completed: "#6A3FE0", review: "#2F7FE6", rejected: "#E5484D",
 };

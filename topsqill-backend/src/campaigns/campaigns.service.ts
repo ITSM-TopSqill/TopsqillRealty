@@ -200,26 +200,6 @@ Reply with JSON only: {"script":[{"host":"Priya","line":"..."},{"host":"Arjun","
     if (!row || row.ownerId !== userId) throw new NotFoundException("That campaign could not be found.");
     return row;
   }
-
-  /**
-   * Launch marks the campaign active. The ad platform APIs are connected in the
-   * next step; until then nothing is spent, which is deliberate: no money moves
-   * until a real account is linked and the member has confirmed it.
-   */
-  async launch(userId: string, id: string) {
-    const c = await this.get(userId, id);
-    if (c.status === "active") return c;
-    const [row] = await this.db.update(campaigns)
-      .set({ status: "active", launchedAt: new Date(), updatedAt: new Date() })
-      .where(eq(campaigns.id, id)).returning();
-    return row;
-  }
-
-  async setStatus(userId: string, id: string, status: "paused" | "active" | "completed") {
-    await this.get(userId, id);
-    const [row] = await this.db.update(campaigns).set({ status, updatedAt: new Date() }).where(eq(campaigns.id, id)).returning();
-    return row;
-  }
 }
 
 const inr = (n: number) => (!n ? "price on request" : n >= 1e7 ? `₹${(n / 1e7).toFixed(2).replace(/\.?0+$/, "")} Cr` : `₹${Math.round(n / 1e5)} L`);

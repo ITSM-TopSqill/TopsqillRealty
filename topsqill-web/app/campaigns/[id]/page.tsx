@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { api } from "@/lib/api";
 import { getUser, getToken } from "@/lib/session";
 import { Shell } from "@/components/Shell";
-import { CampaignActions } from "@/components/CampaignActions";
+import { RunAds } from "@/components/RunAds";
 import { AdStudio } from "@/components/AdStudio";
 import { ReelPlayer } from "@/components/ReelPlayer";
 import { CampaignPodcast } from "@/components/CampaignPodcast";
@@ -18,6 +18,7 @@ const COLORS: [RegExp, string][] = [
   [/instagram|facebook|meta/i, "#1877F2"], [/google/i, "#EA4335"], [/youtube/i, "#FF0000"],
   [/whatsapp/i, "#25D366"], [/linkedin/i, "#0A66C2"],
 ];
+const STATUS_LABEL: Record<string, string> = { draft: "Draft", review: "In review", rejected: "Not approved", active: "Live", paused: "Paused", completed: "Finished", scheduled: "Scheduled" };
 const ch = (c: string) => ({ label: c, color: COLORS.find(([re]) => re.test(c))?.[1] ?? "#6A3FE0" });
 
 export default async function CampaignPage({ params }: { params: Promise<{ id: string }> }) {
@@ -40,9 +41,8 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         </div>
         <div className="row">
           <span className="pill" style={{ background: `color-mix(in srgb,${CAMPAIGN_COLOR[c.status]} 16%,transparent)`, color: CAMPAIGN_COLOR[c.status] }}>
-            {c.status[0].toUpperCase() + c.status.slice(1)}
+            {STATUS_LABEL[c.status] ?? c.status}
           </span>
-          <CampaignActions id={c.id} status={c.status} />
         </div>
       </div>
 
@@ -61,11 +61,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         </div>
       ) : null}
 
-      {c.status === "active" ? (
-        <p className="card pad small" style={{ background: "color-mix(in srgb,#E08A00 12%,var(--card))", marginBottom: 16 }}>
-          This campaign is marked live on Topsqill.ai. Ads only start spending once an ad account is connected and you confirm the budget there.
-        </p>
-      ) : null}
+      {c.listingId ? <RunAds campaignId={c.id} budgetInr={c.budgetInr} days={c.days} base={c.listingId} /> : null}
 
       {p ? (
         <div className="g2" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 16, alignItems: "start" }}>

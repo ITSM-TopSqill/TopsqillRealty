@@ -6,6 +6,7 @@ import { getUser, getToken } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { Avatar, TypePill, Verified } from "@/components/ui";
 import { ContactOwner } from "@/components/ContactOwner";
+import { AdTracker } from "@/components/AdTracker";
 import { SaveButton } from "@/components/SaveButton";
 import { priceDrop } from "@/lib/price-drop";
 import { ListingOwnerBar } from "@/components/ListingOwnerBar";
@@ -110,6 +111,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
 
   return (
     <Shell user={user} current="/listings">
+      <AdTracker listingId={listing.id} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
       {status === "pending" || status === "rejected" || status === "draft" ? <ReviewBanner listing={listing} mine={mine} /> : null}

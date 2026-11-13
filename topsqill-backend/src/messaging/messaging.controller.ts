@@ -10,6 +10,8 @@ class SendDto {
   @IsOptional() @IsArray() mediaIds?: string[];
   @IsOptional() @IsString() refType?: string;
   @IsOptional() @IsString() refId?: string;
+  /** Set when the buyer arrived from one of the listing's ads (the link carries ?ad=). */
+  @IsOptional() @IsString() @MaxLength(40) adCampaignId?: string;
 }
 class HistoryDto {
   @IsOptional() @IsString() cursor?: string;

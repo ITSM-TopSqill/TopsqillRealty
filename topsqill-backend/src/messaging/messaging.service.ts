@@ -2,7 +2,7 @@ import { Injectable, Inject, ForbiddenException, NotFoundException, BadRequestEx
 import { and, desc, eq, inArray, isNull, lt, or, sql, ne } from "drizzle-orm";
 import Redis from "ioredis";
 import { DB, DB_READ, type Database } from "../db/db.module";
-import { conversations, messages, users, media, notifications, listings } from "../db/schema";
+import { conversations, messages, users, media, notifications, listings, leads, campaigns } from "../db/schema";
 import { REDIS } from "../redis/redis.module";
 import { MediaService } from "../media/media.service";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -99,7 +99,7 @@ export class MessagingService {
    * Sends a message, updates the conversation preview in the same transaction,
    * then publishes it to Redis so every open socket for both people receives it.
    */
-  async send(userId: string, conversationId: string, input: { body?: string; mediaIds?: string[]; refType?: string; refId?: string }) {
+  async send(userId: string, conversationId: string, input: { body?: string; mediaIds?: string[]; refType?: string; refId?: string; adCampaignId?: string }) {
     const convo = await this.assertMember(conversationId, userId);
     if (!input.body?.trim() && !input.mediaIds?.length && !input.refId) throw new BadRequestException("Write a message or attach something first.");
 
@@ -119,7 +119,7 @@ export class MessagingService {
     const peerId = convo.aId === userId ? convo.bId : convo.aId;
     await this.redis.publish(`convo:${conversationId}`, JSON.stringify({ type: "message", data: row })).catch(() => {});
     // An enquiry about someone's listing also lands on their lead board.
-    if (input.refType === "listing" && input.refId) await this.captureEnquiry(userId, peerId, input.refId, input.body).catch(() => null);
+    if (input.refType === "listing" && input.refId) await this.captureEnquiry(userId, peerId, input.refId, input.body, input.adCampaignId).catch(() => null);
 
     // One alert per unread chat: later messages update it instead of piling up.
     const name = await this.notifs.nameOf(userId);
@@ -137,14 +137,24 @@ export class MessagingService {
     return row;
   }
 
-  private async captureEnquiry(buyerId: string, ownerId: string, listingId: string, body?: string) {
+  private async captureEnquiry(buyerId: string, ownerId: string, listingId: string, body?: string, adCampaignId?: string) {
     const [l] = await this.read.select({ ownerId: listings.ownerId, city: listings.city, locality: listings.locality }).from(listings).where(eq(listings.id, listingId)).limit(1);
     if (!l || l.ownerId !== ownerId) return;
     const [b] = await this.read.select({ name: users.name, phone: users.phone, email: users.email }).from(users).where(eq(users.id, buyerId)).limit(1);
-    await this.leadsSvc.capture(ownerId, {
-      name: b?.name, phone: b?.phone ?? undefined, email: b?.email ?? undefined, source: "topsqill", sourceDetail: "Enquiry on Topsqill.ai",
+    // A buyer who came from one of this listing's ads: the lead counts for that campaign.
+    const [ad] = adCampaignId
+      ? await this.read.select({ id: campaigns.id, platforms: campaigns.platforms }).from(campaigns).where(and(eq(campaigns.id, adCampaignId), eq(campaigns.listingId, listingId))).limit(1)
+      : [];
+    const { lead } = await this.leadsSvc.capture(ownerId, {
+      name: b?.name, phone: b?.phone ?? undefined, email: b?.email ?? undefined,
+      source: ad ? (ad.platforms?.includes("google") && !ad.platforms?.includes("meta") ? "google" : "website") : "topsqill",
+      sourceDetail: ad ? "Enquiry from an ad" : "Enquiry on Topsqill.ai",
       listingId, city: l.city, locality: l.locality, note: body?.slice(0, 500),
     });
+    if (ad) {
+      await this.db.update(leads).set({ campaignId: ad.id }).where(and(eq(leads.id, lead.id), isNull(leads.campaignId)));
+      await this.db.update(campaigns).set({ leadsCount: sql`(select count(*) from leads where campaign_id = ${ad.id})` }).where(eq(campaigns.id, ad.id));
+    }
   }
 
   async markRead(userId: string, conversationId: string) {

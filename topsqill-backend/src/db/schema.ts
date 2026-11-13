@@ -7,7 +7,7 @@
  *  - Every index below exists because a real screen needs it.
  *  - Media files live in Cloud Storage; only small records are kept here.
  */
-import { pgTable, text, varchar, integer, bigint, boolean, timestamp, jsonb, index, uniqueIndex, primaryKey, pgEnum, doublePrecision, smallint, date } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, bigint, boolean, timestamp, jsonb, index, uniqueIndex, primaryKey, pgEnum, doublePrecision, smallint, date, numeric } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const profileType = pgEnum("profile_type", ["buyer", "seller", "dealer", "builder"]);
@@ -349,7 +349,7 @@ export const verifications = pgTable("verifications", {
 
 export const leadStage = pgEnum("lead_stage", ["new", "contacted", "site_visit", "negotiation", "booked", "lost"]);
 export const leadSource = pgEnum("lead_source", ["website", "meta", "google", "linkedin", "whatsapp", "portal_99acres", "portal_magicbricks", "portal_housing", "call", "topsqill", "manual", "other", "channel_partner"]);
-export const notifKind = pgEnum("notif_kind", ["connection", "message", "lead", "match", "post", "comment", "system", "job", "listing"]);
+export const notifKind = pgEnum("notif_kind", ["connection", "message", "lead", "match", "post", "comment", "system", "job", "listing", "campaign"]);
 
 export const conversations = pgTable("conversations", {
   id: varchar("id", { length: 36 }).primaryKey(),
@@ -427,6 +427,8 @@ export const leads = pgTable("leads", {
   qualified: boolean("qualified").notNull().default(false),
   otpVerified: boolean("otp_verified").notNull().default(false),
   externalId: varchar("external_id", { length: 120 }),
+  /** The ad campaign that brought this lead, when it came from one. */
+  campaignId: varchar("campaign_id", { length: 36 }),
   lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -477,7 +479,7 @@ export const ingestEvents = pgTable("ingest_events", {
 
 export const jobStatus = pgEnum("job_status", ["draft", "open", "closed"]);
 export const applicationStatus = pgEnum("application_status", ["applied", "viewed", "shortlisted", "rejected", "hired"]);
-export const campaignStatus = pgEnum("campaign_status", ["draft", "scheduled", "active", "paused", "completed"]);
+export const campaignStatus = pgEnum("campaign_status", ["draft", "scheduled", "active", "paused", "completed", "review", "rejected"]);
 
 export const projects = pgTable("projects", {
   id: varchar("id", { length: 36 }).primaryKey(),
@@ -580,6 +582,20 @@ export const campaigns = pgTable("campaigns", {
   leadsCount: integer("leads_count").notNull().default(0),
   qualifiedCount: integer("qualified_count").notNull().default(0),
   launchedAt: timestamp("launched_at", { withTimezone: true }),
+  /** Managed ads (run on Topsqill's ad accounts, paid from the wallet). */
+  platforms: jsonb("platforms").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  mediaIds: jsonb("media_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  holdPaise: bigint("hold_paise", { mode: "number" }).notNull().default(0),
+  chargedPaise: bigint("charged_paise", { mode: "number" }).notNull().default(0),
+  feePct: numeric("fee_pct", { precision: 5, scale: 2 }).notNull().default("0"),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewedBy: varchar("reviewed_by", { length: 36 }),
+  reviewNote: text("review_note"),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
+  endReason: varchar("end_reason", { length: 40 }),
+  clicksCount: integer("clicks_count").notNull().default(0),
+  impressionsCount: bigint("impressions_count", { mode: "number" }).notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ ownerIdx: index("campaigns_owner_idx").on(t.ownerId, t.createdAt.desc()) }));
@@ -622,6 +638,9 @@ export const campaignDeliveries = pgTable("campaign_deliveries", {
   budgetInr: bigint("budget_inr", { mode: "number" }).notNull(),
   error: varchar("error", { length: 300 }),
   stats: jsonb("stats").$type<Record<string, number>>().notNull().default(sql`'{}'::jsonb`),
+  /** The platform's own ids for everything made (ad set, ad, lead form, budget...). */
+  external: jsonb("external").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
+  spendPaise: bigint("spend_paise", { mode: "number" }).notNull().default(0),
   syncedAt: timestamp("synced_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ campaignIdx: index("campaign_deliveries_idx").on(t.campaignId) }));
@@ -681,6 +700,44 @@ export const whatsappOptins = pgTable("whatsapp_optins", {
 /* ---------------------------------- audit ---------------------------------- */
 
 /** Platform settings an admin can change without a deploy, e.g. "ai": { enabled, disabled[], model }. */
+/** Each member's prepaid ad wallet, in paise. */
+export const wallets = pgTable("wallets", {
+  ownerId: varchar("owner_id", { length: 36 }).primaryKey(),
+  balancePaise: bigint("balance_paise", { mode: "number" }).notNull().default(0),
+  heldPaise: bigint("held_paise", { mode: "number" }).notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const walletTxns = pgTable("wallet_txns", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  kind: varchar("kind", { length: 16 }).notNull(),
+  amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+  balanceAfter: bigint("balance_after", { mode: "number" }).notNull(),
+  heldAfter: bigint("held_after", { mode: "number" }).notNull(),
+  campaignId: varchar("campaign_id", { length: 36 }),
+  paymentId: varchar("payment_id", { length: 36 }),
+  ref: varchar("ref", { length: 120 }).notNull(),
+  note: varchar("note", { length: 300 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const payments = pgTable("payments", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  provider: varchar("provider", { length: 16 }).notNull().default("razorpay"),
+  orderId: varchar("order_id", { length: 64 }).notNull(),
+  paymentId: varchar("payment_id", { length: 64 }),
+  amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+  gstPaise: bigint("gst_paise", { mode: "number" }).notNull().default(0),
+  totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("created"),
+  invoiceNo: varchar("invoice_no", { length: 40 }),
+  billing: jsonb("billing").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+});
+
 export const appSettings = pgTable("app_settings", {
   key: varchar("key", { length: 40 }).primaryKey(),
   value: jsonb("value").$type<Record<string, unknown>>().notNull(),
