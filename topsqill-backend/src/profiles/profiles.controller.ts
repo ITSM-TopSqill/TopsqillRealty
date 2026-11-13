@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import { IsOptional, IsString, IsIn, IsArray, IsInt, MaxLength, ArrayMaxSize } from "class-validator";
 import { ProfilesService } from "./profiles.service";
@@ -50,11 +50,24 @@ export class ProfilesController {
   @Post("profiles/:id/ignore")
   ignore(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.respond(user.id, id, false); }
 
+  @Post("profiles/:id/withdraw") @ApiOperation({ summary: "Take back an invitation I sent" })
+  withdraw(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.withdraw(user.id, id); }
+
+  @Delete("profiles/:id/connection") @ApiOperation({ summary: "Remove a connection" })
+  remove(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.removeConnection(user.id, id); }
+
   @Get("connections")
-  list(@CurrentUser() user: AuthUser, @Query("status") status?: string, @Query("limit") limit?: string) {
-    return this.svc.listConnections(user.id, status === "pending" || status === "sent" ? status : "accepted", Math.min(Math.max(Number(limit) || 30, 1), 100));
+  list(@CurrentUser() user: AuthUser, @Query("status") status?: string, @Query("limit") limit?: string,
+    @Query("q") q?: string, @Query("type") type?: string, @Query("sort") sort?: string, @Query("offset") offset?: string) {
+    return this.svc.listConnections(user.id, status === "pending" || status === "sent" ? status : "accepted", Math.min(Math.max(Number(limit) || 30, 1), 100),
+      { q, type, sort: sort === "name" ? "name" : "recent", offset: Number(offset) || 0 });
   }
 
+  @Get("connections/summary") @ApiOperation({ summary: "Counts for the network page" })
+  summary(@CurrentUser() user: AuthUser) { return this.svc.networkSummary(user.id); }
+
   @Get("connections/suggestions") @ApiOperation({ summary: "People you may know" })
-  suggestions(@CurrentUser() user: AuthUser) { return this.svc.suggestions(user.id); }
+  suggestions(@CurrentUser() user: AuthUser, @Query("type") type?: string, @Query("limit") limit?: string, @Query("offset") offset?: string) {
+    return this.svc.suggestions(user.id, Math.min(Math.max(Number(limit) || 12, 1), 48), type, Number(offset) || 0);
+  }
 }

@@ -224,46 +224,122 @@ export class ProfilesService {
     return { ok: true, status: accept ? "connected" : "ignored" };
   }
 
+  /** Photos for a page of people, in one query. */
+  private async withAvatars<T extends { avatarMediaId?: string | null }>(rows: T[]) {
+    const ids = [...new Set(rows.map((r) => r.avatarMediaId).filter(Boolean) as string[])];
+    const pics = ids.length ? await this.read.select().from(media).where(inArray(media.id, ids)) : [];
+    const byId = new Map(pics.map((m) => [m.id, this.mediaSvc.publicView(m)]));
+    return rows.map((r) => ({ ...r, avatar: r.avatarMediaId ? byId.get(r.avatarMediaId) ?? null : null }));
+  }
+
   /**
    * "accepted": my connections. "pending": invitations waiting for my answer.
    * "sent": invitations I sent that are not answered yet. Each request is
    * stored on both sides, so the direction comes from who requested it;
    * without that, invitations I sent showed up as if I had to accept them.
+   * Connections can be searched (name, headline, agency, city), narrowed to one
+   * kind of member, sorted, and paged; each person comes with mutual connections.
    */
-  async listConnections(userId: string, status: "accepted" | "pending" | "sent" = "accepted", limit = 30) {
-    const where = status === "accepted"
-      ? and(eq(connections.userId, userId), eq(connections.status, "accepted"))
-      : and(eq(connections.userId, userId), eq(connections.status, "pending"),
-          status === "sent" ? eq(connections.requestedBy, userId) : sql`${connections.requestedBy} <> ${userId}`);
-    const rows = await this.read.select({
-      id: users.id, name: users.name, type: users.type, headline: users.headline,
-      city: users.city, avatarMediaId: users.avatarMediaId, kycVerified: users.kycVerified,
-    }).from(connections)
-      .innerJoin(users, eq(users.id, connections.peerId))
-      .where(and(where, eq(users.status, "active")))
-      .orderBy(desc(connections.createdAt))
-      .limit(Math.min(limit, 100));
-    return { items: rows };
+  async listConnections(userId: string, status: "accepted" | "pending" | "sent" = "accepted", limit = 30,
+    o: { q?: string; type?: string; sort?: "recent" | "name"; offset?: number } = {}) {
+    const where = [eq(connections.userId, userId), eq(users.status, "active")];
+    if (status === "accepted") where.push(eq(connections.status, "accepted"));
+    else {
+      where.push(eq(connections.status, "pending"));
+      where.push(status === "sent" ? eq(connections.requestedBy, userId) : sql`${connections.requestedBy} <> ${userId}`);
+    }
+    const term = o.q?.trim().slice(0, 60);
+    if (term) {
+      const like = `%${term.replace(/[%_\\]/g, "")}%`;
+      where.push(sql`(${users.name} ilike ${like} or ${users.headline} ilike ${like} or ${users.agency} ilike ${like} or ${users.city} ilike ${like})`);
+    }
+    if (o.type && ["buyer", "seller", "dealer", "builder"].includes(o.type)) where.push(eq(users.type, o.type as never));
+    const offset = Math.max(o.offset ?? 0, 0);
+    const [rows, [{ n }]] = await Promise.all([
+      this.read.select({
+        id: users.id, name: users.name, type: users.type, headline: users.headline, agency: users.agency,
+        city: users.city, avatarMediaId: users.avatarMediaId, kycVerified: users.kycVerified, reraVerified: users.reraVerified,
+        since: connections.createdAt,
+        mutual: sql<number>`(select count(*)::int from connections a join connections b on b.peer_id = a.peer_id
+                              where a.user_id = ${userId} and a.status = 'accepted' and b.user_id = ${users.id} and b.status = 'accepted')`,
+      }).from(connections)
+        .innerJoin(users, eq(users.id, connections.peerId))
+        .where(and(...where))
+        .orderBy(...(o.sort === "name" ? [sql`lower(${users.name})`] : [desc(connections.createdAt)]))
+        .limit(Math.min(limit, 100)).offset(offset),
+      this.read.select({ n: sql<number>`count(*)::int` }).from(connections).innerJoin(users, eq(users.id, connections.peerId)).where(and(...where)),
+    ]);
+    return { items: await this.withAvatars(rows), total: n, nextOffset: offset + rows.length < n ? offset + rows.length : null };
+  }
+
+  /** Counts for the network page's menu. */
+  async networkSummary(userId: string) {
+    const [r] = await this.read.select({
+      connections: sql<number>`count(*) filter (where ${connections.status} = 'accepted')::int`,
+      pending: sql<number>`count(*) filter (where ${connections.status} = 'pending' and ${connections.requestedBy} <> ${userId})::int`,
+      sent: sql<number>`count(*) filter (where ${connections.status} = 'pending' and ${connections.requestedBy} = ${userId})::int`,
+      dealers: sql<number>`count(*) filter (where ${connections.status} = 'accepted' and ${users.type} = 'dealer')::int`,
+      builders: sql<number>`count(*) filter (where ${connections.status} = 'accepted' and ${users.type} = 'builder')::int`,
+      buyers: sql<number>`count(*) filter (where ${connections.status} = 'accepted' and ${users.type} = 'buyer')::int`,
+      sellers: sql<number>`count(*) filter (where ${connections.status} = 'accepted' and ${users.type} = 'seller')::int`,
+    }).from(connections).innerJoin(users, eq(users.id, connections.peerId))
+      .where(and(eq(connections.userId, userId), eq(users.status, "active")));
+    return r;
+  }
+
+  /** Takes back an invitation I sent that hasn't been answered. */
+  async withdraw(userId: string, peerId: string) {
+    const gone = await this.db.delete(connections).where(and(eq(connections.status, "pending"), eq(connections.requestedBy, userId),
+      sql`((${connections.userId} = ${userId} and ${connections.peerId} = ${peerId}) or (${connections.userId} = ${peerId} and ${connections.peerId} = ${userId}))`))
+      .returning({ userId: connections.userId });
+    if (!gone.length) throw new NotFoundException("There is no invitation to take back.");
+    // Their "wants to connect" alert no longer applies.
+    await this.notifs.markReadFor(peerId, "profile", userId).catch(() => null);
+    return { ok: true, status: "none" };
+  }
+
+  /** Removes a connection on both sides. They aren't told. */
+  async removeConnection(userId: string, peerId: string) {
+    const removed = await this.db.transaction(async (tx) => {
+      const rows = await tx.delete(connections).where(and(eq(connections.status, "accepted"),
+        sql`((${connections.userId} = ${userId} and ${connections.peerId} = ${peerId}) or (${connections.userId} = ${peerId} and ${connections.peerId} = ${userId}))`))
+        .returning({ userId: connections.userId });
+      if (rows.length) await tx.update(users).set({ connectionCount: sql`greatest(${users.connectionCount} - 1, 0)` }).where(inArray(users.id, [userId, peerId]));
+      return rows.length;
+    });
+    if (!removed) throw new NotFoundException("You aren't connected with this member.");
+    await this.cache.redis.del(`profile:${userId}`, `profile:${peerId}`, `audience:${userId}`, `audience:${peerId}`).catch(() => 0);
+    return { ok: true, status: "none" };
   }
 
   /**
    * People you may know: active members I have no connection or request with,
    * ranked by shared connections, then same city and type of work, then how
-   * established they are.
+   * established they are. Each comes with the reason it's suggested.
    */
-  async suggestions(userId: string, limit = 12) {
-    const [me] = await this.read.select({ city: users.city }).from(users).where(eq(users.id, userId)).limit(1);
+  async suggestions(userId: string, limit = 12, type?: string, offset = 0) {
+    const [me] = await this.read.select({ city: users.city, type: users.type }).from(users).where(eq(users.id, userId)).limit(1);
+    const kind = type && ["buyer", "seller", "dealer", "builder"].includes(type) ? type : null;
     const res = await this.read.execute(sql`
       with mine as (select peer_id from connections where user_id = ${userId} and status = 'accepted')
-      select u.id, u.name, u.type, u.headline, u.city, u.avatar_media_id as "avatarMediaId",
-             u.kyc_verified as "kycVerified", u.rera_verified as "reraVerified",
+      select u.id, u.name, u.type, u.headline, u.city, u.agency, u.avatar_media_id as "avatarMediaId",
+             u.kyc_verified as "kycVerified", u.rera_verified as "reraVerified", u.connection_count as "connectionCount",
              (select count(*)::int from connections c where c.user_id = u.id and c.status = 'accepted' and c.peer_id in (select peer_id from mine)) as mutual
       from users u
       where u.status = 'active' and u.id <> ${userId}
+        and (${kind}::text is null or u.type::text = ${kind})
         and not exists (select 1 from connections c where c.user_id = ${userId} and c.peer_id = u.id)
       order by mutual desc, (u.city is not distinct from ${me?.city ?? null}) desc, u.connection_count desc, u.created_at desc
-      limit ${Math.min(limit, 50)}`);
-    const rows = (Array.isArray(res) ? res : (res as { rows: unknown[] }).rows) as Record<string, unknown>[];
-    return { items: rows };
+      limit ${Math.min(limit, 48) + 1} offset ${Math.max(offset, 0)}`);
+    const all = (Array.isArray(res) ? res : (res as { rows: unknown[] }).rows) as Record<string, any>[];
+    const rows = all.slice(0, Math.min(limit, 48));
+    const label: Record<string, string> = { dealer: "dealer", builder: "builder", buyer: "buyer", seller: "owner" };
+    const items = rows.map((r): Record<string, any> & { avatarMediaId?: string | null } => ({
+      ...r,
+      reason: r.mutual ? `${r.mutual} mutual connection${r.mutual === 1 ? "" : "s"}`
+        : me?.city && r.city === me.city ? `${(label[r.type] ?? "member").replace(/^./, (c: string) => c.toUpperCase())} in ${r.city}`
+        : r.connectionCount > 20 ? `Well connected · ${r.connectionCount} connections` : r.city ? `Based in ${r.city}` : "New on Topsqill",
+    }));
+    return { items: await this.withAvatars(items), nextOffset: all.length > rows.length ? Math.max(offset, 0) + rows.length : null };
   }
 }
