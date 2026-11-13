@@ -8,6 +8,7 @@ import { timeAgo, compact, imageUrl, inr } from "@/lib/format";
 import { Avatar, TypePill } from "./ui";
 import type { Post, PostRef } from "@/lib/types";
 import type { SessionUser } from "@/lib/session";
+import { ReportDialog, setBlocked } from "@/components/safety/Safety";
 
 type Tone = "write" | "fix" | "punchy" | "short" | "hinglish" | "tags";
 const STYLES: [Tone, string][] = [["fix", "Fix grammar"], ["punchy", "Punchier"], ["short", "Shorter"], ["hinglish", "Hinglish"], ["tags", "Add hashtags"]];
@@ -193,6 +194,7 @@ export function PostCard({ post, meId, startOpen = false }: { post: Post; meId: 
           </div>
           <Link href={`/posts/${post.id}`} className="small muted">{timeAgo(post.createdAt)}</Link>
         </div>
+        {!mine && meId ? <PostMoreMenu postId={post.id} authorId={post.authorId} authorName={post.author?.name ?? "this member"} onBlocked={() => setGone(true)} /> : null}
         {mine ? (
           <div style={{ position: "relative" }}>
             <button className="btn btn-g sm" aria-label="Post options" aria-expanded={menu} onClick={() => setMenu((v) => !v)}>⋯</button>
@@ -448,5 +450,28 @@ export function MoreFeed({ cursor, meId, filter }: { cursor: string | null; meId
         : items.length ? <p className="small muted" style={{ textAlign: "center" }}>You’re all caught up.</p> : null}
       {error ? <p className="error small" style={{ textAlign: "center" }}>{error}</p> : null}
     </>
+  );
+}
+
+/** "⋯" on someone else's post: report it, or block its author. */
+function PostMoreMenu({ postId, authorId, authorName, onBlocked }: { postId: string; authorId: string; authorName: string; onBlocked: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  async function block() {
+    setOpen(false);
+    try { if (await setBlocked(authorId, authorName, true)) onBlocked(); }
+    catch (e) { alert((e as Error).message); }
+  }
+  return (
+    <div style={{ position: "relative" }} onMouseLeave={() => setOpen(false)}>
+      <button className="btn btn-g sm" aria-label="Post options" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>⋯</button>
+      {open ? (
+        <div className="card" role="menu" style={{ position: "absolute", right: 0, top: 36, zIndex: 5, minWidth: 190, padding: 4 }}>
+          <button role="menuitem" className="pmi" onClick={() => { setOpen(false); setReporting(true); }}>⚑ Report post</button>
+          <button role="menuitem" className="pmi" style={{ color: "var(--red)" }} onClick={block}>⛔ Block {authorName.split(" ")[0]}</button>
+        </div>
+      ) : null}
+      {reporting ? <ReportDialog type="post" id={postId} onClose={() => setReporting(false)} /> : null}
+    </div>
   );
 }

@@ -369,8 +369,13 @@ Return JSON: {"bullets": ["..."]}`,
   }
 
   async createReport(reporterId: string | null, input: { targetType: string; targetId: string; reason: string; detail?: string; aiConfidence?: number; aiReason?: string }) {
-    const [row] = await this.db.insert(reports).values({ id: newId(), reporterId, ...input }).returning();
-    return row;
+    if (reporterId && input.targetType === "profile" && input.targetId === reporterId) throw new BadRequestException("You can’t report yourself.");
+    // The same member reporting the same thing again just gets their open report back.
+    const [row] = await this.db.insert(reports).values({ id: newId(), reporterId, ...input }).onConflictDoNothing().returning();
+    if (row) return row;
+    const [open] = await this.read.select().from(reports)
+      .where(and(eq(reports.reporterId, reporterId!), eq(reports.targetType, input.targetType), eq(reports.targetId, input.targetId), eq(reports.status, "open"))).limit(1);
+    return open;
   }
 
   /** Hide or restore a post, comment or listing. Nothing is ever deleted outright. */

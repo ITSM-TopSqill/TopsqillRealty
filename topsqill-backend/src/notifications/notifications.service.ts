@@ -43,6 +43,8 @@ export class NotificationsService {
     if (n.actorId && n.actorId === n.userId) return null;
     const [row] = await this.db.insert(notifications).values({ id: newId(), ...n, body: n.body?.slice(0, 300) ?? null, title: n.title.slice(0, 160) }).returning();
     await this.redis.publish(`user:${n.userId}`, JSON.stringify({ type: "notification", data: row })).catch(() => {});
+    // A push to the member's phones goes straight away; the worker skips it when they have no app or turned it off.
+    await this.queue.add(QUEUES.notify, "push", { notificationId: row.id }, `push-${row.id}`).catch(() => {});
     const delay = EMAIL_DELAY_MS[n.kind];
     if (delay !== undefined) {
       await this.queue.add(QUEUES.notify, "deliver", { notificationId: row.id }, `notif-${row.id}`, { delay }).catch(() => {});

@@ -7,6 +7,7 @@ import { Shell } from "@/components/Shell";
 import { Avatar, TypePill, Verified, ListingCard, Empty } from "@/components/ui";
 import { ConnectButton } from "@/components/ConnectButton";
 import { ShareProfile } from "@/components/ShareProfile";
+import { ProfileMoreMenu } from "@/components/safety/Safety";
 import { ProfileViewPing } from "@/components/ProfileViewPing";
 import { compact, imageUrl, TYPE_LABEL } from "@/lib/format";
 import type { Listing, Paged } from "@/lib/types";
@@ -18,6 +19,7 @@ type Profile = {
   connectionCount: number; followerCount: number; listingCount: number;
   avatar?: { urls?: Record<string, string> } | null; cover?: { urls?: Record<string, string> } | null;
   relation: "self" | "connected" | "pending" | "incoming" | "none";
+  blocked?: boolean;
   contact?: { phone?: string; email?: string } | null;
 };
 
@@ -81,10 +83,16 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
                     <Link href="/profile/edit" className="btn btn-o">Edit profile</Link>
                     <ShareProfile id={profile.id} name={profile.name} headline={profile.headline} />
                   </>
-                : <>
-                    <ConnectButton peerId={profile.id} relation={profile.relation} signedIn={!!user} />
-                    <ShareProfile id={profile.id} name={profile.name} headline={profile.headline} />
-                  </>}
+                : profile.blocked
+                  ? <>
+                      <span className="tag" style={{ color: "var(--red)" }}>⛔ Blocked</span>
+                      <ProfileMoreMenu peerId={profile.id} name={profile.name} blocked />
+                    </>
+                  : <>
+                      <ConnectButton peerId={profile.id} relation={profile.relation} signedIn={!!user} />
+                      <ShareProfile id={profile.id} name={profile.name} headline={profile.headline} />
+                      {user ? <ProfileMoreMenu peerId={profile.id} name={profile.name} blocked={false} /> : null}
+                    </>}
               {user && !isMe ? <ProfileViewPing id={profile.id} /> : null}
             </div>
           </div>
@@ -126,7 +134,11 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
         </div>
       ) : null}
 
-      {profile.contact?.phone ? (
+      {profile.blocked ? (
+        <div className="card pad" style={{ marginBottom: 16 }}>
+          <p className="small" style={{ margin: 0 }}>You blocked {profile.name.split(" ")[0]}. You won&apos;t see each other&apos;s posts, and neither of you can message or invite the other. Unblock from the ⋯ menu or in <Link href="/settings/privacy">Settings</Link>.</p>
+        </div>
+      ) : profile.contact?.phone ? (
         <div className="card pad" style={{ marginBottom: 16 }}>
           <h2 style={{ fontSize: 19, marginBottom: 8 }}>Contact</h2>
           <p className="small">📞 <a href={`tel:${profile.contact.phone}`}>{profile.contact.phone}</a></p>

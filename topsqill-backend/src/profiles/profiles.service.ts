@@ -6,6 +6,7 @@ import { users, connections, media, profileViews, listings } from "../db/schema"
 import { CacheService } from "../redis/redis.module";
 import { MediaService } from "../media/media.service";
 import { NotificationsService } from "../notifications/notifications.service";
+import { assertNotBlocked, blockBetween } from "../account/blocks";
 
 /** How complete a profile is, 0 to 100, and the next three things to add. */
 export function profileStrength(u: Pick<typeof users.$inferSelect, "type" | "avatarMediaId" | "coverMediaId" | "headline" | "about" | "city" | "localities" | "specialties" | "kycVerified" | "reraVerified" | "listingCount">) {
@@ -60,6 +61,13 @@ export class ProfilesService {
     // Contact details are only shown to accepted connections (and to yourself).
     // "pending" is a request I sent; "incoming" is one waiting for my answer.
     // An invitation I ignored reads as "none", so I can still connect later.
+    // Someone who blocked me is simply not there for me; someone I blocked shows, so I can unblock.
+    let blocked = false;
+    if (viewerId && viewerId !== id) {
+      const b = await blockBetween(this.read, viewerId, id);
+      if (b.theyBlocked && !b.iBlocked) throw new NotFoundException("That profile is not available.");
+      blocked = b.iBlocked;
+    }
     let relation: "self" | "connected" | "pending" | "incoming" | "none" = "none";
     if (viewerId === id) relation = "self";
     else if (viewerId) relation = await this.relationOf(viewerId, id);
@@ -68,7 +76,7 @@ export class ProfilesService {
       const [u] = await this.read.select({ phone: users.phone, email: users.email }).from(users).where(eq(users.id, id)).limit(1);
       contact = { phone: u?.phone ?? undefined, email: u?.email ?? undefined };
     }
-    return { ...profile, relation, contact };
+    return { ...profile, relation, contact, blocked };
   }
 
   async updateMe(userId: string, patch: Partial<typeof users.$inferInsert>) {
@@ -164,6 +172,7 @@ export class ProfilesService {
     if (userId === peerId) throw new BadRequestException("You can’t connect with yourself.");
     const [peer] = await this.read.select({ status: users.status }).from(users).where(eq(users.id, peerId)).limit(1);
     if (!peer || peer.status !== "active") throw new NotFoundException("That member is not available.");
+    await assertNotBlocked(this.db, userId, peerId, "connect with this member");
 
     const relation = await this.relationOf(userId, peerId);
     if (relation === "connected") return { ok: true, status: "connected" };
@@ -329,6 +338,7 @@ export class ProfilesService {
       where u.status = 'active' and u.id <> ${userId}
         and (${kind}::text is null or u.type::text = ${kind})
         and not exists (select 1 from connections c where c.user_id = ${userId} and c.peer_id = u.id)
+        and not exists (select 1 from user_blocks ub where (ub.blocker_id = ${userId} and ub.blocked_id = u.id) or (ub.blocker_id = u.id and ub.blocked_id = ${userId}))
       order by mutual desc, (u.city is not distinct from ${me?.city ?? null}) desc, u.connection_count desc, u.created_at desc
       limit ${Math.min(limit, 48) + 1} offset ${Math.max(offset, 0)}`);
     const all = (Array.isArray(res) ? res : (res as { rows: unknown[] }).rows) as Record<string, any>[];

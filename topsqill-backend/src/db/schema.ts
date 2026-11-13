@@ -50,6 +50,9 @@ export const users = pgTable("users", {
   listingCount: integer("listing_count").notNull().default(0),
   suspendedReason: varchar("suspended_reason", { length: 200 }),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  // Alerts the member turned off, per channel: { email: { message: false }, push: {...} }. Unlisted kinds are on.
+  alertPrefs: jsonb("alert_prefs").$type<AlertPrefs>().notNull().default(sql`'{}'::jsonb`),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -172,6 +175,18 @@ export const listingMedia = pgTable("listing_media", {
 
 /* --------------------------------- network --------------------------------- */
 // Both directions are stored, so "my connections" is always one index scan.
+
+export type AlertPrefs = { email?: Record<string, boolean>; push?: Record<string, boolean> };
+
+/** A member who blocked another: neither can message, invite or see the other. */
+export const userBlocks = pgTable("user_blocks", {
+  blockerId: varchar("blocker_id", { length: 36 }).notNull(),
+  blockedId: varchar("blocked_id", { length: 36 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.blockerId, t.blockedId] }),
+  blockedIdx: index("user_blocks_blocked_idx").on(t.blockedId),
+}));
 
 export const connections = pgTable("connections", {
   userId: varchar("user_id", { length: 36 }).notNull(),

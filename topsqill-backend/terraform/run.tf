@@ -29,6 +29,14 @@ resource "google_project_iam_member" "app_roles" {
   member  = "serviceAccount:${google_service_account.app.email}"
 }
 
+# Sending push notifications through Firebase, only once a Firebase project is set.
+resource "google_project_iam_member" "app_fcm" {
+  count   = var.fcm_project_id == "" ? 0 : 1
+  project = var.fcm_project_id
+  role    = "roles/firebasecloudmessaging.admin"
+  member  = "serviceAccount:${google_service_account.app.email}"
+}
+
 data "google_project" "this" {
   project_id = var.project_id
 }
@@ -481,6 +489,14 @@ resource "google_cloud_run_v2_service" "worker" {
         # Links in alert emails point here.
         name  = "WEB_URL"
         value = var.web_url
+      }
+      # Push to the mobile app (Firebase) and the one-click unsubscribe link, when set.
+      dynamic "env" {
+        for_each = { for k, v in { FCM_PROJECT_ID = var.fcm_project_id, API_PUBLIC_URL = var.api_public_url } : k => v if v != "" }
+        content {
+          name  = env.key
+          value = env.value
+        }
       }
       # Alert emails (new message, invitation, lead) go out from the worker.
       dynamic "env" {

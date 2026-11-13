@@ -8,6 +8,7 @@ import { timeAgo } from "@/lib/format";
 import type { Conversation, Message, Paged } from "@/lib/types";
 import Link from "next/link";
 import { refreshCounts } from "./Live";
+import { ProfileMoreMenu } from "@/components/safety/Safety";
 
 /**
  * Chat.
@@ -111,6 +112,7 @@ export function Messenger({ me, conversations, activeId, initialMessages }: {
                 {active.peer ? <Link href={`/profile/${active.peer.id}`} style={{ fontSize: 14, fontWeight: 800 }}>{active.peer.name}</Link> : <b>Member</b>}
                 <div className="small muted" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{active.peer?.headline}</div>
               </div>
+              {active.peer ? <div style={{ marginLeft: "auto" }}><ProfileMoreMenu peerId={active.peer.id} name={active.peer.name} blocked={false} /></div> : null}
             </div>
 
             <div className="msgs">

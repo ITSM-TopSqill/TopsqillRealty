@@ -6,6 +6,7 @@ import { CacheService } from "../redis/redis.module";
 import { MediaService } from "../media/media.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { newId, encodeCursor, decodeCursor } from "../common/ids";
+import { notBlockedWith, assertNotBlocked, blockBetween } from "../account/blocks";
 
 /**
  * The wall reads straight from Postgres (see home()), so a post, listing,
@@ -65,7 +66,7 @@ export class FeedService {
   private async filtered(userId: string, filter: FeedFilter, cursor: string | undefined, limit: number) {
     const cur = decodeCursor(cursor);
     const src = cursor ? this.read : this.db;
-    const where = [eq(posts.hidden, false)];
+    const where = [eq(posts.hidden, false), notBlockedWith(userId, posts.authorId)];
     if (filter === "following") {
       const authorIds = await this.audienceOf(userId);
       if (!authorIds.length) return { items: [], nextCursor: null, source: "db" };
@@ -150,7 +151,7 @@ export class FeedService {
       this.audienceOf(userId),
       this.read.select({ city: users.city }).from(users).where(eq(users.id, userId)).limit(1),
     ]);
-    const where = [eq(posts.hidden, false)];
+    const where = [eq(posts.hidden, false), notBlockedWith(userId, posts.authorId)];
     if (authorIds.length) {
       // New listings, requirements, projects and jobs from members in my city (or anywhere, if I haven't set one).
       const local = me?.city
@@ -268,6 +269,7 @@ export class FeedService {
   async getPost(postId: string, viewerId?: string) {
     const [row] = await this.read.select().from(posts).where(and(eq(posts.id, postId), eq(posts.hidden, false))).limit(1);
     if (!row) throw new NotFoundException("That post is not available.");
+    if (viewerId && viewerId !== row.authorId && (await blockBetween(this.read, viewerId, row.authorId)).theyBlocked) throw new NotFoundException("That post is not available.");
     const [item] = await this.decorate([row], viewerId ?? "");
     return item;
   }
@@ -304,6 +306,7 @@ export class FeedService {
     const text = body.trim();
     if (!text) throw new BadRequestException("Write a comment first.");
     const post = await this.postOrFail(postId);
+    if (post.authorId !== userId) await assertNotBlocked(this.read, userId, post.authorId, "comment on this post");
     const [row] = await this.db.insert(postComments).values({ id: newId(), postId, authorId: userId, body: text }).returning();
     const [{ commentCount }] = await this.db.update(posts).set({ commentCount: sql`${posts.commentCount} + 1` })
       .where(eq(posts.id, postId)).returning({ commentCount: posts.commentCount });

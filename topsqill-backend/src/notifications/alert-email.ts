@@ -28,11 +28,17 @@ const BUTTON: Record<string, string> = {
   message: "Reply", connection: "View profile", lead: "Open the lead", job: "View", match: "See the match", comment: "View the post", post: "View the post", system: "Open Topsqill.ai", listing: "View your listing", campaign: "Open the campaign",
 };
 
-export function renderAlertEmail(input: { kind: string; title: string; body?: string | null; url: string; name?: string | null }) {
+export function renderAlertEmail(input: { kind: string; title: string; body?: string | null; url: string; name?: string | null; unsubscribeUrl?: string; settingsUrl?: string }) {
   const greeting = input.name ? `Hi ${input.name.split(" ")[0]},` : "Hi,";
   const button = BUTTON[input.kind] ?? "Open Topsqill.ai";
   const subject = input.title;
-  const text = [greeting, "", input.title, input.body ? `\n${input.body}` : "", "", `${button}: ${input.url}`, "", "You get these emails for activity on your Topsqill.ai account.", "Topsqill.ai, the real estate network"].join("\n");
+  const text = [greeting, "", input.title, input.body ? `\n${input.body}` : "", "", `${button}: ${input.url}`, "", "You get these emails for activity on your Topsqill.ai account.",
+    input.unsubscribeUrl ? `Stop these emails: ${input.unsubscribeUrl}` : "", input.settingsUrl ? `Choose your emails: ${input.settingsUrl}` : "",
+    "Topsqill.ai, the real estate network"].filter((l, i, a) => l !== "" || a[i - 1] !== "").join("\n");
+  const links = [
+    input.unsubscribeUrl ? `<a href="${escape(input.unsubscribeUrl)}" style="color:#8D8AA3">Stop these emails</a>` : "",
+    input.settingsUrl ? `<a href="${escape(input.settingsUrl)}" style="color:#8D8AA3">Choose your emails</a>` : "",
+  ].filter(Boolean).join(" · ");
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${escape(subject)}</title></head>
 <body style="margin:0;padding:0;background:#F5F4F9">
@@ -49,7 +55,7 @@ ${input.body ? `<p style="margin:0 0 18px;font-size:15px;line-height:1.5;color:#
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 22px"><tr><td style="border-radius:999px;background:#6A3FE0">
 <a href="${escape(input.url)}" style="display:inline-block;padding:12px 24px;font:700 15px Arial,Helvetica,sans-serif;color:#ffffff;text-decoration:none;border-radius:999px">${escape(button)}</a></td></tr></table>
 </td></tr>
-<tr><td style="padding:0 28px 24px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#8D8AA3;line-height:1.5">You get these emails for activity on your Topsqill.ai account.<br>Topsqill.ai, the real estate network</td></tr>
+<tr><td style="padding:0 28px 24px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#8D8AA3;line-height:1.5">You get these emails for activity on your Topsqill.ai account.${links ? `<br>${links}` : ""}<br>Topsqill.ai, the real estate network</td></tr>
 </table></td></tr></table></body></html>`;
   return { subject, text, html };
 }

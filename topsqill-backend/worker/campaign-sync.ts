@@ -16,6 +16,7 @@ export async function syncLiveCampaigns(pool: Pool, notifyQueue?: Queue) {
     await pool.query(
       `insert into notifications (id, user_id, kind, title, body, target_type, target_id) values ($1,$2,'campaign',$3,$4,$5,$6)`,
       [id, n.userId, n.title.slice(0, 160), n.body?.slice(0, 300) ?? null, n.targetType, n.targetId]);
+    await notifyQueue?.add("push", { notificationId: id }, { jobId: `push-${id}` }).catch(() => {});
     await notifyQueue?.add("deliver", { notificationId: id }, { jobId: `notif-${id}` }).catch(() => {});
   };
   return syncAll(pool, notify);

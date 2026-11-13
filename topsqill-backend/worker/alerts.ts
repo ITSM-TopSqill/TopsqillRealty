@@ -21,5 +21,6 @@ export async function raiseAlert(pool: Pool, redis: Redis, n: {
     [id, n.userId, n.kind, n.title.slice(0, 160), n.body?.slice(0, 300) ?? null, n.actorId ?? null, n.targetType ?? null, n.targetId ?? null]);
   await redis.publish(`user:${n.userId}`, JSON.stringify({ type: "notification", data: rows[0] })).catch(() => {});
   queue ??= new Queue(QUEUES.notify, { connection: redis });
+  await queue.add("push", { notificationId: id }, { jobId: `push-${id}`, removeOnComplete: 1000, removeOnFail: 5000 }).catch(() => {});
   await queue.add("deliver", { notificationId: id }, { jobId: `notif-${id}`, delay: n.emailDelayMs ?? 60_000, removeOnComplete: 1000, removeOnFail: 5000 }).catch(() => {});
 }

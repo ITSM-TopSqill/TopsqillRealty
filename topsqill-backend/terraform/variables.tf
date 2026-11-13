@@ -96,6 +96,18 @@ variable "web_url" {
   description = "The website's address, used for links in alert emails, e.g. your Vercel URL."
 }
 
+variable "api_public_url" {
+  type        = string
+  default     = ""
+  description = "The API's public address (e.g. https://api.topsqill.ai). Lets mail apps show a one-click Unsubscribe on alert emails. Leave empty to skip."
+}
+
+variable "fcm_project_id" {
+  type        = string
+  default     = ""
+  description = "Firebase project that sends push notifications to the mobile app (often the same as project_id). Leave empty until the app uses Firebase; Expo push needs nothing."
+}
+
 # Bright Data Web Unlocker, for importing listings from sites that block
 # servers (99acres, Housing.com...). Store the key first:
 #   gcloud secrets versions add topsqill-<env>-brightdata-key --data-file=-

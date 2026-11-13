@@ -8,7 +8,9 @@ export const metadata = { title: "Sign in" };
 export const dynamic = "force-dynamic";
 
 export default async function SignInPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const next = safeNext((await searchParams).next);
+  const params = await searchParams;
+  const next = safeNext(params.next);
+  const deleted = params.deleted === "1";
   if (await getUser()) redirect(next ?? "/");
   const methods = await getAuthMethods();
   return (
@@ -18,6 +20,11 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
           <span className="logo-mark">t</span>
           <span className="logo-word">Topsqill.ai</span>
         </div>
+        {deleted ? (
+          <p role="status" className="small" style={{ background: "var(--soft)", border: "1px solid var(--line)", borderRadius: 12, padding: "10px 12px", marginBottom: 14 }}>
+            Your account has been deleted. Thank you for being part of Topsqill.ai.
+          </p>
+        ) : null}
         <h1 style={{ fontSize: 24, marginBottom: 4 }}>Welcome back</h1>
         <p className="muted small" style={{ marginBottom: 18 }}>
           Sign in with a one-time code. No password to remember.

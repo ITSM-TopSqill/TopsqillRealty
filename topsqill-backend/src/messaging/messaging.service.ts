@@ -8,6 +8,7 @@ import { MediaService } from "../media/media.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { LeadsService } from "../leads/leads.service";
 import { newId, encodeCursor, decodeCursor } from "../common/ids";
+import { assertNotBlocked } from "../account/blocks";
 
 /** Conversation ids are stable: the same two people always share one row. */
 const pair = (x: string, y: string) => (x < y ? [x, y] : [y, x]) as [string, string];
@@ -25,6 +26,9 @@ export class MessagingService {
 
   async openWith(userId: string, peerId: string) {
     if (userId === peerId) throw new BadRequestException("You can’t message yourself.");
+    const [peer] = await this.read.select({ status: users.status }).from(users).where(eq(users.id, peerId)).limit(1);
+    if (!peer || peer.status === "removed") throw new NotFoundException("That member is not available.");
+    await assertNotBlocked(this.read, userId, peerId, "message this member");
     const [a, b] = pair(userId, peerId);
     const [existing] = await this.read.select().from(conversations)
       .where(and(eq(conversations.aId, a), eq(conversations.bId, b))).limit(1);
@@ -102,6 +106,10 @@ export class MessagingService {
   async send(userId: string, conversationId: string, input: { body?: string; mediaIds?: string[]; refType?: string; refId?: string; adCampaignId?: string }) {
     const convo = await this.assertMember(conversationId, userId);
     if (!input.body?.trim() && !input.mediaIds?.length && !input.refId) throw new BadRequestException("Write a message or attach something first.");
+    const other = convo.aId === userId ? convo.bId : convo.aId;
+    await assertNotBlocked(this.db, userId, other, "message this member");
+    const [peerRow] = await this.read.select({ status: users.status }).from(users).where(eq(users.id, other)).limit(1);
+    if (!peerRow || peerRow.status === "removed") throw new BadRequestException("This member has deleted their account.");
 
     const id = newId();
     const preview = (input.body ?? (input.mediaIds?.length ? "📎 Attachment" : "Shared an item")).slice(0, 160);

@@ -10,6 +10,7 @@ import { AdTracker } from "@/components/AdTracker";
 import { SaveButton } from "@/components/SaveButton";
 import { priceDrop } from "@/lib/price-drop";
 import { ListingOwnerBar } from "@/components/ListingOwnerBar";
+import { ReportButton } from "@/components/safety/Safety";
 import { ListingAsk } from "@/components/ListingAsk";
 import { Gallery } from "@/components/Gallery";
 import { ListingExtras } from "@/components/ListingExtras";
@@ -222,6 +223,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
             <div className="row" style={{ gap: 8 }}>
               <SaveButton listingId={listing.id} initial={saved} signedIn={!!user} />
               <ContactOwner listingId={listing.id} ownerId={ownerId} signedIn={!!user} title={listing.title} />
+              {user ? <ReportButton type="listing" id={listing.id} name={listing.title} /> : null}
             </div>
           ) : null}
       </div>
