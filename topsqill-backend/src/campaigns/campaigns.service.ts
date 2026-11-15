@@ -10,18 +10,26 @@ import { newId } from "../common/ids";
 import { speakMp3 } from "../common/tts";
 import { writePublic, publicBase } from "../media/storage";
 import { createHash } from "node:crypto";
+import type { Pool } from "pg";
+import { queryOn } from "../ads/db";
+import { loadAds } from "../ads/settings";
 
 export type PodcastLine = { host: "Priya" | "Arjun"; line: string };
 export type Podcast = { script: PodcastLine[]; audioUrl: string | null; seconds: number; source: "claude" | "rules"; at: string };
 
 @Injectable()
 export class CampaignsService {
+  private readonly q;
+
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(DB_READ) private readonly read: Database,
+    @Inject("PG_POOLS") pools: { writePool: Pool },
     private readonly claude: ClaudeService,
     private readonly search: SearchService,
-  ) {}
+  ) {
+    this.q = queryOn(pools.writePool);
+  }
 
   /** Builds the whole campaign: targeting, channels, creatives and a forecast. */
   async create(userId: string, input: { listingId: string; goal?: string; budgetInr: number; days?: number; notes?: string }) {
@@ -49,6 +57,10 @@ export class CampaignsService {
         }
       }
     }
+    // The plan's own radius is just for display; the real radius sent to Meta
+    // and Google is whichever admin setting is larger (Housing ads need 25km+).
+    const adsSettings = await loadAds(this.q);
+    plan.radiusKm = Math.max(adsSettings.meta.radiusKm, adsSettings.google.radiusKm) || plan.radiusKm;
 
     const segment = segmentOf(listing.purpose, listing.priceInr ?? 0);
     const fc = forecast(plan, input.budgetInr, segment);
