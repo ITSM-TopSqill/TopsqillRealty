@@ -55,7 +55,13 @@ export async function launchCampaign(pool: Pool, campaignId: string) {
   const url = (v?: string) => (!v ? null : v.startsWith("http") ? v : `${base}/${v}`);
   const byId = new Map(media.map((m) => [m.id, m]));
   const ordered = mediaIds.map((id) => byId.get(id)).filter(Boolean) as typeof media;
-  const pictures = ordered.filter((m) => m.kind === "image").map((m) => url(m.variants.large_jpeg ?? m.variants.full_jpeg ?? m.variants.original)).filter(Boolean) as string[];
+  // The resizer skips a size larger than the original (never upscales), so a
+  // photo under 1280px wide - most phone photos - has no "large" or "full"
+  // variant. Fall through to whatever size exists rather than treating that
+  // as no photo at all.
+  const pictures = ordered.filter((m) => m.kind === "image")
+    .map((m) => url(m.variants.full_jpeg ?? m.variants.large_jpeg ?? m.variants.card_jpeg ?? m.variants.thumb_jpeg ?? m.variants.original))
+    .filter(Boolean) as string[];
   const videoRow = ordered.find((m) => m.kind === "video" && m.variants.mp4);
   if (!pictures.length && !videoRow) throw new Error("Pick at least one photo for the ads.");
 
