@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
 import { compact, timeAgo } from "@/lib/format";
+import { MediaUploader, type UploadedItem } from "./MediaUploader";
 
 type Info = {
   status: string; enabled: boolean; platforms: { meta: boolean; google: boolean }; chosen: string[]; mediaIds: string[];
@@ -23,7 +24,7 @@ const rs = (paise: number) => `₹${Math.round(paise / 100).toLocaleString("en-I
  * where and how much, see what's set aside from the wallet, send for review;
  * then live results with pause, resume and end.
  */
-export function RunAds({ campaignId, budgetInr, days, base }: { campaignId: string; budgetInr: number; days: number; base: string }) {
+export function RunAds({ campaignId, budgetInr, days, base, listingMediaIds = [] }: { campaignId: string; budgetInr: number; days: number; base: string; listingMediaIds?: string[] }) {
   const router = useRouter();
   const [info, setInfo] = useState<Info | null>(null);
   const [error, setError] = useState("");
@@ -33,6 +34,11 @@ export function RunAds({ campaignId, budgetInr, days, base }: { campaignId: stri
   const [nDays, setDays] = useState(days);
   const [picked, setPicked] = useState<string[]>([]);
   const [agree, setAgree] = useState(false);
+  const [uploads, setUploads] = useState<UploadedItem[]>([]);
+  const [showUploader, setShowUploader] = useState(false);
+  const [attaching, setAttaching] = useState(false);
+  const listingMediaRef = useRef(listingMediaIds);
+  const attached = useRef(new Set<string>());
 
   function apply(i: Info) {
     setInfo(i);
@@ -40,6 +46,28 @@ export function RunAds({ campaignId, budgetInr, days, base }: { campaignId: stri
     setPicked((p) => (p.length ? p : i.mediaIds.length ? i.mediaIds : i.photos.filter((x) => x.kind === "image").slice(0, 4).map((x) => x.id)));
   }
   useEffect(() => { clientApi<Info>(`/v1/campaigns/${campaignId}/ads`).then(apply).catch((e) => setError((e as Error).message)); }, [campaignId]);
+
+  // Each photo that finishes uploading is attached to the listing (the list
+  // replaces the old one, so the existing photos and plans go back in too),
+  // then picked for these ads automatically.
+  useEffect(() => {
+    const ready = uploads.filter((u) => u.status === "ready" && !attached.current.has(u.mediaId));
+    if (!ready.length) return;
+    setAttaching(true);
+    (async () => {
+      for (const u of ready) attached.current.add(u.mediaId);
+      const next = [...listingMediaRef.current, ...ready.map((u) => u.mediaId)];
+      try {
+        await clientApi(`/v1/listings/${base}`, { method: "PATCH", body: { mediaIds: next } });
+        listingMediaRef.current = next;
+        const i = await clientApi<Info>(`/v1/campaigns/${campaignId}/ads`);
+        apply(i);
+        setPicked((p) => [...new Set([...p, ...ready.map((u) => u.mediaId)])].slice(0, 6));
+      } catch (e) { setError((e as Error).message); }
+      finally { setAttaching(false); }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uploads]);
 
   async function act(path: string, body?: unknown, confirmText?: string) {
     if (confirmText && !confirm(confirmText)) return;
@@ -179,7 +207,17 @@ export function RunAds({ campaignId, budgetInr, days, base }: { campaignId: stri
               );
             })}
           </div>
-        ) : <p className="small error">The listing has no photos: <Link href={`/listings/${base}/edit`}>add some</Link> first.</p>}
+        ) : <p className="small error">The listing has no photos yet — add some below.</p>}
+
+        {showUploader ? (
+          <div style={{ marginTop: 10 }}>
+            <MediaUploader items={uploads} onChange={setUploads} max={10} accept="image/*,video/*" category="photo"
+              title="Add photos for the ads" hint="Drag files here, or tap to choose" />
+            {attaching ? <p className="small muted" style={{ margin: "4px 0 0" }}>Attaching to the listing…</p> : null}
+          </div>
+        ) : (
+          <button type="button" className="btn btn-g sm" style={{ marginTop: 8 }} onClick={() => setShowUploader(true)}>+ Add photos</button>
+        )}
       </fieldset>
 
       <div style={{ background: "var(--soft)", borderRadius: 12, padding: "10px 12px", marginBottom: 10 }}>

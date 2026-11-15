@@ -36,7 +36,8 @@ export class CampaignsService {
     const [listing] = await this.read.select().from(listings).where(eq(listings.id, input.listingId)).limit(1);
     if (!listing) throw new NotFoundException("That listing could not be found.");
     if (listing.ownerId !== userId) throw new ForbiddenException("You can only promote your own listings.");
-    if (input.budgetInr < 5000) throw new BadRequestException("The minimum campaign budget is ₹5,000.");
+    const adsSettings = await loadAds(this.q);
+    if (input.budgetInr < adsSettings.minCampaignInr) throw new BadRequestException(`The minimum campaign budget is ₹${adsSettings.minCampaignInr.toLocaleString("en-IN")}.`);
 
     const demand = await this.demandFor(listing.city, listing.locality, listing.purpose);
     const stats = await this.search.localityStats(listing.locality, listing.city);
@@ -59,7 +60,6 @@ export class CampaignsService {
     }
     // The plan's own radius is just for display; the real radius sent to Meta
     // and Google is whichever admin setting is larger (Housing ads need 25km+).
-    const adsSettings = await loadAds(this.q);
     plan.radiusKm = Math.max(adsSettings.meta.radiusKm, adsSettings.google.radiusKm) || plan.radiusKm;
 
     const segment = segmentOf(listing.purpose, listing.priceInr ?? 0);

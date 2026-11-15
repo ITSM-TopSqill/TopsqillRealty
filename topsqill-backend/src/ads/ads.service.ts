@@ -350,6 +350,12 @@ export class AdsService {
     return out;
   }
 
+  /** What a member needs to know before creating or funding a campaign. */
+  async minimums() {
+    const s = await loadAds(this.q);
+    return { enabled: s.enabled, minCampaignInr: s.minCampaignInr, minTopupInr: s.minTopupInr };
+  }
+
   /** Credits or debits a member's wallet by hand (refunds, goodwill), with a reason. */
   async adjust(adminId: string, ownerId: string, amountInr: number, note: string) {
     const paise = Math.round(amountInr * 100);

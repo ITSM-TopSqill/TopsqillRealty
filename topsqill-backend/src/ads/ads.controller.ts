@@ -44,6 +44,9 @@ class AdjustDto {
 export class WalletController {
   constructor(private readonly ads: AdsService) {}
 
+  @Get("minimums") @ApiOperation({ summary: "Smallest top-up and campaign budget right now" })
+  minimums() { return this.ads.minimums(); }
+
   @Get() @ApiOperation({ summary: "My ad wallet: balance, money set aside, history, invoices" })
   get(@CurrentUser() u: AuthUser) { return this.ads.wallet(u.id); }
 

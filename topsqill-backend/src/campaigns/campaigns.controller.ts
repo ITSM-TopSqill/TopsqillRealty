@@ -6,7 +6,9 @@ import { CurrentUser, AuthUser } from "../auth/public.decorator";
 
 class CreateCampaignDto {
   @IsString() listingId: string;
-  @IsInt() @Min(5000) budgetInr: number;
+  // The real floor is the admin's configured minimum (checked in the service);
+  // this is just a sanity bound so a bad request can't send ₹0 or less.
+  @IsInt() @Min(1) budgetInr: number;
   @IsOptional() @IsInt() @Min(3) days?: number;
   @IsOptional() @IsString() goal?: string;
   @IsOptional() @IsString() @MaxLength(400) notes?: string;

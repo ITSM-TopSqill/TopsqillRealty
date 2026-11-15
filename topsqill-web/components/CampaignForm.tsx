@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
 import { inr } from "@/lib/format";
@@ -19,10 +19,13 @@ export function CampaignForm({ listings, preselect }: { listings: MyListing[]; p
   const [notes, setNotes] = useState("");
   const [step, setStep] = useState(-1);
   const [error, setError] = useState("");
+  // The real minimum is whatever the admin has configured, not a fixed number.
+  const [minBudget, setMinBudget] = useState(5000);
+  useEffect(() => { clientApi<{ minCampaignInr: number }>("/v1/wallet/minimums").then((m) => setMinBudget(m.minCampaignInr)).catch(() => {}); }, []);
 
   async function build(e: React.FormEvent) {
     e.preventDefault();
-    if (budget < 5000) { setError("The minimum budget is ₹5,000."); return; }
+    if (budget < minBudget) { setError(`The minimum budget is ${inr(minBudget)}.`); return; }
     setError(""); setStep(0);
     // The steps tick along while the server works, so the wait reads as progress.
     const timer = setInterval(() => setStep((s) => Math.min(s + 1, STEPS.length - 1)), 900);
@@ -67,8 +70,9 @@ export function CampaignForm({ listings, preselect }: { listings: MyListing[]; p
       <div className="field" style={{ marginTop: 12 }}><label htmlFor="budget">Total budget</label>
         <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
           {BUDGETS.map((b) => <button type="button" key={b} className={`chip ${budget === b ? "on" : ""}`} aria-pressed={budget === b} onClick={() => setBudget(b)}>{inr(b)}</button>)}
-          <input id="budget" type="number" min={5000} step={1000} value={budget} onChange={(e) => setBudget(Number(e.target.value))} style={{ width: 140 }} />
+          <input id="budget" type="number" min={minBudget} step={minBudget < 1000 ? 100 : 1000} value={budget} onChange={(e) => setBudget(Number(e.target.value))} style={{ width: 140 }} />
         </div>
+        <p className="muted small" style={{ marginTop: 4 }}>Minimum {inr(minBudget)}</p>
       </div>
 
       <div className="field" style={{ marginTop: 12 }}><label htmlFor="days">Run for {days} days ({inr(Math.round(budget / Math.max(days, 1)))} a day)</label>

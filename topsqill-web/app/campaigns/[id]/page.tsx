@@ -54,7 +54,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         </div>
       ) : null}
 
-      {c.listingId ? <RunAds campaignId={c.id} budgetInr={c.budgetInr} days={c.days} base={c.listingId} /> : null}
+      {c.listingId ? <RunAds campaignId={c.id} budgetInr={c.budgetInr} days={c.days} base={c.listingId} listingMediaIds={(listing?.media ?? []).map((m) => m.id)} /> : null}
 
       {p ? (
         <div className="g2" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 16, alignItems: "start" }}>
