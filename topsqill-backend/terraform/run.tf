@@ -56,7 +56,8 @@ resource "google_project_iam_member" "app_token_secrets" {
     expression  = <<-EOT
       resource.type == "cloudresourcemanager.googleapis.com/Project" ||
       resource.name.startsWith("projects/${data.google_project.this.number}/secrets/ads-") ||
-      resource.name.startsWith("projects/${data.google_project.this.number}/secrets/wa-")
+      resource.name.startsWith("projects/${data.google_project.this.number}/secrets/wa-") ||
+      resource.name.startsWith("projects/${data.google_project.this.number}/secrets/ig-")
     EOT
   }
 }

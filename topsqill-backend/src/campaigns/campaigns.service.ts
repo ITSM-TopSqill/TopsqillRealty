@@ -200,6 +200,26 @@ Reply with JSON only: {"script":[{"host":"Priya","line":"..."},{"host":"Arjun","
     if (!row || row.ownerId !== userId) throw new NotFoundException("That campaign could not be found.");
     return row;
   }
+
+  /** Renames a draft or rejected campaign; it isn't running yet, so nothing else changes. */
+  async rename(userId: string, id: string, name: string) {
+    const row = await this.get(userId, id);
+    if (row.status !== "draft" && row.status !== "rejected") throw new BadRequestException("You can only rename a campaign before it's sent for review.");
+    const clean = name.trim().slice(0, 160);
+    if (!clean) throw new BadRequestException("Give the campaign a name.");
+    await this.db.update(campaigns).set({ name: clean }).where(eq(campaigns.id, id));
+    return { ok: true, name: clean };
+  }
+
+  /** Deletes a campaign that was never sent for review, or whose review ended in rejection (no money is held either way). */
+  async remove(userId: string, id: string) {
+    const row = await this.get(userId, id);
+    if (row.status !== "draft" && row.status !== "rejected") {
+      throw new BadRequestException("This campaign has been sent for review. Take it back first, or end it, before deleting it.");
+    }
+    await this.db.delete(campaigns).where(eq(campaigns.id, id));
+    return { ok: true };
+  }
 }
 
 const inr = (n: number) => (!n ? "price on request" : n >= 1e7 ? `₹${(n / 1e7).toFixed(2).replace(/\.?0+$/, "")} Cr` : `₹${Math.round(n / 1e5)} L`);

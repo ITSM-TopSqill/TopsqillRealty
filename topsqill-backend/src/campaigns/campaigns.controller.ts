@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import { IsIn, IsInt, IsOptional, IsString, Min, MaxLength, IsArray, ArrayMaxSize } from "class-validator";
 import { CampaignsService } from "./campaigns.service";
@@ -11,6 +11,8 @@ class CreateCampaignDto {
   @IsOptional() @IsString() goal?: string;
   @IsOptional() @IsString() @MaxLength(400) notes?: string;
 }
+
+class RenameDto { @IsString() @MaxLength(160) name: string; }
 
 class CreativesDto {
   @IsOptional() @IsArray() @ArrayMaxSize(3) @IsString({ each: true }) @MaxLength(60, { each: true }) headlines?: string[];
@@ -36,6 +38,12 @@ export class CampaignsController {
 
   @Patch(":id/creatives") @ApiOperation({ summary: "Save my edits to the ad text (live preview)" })
   creatives(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: CreativesDto) { return this.svc.updateCreatives(user.id, id, dto); }
+
+  @Patch(":id") @ApiOperation({ summary: "Rename a campaign before it's sent for review" })
+  rename(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: RenameDto) { return this.svc.rename(user.id, id, dto.name); }
+
+  @Delete(":id") @ApiOperation({ summary: "Delete a draft or rejected campaign" })
+  remove(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.remove(user.id, id); }
 
   @Post(":id/podcast") @ApiOperation({ summary: "Make (or remake) the campaign's audio podcast ad" })
   podcast(@CurrentUser() user: AuthUser, @Param("id") id: string, @Query("regenerate") regenerate?: string) { return this.svc.podcast(user.id, id, regenerate === "1"); }

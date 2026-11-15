@@ -7,7 +7,8 @@ import { RunAds } from "@/components/RunAds";
 import { AdStudio } from "@/components/AdStudio";
 import { ReelPlayer } from "@/components/ReelPlayer";
 import { CampaignPodcast } from "@/components/CampaignPodcast";
-import { inr, compact, CAMPAIGN_COLOR, imageUrl } from "@/lib/format";
+import { CampaignHeader } from "@/components/CampaignHeader";
+import { inr, compact, imageUrl } from "@/lib/format";
 import type { Campaign, Listing } from "@/lib/types";
 
 export const metadata = { title: "Campaign" };
@@ -18,7 +19,6 @@ const COLORS: [RegExp, string][] = [
   [/instagram|facebook|meta/i, "#1877F2"], [/google/i, "#EA4335"], [/youtube/i, "#FF0000"],
   [/whatsapp/i, "#25D366"], [/linkedin/i, "#0A66C2"],
 ];
-const STATUS_LABEL: Record<string, string> = { draft: "Draft", review: "In review", rejected: "Not approved", active: "Live", paused: "Paused", completed: "Finished", scheduled: "Scheduled" };
 const ch = (c: string) => ({ label: c, color: COLORS.find(([re]) => re.test(c))?.[1] ?? "#6A3FE0" });
 
 export default async function CampaignPage({ params }: { params: Promise<{ id: string }> }) {
@@ -34,16 +34,9 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
   return (
     <Shell user={user} current="/leads">
       <Link href="/campaigns" className="small muted">← Campaigns</Link>
-      <div className="spread" style={{ margin: "6px 0 16px", alignItems: "flex-start" }}>
-        <div style={{ minWidth: 0 }}>
-          <h1 style={{ fontSize: 24 }}>{c.name}</h1>
-          <p className="muted small">{inr(c.budgetInr)} over {c.days} days · goal: {c.goal}{c.listingId ? <> · <Link href={`/listings/${c.listingId}`}>view listing</Link></> : null}</p>
-        </div>
-        <div className="row">
-          <span className="pill" style={{ background: `color-mix(in srgb,${CAMPAIGN_COLOR[c.status]} 16%,transparent)`, color: CAMPAIGN_COLOR[c.status] }}>
-            {STATUS_LABEL[c.status] ?? c.status}
-          </span>
-        </div>
+      <div style={{ margin: "6px 0 16px" }}>
+        <CampaignHeader id={c.id} name={c.name} status={c.status} />
+        <p className="muted small" style={{ marginTop: 4 }}>{inr(c.budgetInr)} over {c.days} days · goal: {c.goal}{c.listingId ? <> · <Link href={`/listings/${c.listingId}`}>view listing</Link></> : null}</p>
       </div>
 
       {f ? (
