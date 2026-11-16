@@ -243,23 +243,35 @@ Return JSON: {"bullets": ["..."]}`,
   }
 
   /** Numbers for the admin overview. One round trip, not six. */
+  /**
+   * How many of the activity numbers below are from the demo accounts the
+   * seed script makes (`scripts/seed.ts`, emails ending `@demo.topsqill.ai`),
+   * so the dashboard can tell real traction from the demo apart.
+   */
   async overview() {
+    const notDemo = sql`u.email is null or u.email not like '%@demo.topsqill.ai'`;
     const res = await this.read.execute(sql`
       select
-        (select count(*) from users where status = 'active')::int                       as "activeMembers",
-        (select count(*) from users where created_at > now() - interval '7 days')::int  as "newThisWeek",
-        (select count(*) from verifications where status in ('pending','info'))::int    as "pendingApprovals",
-        (select count(*) from listing_reviews where status = 'pending')::int            as "pendingListings",
-        (select count(*) from reports where status = 'open')::int                       as "openReports",
-        (select count(*) from listings where status = 'active' and hidden = false)::int as "activeListings",
-        (select count(*) from posts where created_at > now() - interval '1 day')::int   as "postsToday",
-        (select count(*) from media where status in ('uploading','processing'))::int    as "mediaProcessing"`);
+        (select count(*) from users u where u.status = 'active' and (${notDemo}))::int                          as "activeMembers",
+        (select count(*) from users u where u.status = 'active' and u.email like '%@demo.topsqill.ai')::int     as "demoMembers",
+        (select count(*) from users u where u.created_at > now() - interval '7 days' and (${notDemo}))::int     as "newThisWeek",
+        (select count(*) from verifications v join users u on u.id = v.user_id
+          where v.status in ('pending','info') and (${notDemo}))::int                                           as "pendingApprovals",
+        (select count(*) from listing_reviews where status = 'pending')::int                                    as "pendingListings",
+        (select count(*) from reports where status = 'open')::int                                               as "openReports",
+        (select count(*) from listings l join users u on u.id = l.owner_id
+          where l.status = 'active' and l.hidden = false and (${notDemo}))::int                                 as "activeListings",
+        (select count(*) from listings l join users u on u.id = l.owner_id
+          where l.status = 'active' and l.hidden = false and u.email like '%@demo.topsqill.ai')::int            as "demoListings",
+        (select count(*) from posts p join users u on u.id = p.author_id
+          where p.created_at > now() - interval '1 day' and (${notDemo}))::int                                  as "postsToday",
+        (select count(*) from media where status in ('uploading','processing'))::int                           as "mediaProcessing"`);
     const row = (Array.isArray(res) ? res[0] : (res as { rows: unknown[] }).rows[0]) as Record<string, number>;
 
     const signups = await this.read.execute(sql`
       select to_char(d::date, 'YYYY-MM-DD') as day, count(u.id)::int as count
       from generate_series(now() - interval '13 days', now(), interval '1 day') d
-      left join users u on u.created_at::date = d::date
+      left join users u on u.created_at::date = d::date and (${notDemo})
       group by d order by d`);
     return { ...row, signups: Array.isArray(signups) ? signups : (signups as { rows: unknown[] }).rows };
   }

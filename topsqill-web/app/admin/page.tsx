@@ -3,8 +3,8 @@ import { api } from "@/lib/api";
 import { getToken } from "@/lib/session";
 
 type Overview = {
-  activeMembers: number; newThisWeek: number; pendingApprovals: number; openReports: number;
-  activeListings: number; postsToday: number; mediaProcessing: number;
+  activeMembers: number; demoMembers: number; newThisWeek: number; pendingApprovals: number; openReports: number;
+  activeListings: number; demoListings: number; postsToday: number; mediaProcessing: number;
   signups: { day: string; count: number }[];
 };
 
@@ -52,6 +52,11 @@ export default async function AdminOverview() {
 
       {data.mediaProcessing ? (
         <p className="small muted" style={{ marginTop: 14 }}>{data.mediaProcessing} media files are still being processed.</p>
+      ) : null}
+      {data.demoMembers || data.demoListings ? (
+        <p className="small muted" style={{ marginTop: 6 }}>
+          Not counted above: {data.demoMembers.toLocaleString("en-IN")} demo member{data.demoMembers === 1 ? "" : "s"} and {data.demoListings.toLocaleString("en-IN")} demo listing{data.demoListings === 1 ? "" : "s"}, created by the seed script for testing.
+        </p>
       ) : null}
     </>
   );
