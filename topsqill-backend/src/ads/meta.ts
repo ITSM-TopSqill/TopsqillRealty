@@ -59,6 +59,15 @@ export type MetaAd = {
   dailyBudgetPaise: number;
   endsAt: Date;
   purpose: "sale" | "rent";
+  ctaLabel?: string;                // the button text chosen in Ad studio, e.g. "Call now"
+};
+
+/** Ad studio's button labels, mapped to Meta's own call-to-action types. Anything not listed (or not yet supported, like WhatsApp) falls back to Learn More. */
+const CTA_TYPES: Record<string, string> = {
+  "Book a site visit": "REQUEST_TIME",
+  "Get the price sheet": "GET_QUOTE",
+  "Learn more": "LEARN_MORE",
+  "Call now": "CALL_NOW",
 };
 
 /** Creates the whole campaign, switched on. Returns Meta's ids for everything made. */
@@ -116,7 +125,7 @@ export async function metaLaunch(ctx: MetaCtx, ad: MetaAd, onStep?: (ids: Record
   ids.adsetId = adset.id; await save();
 
   // 4. Creative: video, carousel, or one photo, with our text and the lead form.
-  const cta = { type: "LEARN_MORE", value: { lead_gen_form_id: form.id } };
+  const cta = { type: CTA_TYPES[ad.ctaLabel ?? ""] ?? "LEARN_MORE", value: { lead_gen_form_id: form.id } };
   const ig = ctx.instagramUserId ? { instagram_user_id: ctx.instagramUserId } : {};
   let spec: Record<string, unknown>;
   if (ad.video) {

@@ -93,15 +93,20 @@ export class CampaignsService {
   private async creatives(userId: string, l: typeof listings.$inferSelect, plan: Plan, notes?: string) {
     const bhk = l.bhk ? `${l.bhk} BHK` : "";
     const amenities = (l.amenities ?? []).slice(0, 3);
+    // Built from parts that may be missing (facing, possession, amenities, area), so a
+    // listing with few details filled in still reads as a sentence, never "with . 0 sq ft".
+    const descBits = [[l.facing, l.possession?.toLowerCase()].filter(Boolean).join(" "), amenities.length ? `with ${amenities.join(", ").toLowerCase()}` : ""].filter(Boolean).join(", ");
+    const areaBit = l.areaSqft ? `${Number(l.areaSqft).toLocaleString("en-IN")} sq ft at ` : "";
+    const areaSub = l.areaSqft ? `${Number(l.areaSqft).toLocaleString("en-IN")} sq ft` : "Spacious layout";
     const fallback = () => ({
       headlines: [`${bhk} in ${l.locality} at ${inr(l.priceInr ?? 0)}`.trim(), "Your family’s next home is here", `${l.possession ?? "Ready"}: ${l.locality}`],
       primaryTexts: [
-        `🏡 ${l.title}. ${l.facing ?? ""} ${l.possession?.toLowerCase() ?? ""}, with ${amenities.join(", ").toLowerCase()}. ${Number(l.areaSqft ?? 0).toLocaleString("en-IN")} sq ft at ${inr(l.priceInr ?? 0)}. Tap to book a site visit this weekend.`.replace(/\s+/g, " "),
+        `🏡 ${l.title}.${descBits ? ` ${descBits}.` : ""} ${areaBit}${inr(l.priceInr ?? 0)}. Tap to book a site visit this weekend.`.replace(/\s+/g, " "),
         `Looking in ${l.locality}? This ${bhk} has everything on your list. Get the floor plan and price sheet in one tap.`,
       ],
       hinglish: `${l.locality} mein apna ${bhk} ghar, ${inr(l.priceInr ?? 0)} mein 🏡 Site visit is weekend book karein!`,
       carousel: [
-        { title: bhk || l.kind, sub: `${Number(l.areaSqft ?? 0).toLocaleString("en-IN")} sq ft` },
+        { title: bhk || l.kind, sub: areaSub },
         { title: "Living spaces", sub: l.furnishing ?? "Well-kept and airy" },
         { title: "Amenities", sub: amenities.join(", ") || "Clubhouse and more" },
         { title: "Location", sub: `${l.locality}, ${l.city}` },
@@ -116,7 +121,7 @@ export class CampaignsService {
       ],
       googleAd: {
         headlines: [`${bhk} in ${l.locality}`.trim(), `${l.possession ?? "Ready to move"} | ${inr(l.priceInr ?? 0)}`, "Verified listing, clear title", "Book a site visit today"],
-        descriptions: [`${bhk} in ${l.locality}, ${l.city}. ${amenities.slice(0, 2).join(", ")}. Get the price sheet now.`, "Talk to a verified expert. Free site visit and home loan help."],
+        descriptions: [`${bhk} in ${l.locality}, ${l.city}.${amenities.length ? ` ${amenities.slice(0, 2).join(", ")}.` : ""} Get the price sheet now.`, "Talk to a verified expert. Free site visit and home loan help."],
       },
       whatsappTemplate: `Hi {{1}}, thanks for your interest in ${l.title} (${inr(l.priceInr ?? 0)}). Here is the brochure and floor plan 📄 Would Saturday or Sunday suit you for a site visit?`,
     });

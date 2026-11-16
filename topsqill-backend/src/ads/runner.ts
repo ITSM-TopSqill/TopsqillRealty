@@ -92,7 +92,7 @@ export async function launchCampaign(pool: Pool, campaignId: string) {
           primaryText: (cr.primaryTexts?.[0] ?? l.title).slice(0, 500),
           description: `${l.locality}, ${l.city}`.slice(0, 60),
           pictures, video: videoRow ? { url: url(videoRow.variants.mp4)!, thumbnail: pictures[0] ?? "" } : null,
-          place: { ...place, radiusKm: s.meta.radiusKm }, dailyBudgetPaise: daily, endsAt,
+          place: { ...place, radiusKm: s.meta.radiusKm }, dailyBudgetPaise: daily, endsAt, ctaLabel: cr.cta,
         }, async (partial) => { await q("update campaign_deliveries set external = $2 where id = $1", [deliveryId, JSON.stringify(partial)]); });
         await q("update campaign_deliveries set status = 'live', external = $2, external_campaign_id = $3, synced_at = now(), error = null where id = $1", [deliveryId, JSON.stringify(ids), ids.campaignId]);
       } else {
