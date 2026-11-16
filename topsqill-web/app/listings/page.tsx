@@ -3,6 +3,7 @@ import { api } from "@/lib/api";
 import { getUser, getToken } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { ListingCard, Empty } from "@/components/ui";
+import { MoreListings } from "@/components/MoreListings";
 import type { Listing, Paged } from "@/lib/types";
 
 export const metadata = {
@@ -25,6 +26,9 @@ export default async function ListingsPage({ searchParams }: { searchParams: Pro
 
   const results = await api<Paged<Listing>>(`/v1/listings?${query}`, { revalidate: 30 })
     .catch(() => ({ items: [], nextCursor: null }));
+  // Same filters, without the cursor: "Show more" below appends its own page after this one.
+  const clientQuery = new URLSearchParams(query);
+  clientQuery.delete("cursor");
 
   const link = (patch: Record<string, string | undefined>) => {
     const next = new URLSearchParams(sp as Record<string, string>);
@@ -92,16 +96,10 @@ export default async function ListingsPage({ searchParams }: { searchParams: Pro
           </div>
 
           {results.items.length ? (
-            <>
-              <div className="lgrid">{results.items.map((l) => <ListingCard key={l.id} listing={l} />)}</div>
-              {results.nextCursor ? (
-                <div style={{ textAlign: "center", marginTop: 18 }}>
-                  <Link href={`/listings?${new URLSearchParams({ ...(sp as Record<string, string>), cursor: results.nextCursor })}`} className="btn btn-o">
-                    Show more listings
-                  </Link>
-                </div>
-              ) : null}
-            </>
+            <div className="lgrid">
+              {results.items.map((l) => <ListingCard key={l.id} listing={l} />)}
+              <MoreListings key={clientQuery.toString()} cursor={results.nextCursor} query={clientQuery.toString()} />
+            </div>
           ) : (
             <Empty title="No listings match these filters" text="Try a wider budget, another city, or fewer filters."
               action={<Link href="/listings" className="btn btn-o">Clear filters</Link>} />
