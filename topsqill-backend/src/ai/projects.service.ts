@@ -131,6 +131,7 @@ Text: """${input.text.slice(0, 12000)}"""`;
   private merge(base: Extracted, ai: Partial<Extracted>): Extracted {
     const out: Extracted = { ...base };
     for (const key of Object.keys(base) as (keyof Extracted)[]) {
+      if (key === "configs" || key === "nearby") continue;   // handled below, with their own validation
       const v = (ai as Record<string, unknown>)[key];
       if (v === undefined || v === null || v === "" || v === 0) continue;
       if (Array.isArray(v) && !v.length) continue;
@@ -147,14 +148,14 @@ Text: """${input.text.slice(0, 12000)}"""`;
 
   /** An honest risk report, so buyers see what to check before paying anything. */
   private riskReport(p: Extracted, projectRate: number, localityRate: number) {
-    const deviation = localityRate ? Math.round((projectRate / localityRate - 1) * 100) : 0;
+    const deviation = localityRate && projectRate ? Math.round((projectRate / localityRate - 1) * 100) : 0;
     const factors = [
       { label: "RERA registration", level: p.reraNumber ? "low" : "high",
         note: p.reraNumber ? `Registered as ${p.reraNumber}. Check it on the state RERA website before paying.` : "No RERA number found. Don’t pay any token until it is verified." },
       { label: "Possession", level: p.status === "Ready to move" ? "low" : "medium",
         note: p.status === "Ready to move" ? "Ready to move, so there is no construction risk." : `Under construction${p.possession ? `, possession ${p.possession}` : ""}. Ask for the delay penalty clause.` },
-      { label: "Price versus the locality", level: Math.abs(deviation) > 20 ? "high" : Math.abs(deviation) > 8 ? "medium" : "low",
-        note: localityRate ? `${Math.abs(deviation)}% ${deviation >= 0 ? "above" : "below"} the ${p.locality || p.city} average of ₹${localityRate.toLocaleString("en-IN")} per sq ft.` : "Not enough nearby listings to compare prices yet." },
+      { label: "Price versus the locality", level: !projectRate ? "medium" : Math.abs(deviation) > 20 ? "high" : Math.abs(deviation) > 8 ? "medium" : "low",
+        note: localityRate && projectRate ? `${Math.abs(deviation)}% ${deviation >= 0 ? "above" : "below"} the ${p.locality || p.city} average of ₹${localityRate.toLocaleString("en-IN")} per sq ft.` : "Price or area not confirmed yet, so it can't be compared to the locality average." },
       { label: "Title and approvals", level: "medium",
         note: "Ask for the title search report, the approved building plan and the environment clearance." },
     ];
