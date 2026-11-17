@@ -381,6 +381,15 @@ resource "google_cloud_run_v2_service" "api" {
           value = env.value
         }
       }
+      # Members connecting their own WhatsApp Business number (Embedded Signup):
+      # independent of whatsapp_enabled, which is only Topsqill's own number.
+      dynamic "env" {
+        for_each = { for k, v in { META_APP_ID = var.meta_app_id, WHATSAPP_EMBEDDED_CONFIG_ID = var.whatsapp_embedded_config_id } : k => v if v != "" }
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
       # Members' own Instagram, to pick their posts and reels (instagram_enabled).
       dynamic "env" {
         for_each = var.instagram_enabled ? [var.instagram_app_id] : []

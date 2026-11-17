@@ -149,6 +149,19 @@ variable "whatsapp_verify_token" {
   default = ""
 }
 
+# Lets a member connect their OWN WhatsApp Business number from Topsqill
+# (Embedded Signup). Neither value is secret; both come from the app's own
+# dashboard: App Settings → Basic (App ID), and WhatsApp → Embedded Signup → a
+# saved Configuration (Configuration ID).
+variable "meta_app_id" {
+  type    = string
+  default = ""
+}
+variable "whatsapp_embedded_config_id" {
+  type    = string
+  default = ""
+}
+
 # Instagram API with Instagram Login: members connect their own Instagram and
 # pick posts and reels. Store the app secret first:
 #   gcloud secrets versions add topsqill-<env>-instagram-app-secret --data-file=-

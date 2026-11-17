@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { clientApi } from "@/lib/api";
 import { inr, timeAgo, STAGE_LABEL } from "@/lib/format";
 import type { Lead } from "@/lib/types";
@@ -75,8 +75,30 @@ function LeadDrawer({ lead, onClose, onMove }: { lead: Lead; onClose: () => void
   const [busy, setBusy] = useState(false);
   const [channel, setChannel] = useState<"whatsapp" | "email" | "call" | null>(null);
   const [note, setNote] = useState("");
+  const [waAccount, setWaAccount] = useState<{ phoneNumberId: string; displayNumber: string | null } | null | undefined>(undefined);
+  const [sending, setSending] = useState(false);
+  type WaMsg = { id: string; direction: string; body: string | null; template: string | null; status: string; createdAt: string };
+  const [history, setHistory] = useState<WaMsg[] | null>(null);
+
+  useEffect(() => { clientApi<typeof waAccount>("/v1/whatsapp/account").then(setWaAccount).catch(() => setWaAccount(null)); }, []);
+  useEffect(() => {
+    if (!waAccount) return;
+    clientApi<{ items: WaMsg[] }>(`/v1/whatsapp/history/${lead.id}`).then((r) => setHistory(r.items)).catch(() => setHistory([]));
+  }, [waAccount, lead.id]);
 
   function flash(t: string) { setNote(t); setTimeout(() => setNote(""), 2500); }
+
+  /** Sends through the dealer's own connected WhatsApp Business number - tracked, not a hand-off to the phone's app. */
+  async function sendViaWhatsApp() {
+    if (!lead.phone || !draft.trim()) return;
+    setSending(true);
+    try {
+      await clientApi("/v1/whatsapp/send", { method: "POST", body: { to: lead.phone, body: draft, leadId: lead.id } });
+      flash("Sent and logged on this lead");
+      clientApi<{ items: WaMsg[] }>(`/v1/whatsapp/history/${lead.id}`).then((r) => setHistory(r.items)).catch(() => {});
+    } catch (e) { flash((e as Error).message); }
+    finally { setSending(false); }
+  }
 
   /** Records the follow-up on the lead's timeline, so the team sees it was done. */
   async function logIt() {
@@ -151,10 +173,15 @@ function LeadDrawer({ lead, onClose, onMove }: { lead: Lead; onClose: () => void
               style={{ width: "100%", marginTop: 10, border: "1.5px solid var(--line)", borderRadius: 12, padding: 10, background: "var(--card)" }} />
             {draft && !busy ? (
               <div className="row" style={{ flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                {channel === "whatsapp" && lead.phone && waAccount ? (
+                  <button type="button" className="btn btn-p sm" onClick={sendViaWhatsApp} disabled={sending}>
+                    {sending ? "Sending…" : `Send via ${waAccount.displayNumber ?? "WhatsApp Business"}`}
+                  </button>
+                ) : null}
                 {channel === "whatsapp" && lead.phone ? (
-                  <a className="btn btn-p sm" target="_blank" rel="noopener" onClick={logIt}
+                  <a className="btn btn-o sm" target="_blank" rel="noopener" onClick={logIt}
                     href={`https://wa.me/${lead.phone.replace(/\D/g, "")}?text=${encodeURIComponent(draft)}`}>
-                    Send on WhatsApp
+                    {waAccount ? "Or open in your own WhatsApp" : "Send on WhatsApp"}
                   </a>
                 ) : null}
                 {channel === "email" && mailto ? <a className="btn btn-p sm" href={mailto} onClick={logIt}>Open in email</a> : null}
@@ -165,6 +192,28 @@ function LeadDrawer({ lead, onClose, onMove }: { lead: Lead; onClose: () => void
               </div>
             ) : null}
           </div>
+
+          {waAccount ? (
+            <div className="card pad">
+              <h4 style={{ fontSize: 15, marginBottom: 8 }}>💬 WhatsApp history</h4>
+              {!history?.length ? (
+                <p className="small muted" style={{ margin: 0 }}>No messages with this lead yet.</p>
+              ) : (
+                <div className="col" style={{ gap: 6, maxHeight: 220, overflowY: "auto" }}>
+                  {[...history].reverse().map((m) => (
+                    <div key={m.id} style={{ alignSelf: m.direction === "out" ? "flex-end" : "flex-start", maxWidth: "85%" }}>
+                      <div className="small" style={{ background: m.direction === "out" ? "var(--brand)" : "var(--soft)", color: m.direction === "out" ? "#fff" : undefined, borderRadius: 12, padding: "6px 10px" }}>
+                        {m.body ?? (m.template ? `Template: ${m.template}` : "(attachment)")}
+                      </div>
+                      <div className="small muted" style={{ textAlign: m.direction === "out" ? "right" : "left", marginTop: 2 }}>
+                        {timeAgo(m.createdAt)}{m.direction === "out" ? ` · ${m.status}` : ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

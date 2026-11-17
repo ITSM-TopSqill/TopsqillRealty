@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger, BadRequestException, NotFoundException, ConflictException } from "@nestjs/common";
+import { Injectable, Inject, Logger, BadRequestException, NotFoundException, ConflictException, ServiceUnavailableException } from "@nestjs/common";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { whatsappAccounts, whatsappMessages, whatsappOptins, leads } from "../db/schema";
@@ -6,6 +6,7 @@ import { SecretsService } from "./secrets.service";
 import { LeadsService } from "../leads/leads.service";
 import { newId } from "../common/ids";
 import { normalisePhone } from "../auth/phone";
+import { env } from "../common/env";
 
 const GRAPH = (v = "v23.0") => `https://graph.facebook.com/${v}`;
 const TAKEN = "This WhatsApp number is already connected to another Topsqill.ai account.";
@@ -54,10 +55,52 @@ export class WhatsAppService {
     return { id: row.id, phoneNumberId: row.phoneNumberId, displayNumber: row.displayNumber, status: row.status };
   }
 
+  /** What the "Connect WhatsApp Business" button on the website needs. Neither value is secret. */
+  embeddedConfig() {
+    if (!env.META_APP_ID || !env.WHATSAPP_EMBEDDED_CONFIG_ID) return { configured: false as const };
+    return { configured: true as const, appId: env.META_APP_ID, configId: env.WHATSAPP_EMBEDDED_CONFIG_ID };
+  }
+
+  /**
+   * Finishes Embedded Signup: the member picked or created their WhatsApp
+   * Business number in Meta's own popup, which handed the website a one-time
+   * code and the new number's ids. This exchanges the code for a real,
+   * long-lived token scoped to that number, subscribes our app to receive
+   * its messages (without this, nothing arrives - the number otherwise sits
+   * connected but silent), and saves it exactly like a manually pasted token.
+   */
+  async connectViaEmbeddedSignup(userId: string, input: { code: string; wabaId: string; phoneNumberId: string }) {
+    if (!env.META_APP_ID || !env.META_APP_SECRET) throw new ServiceUnavailableException("WhatsApp Business connect isn't set up on Topsqill yet.");
+    const short = await fetch(`${GRAPH()}/oauth/access_token?${new URLSearchParams({ client_id: env.META_APP_ID, client_secret: env.META_APP_SECRET, code: input.code })}`);
+    const shortJ = (await short.json()) as { access_token?: string; error?: { message: string } };
+    if (!shortJ.access_token) throw new BadRequestException(`WhatsApp didn't connect: ${shortJ.error?.message ?? "no token"}.`);
+
+    const long = await fetch(`${GRAPH()}/oauth/access_token?${new URLSearchParams({ grant_type: "fb_exchange_token", client_id: env.META_APP_ID, client_secret: env.META_APP_SECRET, fb_exchange_token: shortJ.access_token })}`);
+    const longJ = (await long.json()) as { access_token?: string };
+    const token = longJ.access_token ?? shortJ.access_token;
+
+    // Without this, the number connects but no message from a customer ever reaches us.
+    await fetch(`${GRAPH()}/${input.wabaId}/subscribed_apps`, { method: "POST", headers: { authorization: `Bearer ${token}` } })
+      .then((r) => r.ok || this.log.warn(`subscribed_apps for ${input.wabaId}: ${r.status}`)).catch(() => {});
+
+    const info = await fetch(`${GRAPH()}/${input.phoneNumberId}?fields=display_phone_number`, { headers: { authorization: `Bearer ${token}` } })
+      .then((r) => r.json()).catch(() => ({})) as { display_phone_number?: string };
+
+    return this.connect(userId, { wabaId: input.wabaId, phoneNumberId: input.phoneNumberId, displayNumber: info.display_phone_number, token });
+  }
+
   async account(userId: string) {
     const [row] = await this.read.select().from(whatsappAccounts)
       .where(and(eq(whatsappAccounts.ownerId, userId), eq(whatsappAccounts.status, "connected"))).limit(1);
     return row ?? null;
+  }
+
+  async disconnect(userId: string) {
+    const [row] = await this.read.select({ secretRef: whatsappAccounts.secretRef }).from(whatsappAccounts)
+      .where(and(eq(whatsappAccounts.ownerId, userId), eq(whatsappAccounts.status, "connected"))).limit(1);
+    if (row?.secretRef) await this.secrets.remove(row.secretRef).catch(() => {});
+    await this.db.update(whatsappAccounts).set({ status: "disconnected" }).where(eq(whatsappAccounts.ownerId, userId));
+    return { connected: false };
   }
 
   async recordOptIn(userId: string, phoneRaw: string, source: string, proof?: string) {

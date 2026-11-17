@@ -28,6 +28,11 @@ class OptInDto {
   @IsIn(["lead form", "chat", "manual", "website"]) source: string;
   @IsOptional() @IsString() proof?: string;
 }
+class EmbeddedSignupDto {
+  @IsString() @MaxLength(400) code: string;
+  @IsString() @MaxLength(60) wabaId: string;
+  @IsString() @MaxLength(60) phoneNumberId: string;
+}
 
 @ApiTags("integrations")
 @Controller("v1")
@@ -68,7 +73,16 @@ export class IntegrationsController {
   @Get("whatsapp/account")
   waAccount(@CurrentUser() user: AuthUser) { return this.wa.account(user.id); }
 
-  @Post("whatsapp/connect")
+  @Get("whatsapp/embedded-config") @ApiOperation({ summary: "What the Connect WhatsApp Business button needs (no secrets)" })
+  embeddedConfig() { return this.wa.embeddedConfig(); }
+
+  @Post("whatsapp/embedded-callback") @ApiOperation({ summary: "Finish connecting my own WhatsApp Business number (Embedded Signup)" })
+  embeddedCallback(@CurrentUser() user: AuthUser, @Body() dto: EmbeddedSignupDto) { return this.wa.connectViaEmbeddedSignup(user.id, dto); }
+
+  @Delete("whatsapp")
+  disconnectWa(@CurrentUser() user: AuthUser) { return this.wa.disconnect(user.id); }
+
+  @Post("whatsapp/connect") @ApiOperation({ summary: "Connect by pasting credentials directly (advanced; most should use Embedded Signup)" })
   connectWa(@CurrentUser() user: AuthUser, @Body() dto: ConnectWaDto) { return this.wa.connect(user.id, dto); }
 
   @Post("whatsapp/opt-in")

@@ -4,6 +4,7 @@ import { api, API_URL } from "@/lib/api";
 import { getUser, getToken } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { LeadSources, type Source } from "@/components/LeadSources";
+import { WhatsAppBusinessConnect } from "@/components/WhatsAppBusinessConnect";
 
 export const metadata = { title: "Lead sources" };
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ export default async function LeadSourcesPage() {
         Connect your ads, portals, website and call tracking. Each source gets its own private link; every
         enquiry sent to it lands on your lead board within seconds, scored and with duplicates merged.
       </p>
+      <WhatsAppBusinessConnect />
       <LeadSources initial={items} apiBase={API_URL} />
     </Shell>
   );

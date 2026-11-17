@@ -32,6 +32,10 @@ const schema = z.object({
   WHATSAPP_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+  // Lets a member connect their OWN WhatsApp Business number (Embedded Signup).
+  // Both are IDs, not secrets, but set once in the app's WhatsApp product settings.
+  META_APP_ID: z.string().optional(),
+  WHATSAPP_EMBEDDED_CONFIG_ID: z.string().optional(),
 
   // Email sign-in codes go out over SMTP. Without SMTP_HOST, codes are only
   // logged (development); in production, email sign-in is then switched off.
