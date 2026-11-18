@@ -242,9 +242,12 @@ export function buildHome(plan: FloorPlan, style: Style) {
   // ---- Furniture
   const rooms = plan.rooms;
   const bathIn = (r: Room) => rooms.find((b) => b.kind === "bath" && b.y > r.y && b.x >= r.x && b.x < r.x + r.w);
-  const living = rooms.find((r) => r.id === "living")!;
-  const kitchen = rooms.find((r) => r.kind === "kitchen")!;
-  const entry = plan.doors.find((d) => d.main)!;
+  // A real uploaded plan may not label a "living" or "kitchen" room, or mark a main door:
+  // fall back to the biggest room and the first door rather than crashing.
+  const biggest = (kind: Room["kind"]) => rooms.filter((r) => r.kind === kind).sort((a, b) => b.w * b.d - a.w * a.d)[0];
+  const living = biggest("living") ?? rooms[0];
+  const kitchen = biggest("kitchen") ?? living;
+  const entry = plan.doors.find((d) => d.main) ?? plan.doors[0] ?? { x: plan.start.x, y: plan.start.y, axis: "h" as const, width: 3 };
   const D = plan.depth;
 
   // Living: TV wall on the left, sofa facing it, rug and coffee table; dining towards the kitchen.
