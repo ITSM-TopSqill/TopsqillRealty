@@ -69,7 +69,7 @@ export function SuggestionGrid({ initial, nextOffset, type }: { initial: NetPers
               {sent.has(p.id)
                 ? <span className="btn btn-g sm" style={{ flex: 1 }} aria-live="polite">✓ Invitation sent</span>
                 : <button className="btn btn-o sm" style={{ flex: 1 }} onClick={() => connect(p.id)} disabled={!!busy}>{busy === p.id ? "Sending…" : "+ Connect"}</button>}
-              <button className="btn btn-g sm" style={{ flex: 1 }} onClick={() => message(p.id)} disabled={!!busy}>{busy === `msg:${p.id}` ? "Opening…" : "💬 Message"}</button>
+              <button className="btn btn-p sm" style={{ flex: 1 }} onClick={() => message(p.id)} disabled={!!busy}>{busy === `msg:${p.id}` ? "Opening…" : "💬 Message"}</button>
             </div>
           </article>
         ))}
