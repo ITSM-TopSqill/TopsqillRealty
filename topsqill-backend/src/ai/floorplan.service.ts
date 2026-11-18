@@ -1,9 +1,10 @@
 import { Injectable, Inject, BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import type Anthropic from "@anthropic-ai/sdk";
 import { eq, and, desc } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { listings, listingMedia, media } from "../db/schema";
 import { CacheService } from "../redis/redis.module";
-import { ClaudeService } from "./claude.service";
+import { ClaudeService, textOf } from "./claude.service";
 
 const ROOM_KINDS = ["living", "kitchen", "bedroom", "bath", "balcony", "study"] as const;
 type Room = { id: string; kind: typeof ROOM_KINDS[number]; name: string; x: number; y: number; w: number; d: number };
@@ -27,12 +28,17 @@ front-back (the door opening along y). Mark exactly one door main: true for the 
 Return ONLY JSON: {"rooms":[{"id","kind","name","x","y","w","d"}],"doors":[{"x","y","axis","width","main"}],
 "width","depth","carpetSqft","bhk"}. "kind" must be exactly one of: living, kitchen, bedroom, bath, balcony, study.
 "width"/"depth" are the whole plan's outer size in feet. "carpetSqft" is the sum of all room areas. "bhk" is
-the count of bedroom rooms. If the image is not a readable floor plan, return {"rooms":[]}.`;
+the count of bedroom rooms. If no readable floor plan is present, return {"rooms":[]}.`;
+
+const BROCHURE_NOTE = "\n\nThis comes from a project brochure, which may be several pages of text, renders and " +
+  "amenity photos with the floor plan on just one of them. Find that page and read only it; ignore the rest.";
 
 /**
- * Builds the real 2D/3D/hologram layout from a floor plan image the owner
- * uploaded. No AI key, no floor plan uploaded, or an unreadable image: the
- * listing's layout stays unset (null) rather than showing a guess.
+ * Builds the real 2D/3D/hologram layout from a floor plan the owner
+ * uploaded: a dedicated floor plan photo if there is one, otherwise a floor
+ * plan page inside an uploaded brochure PDF. No AI key, nothing uploaded, or
+ * nothing readable in either: the listing's layout stays unset (null)
+ * rather than showing a guess.
  */
 @Injectable()
 export class FloorplanService {
@@ -43,36 +49,67 @@ export class FloorplanService {
     private readonly cache: CacheService,
   ) {}
 
-  /** Reads the owner's uploaded floor plan photo and builds the listing's real layout from it. */
   async extract(userId: string, listingId: string): Promise<FloorPlanExtraction> {
     const [l] = await this.read.select({ ownerId: listings.ownerId }).from(listings).where(eq(listings.id, listingId)).limit(1);
     if (!l) throw new NotFoundException("That listing could not be found.");
     if (l.ownerId !== userId) throw new ForbiddenException("Only the owner can build this listing's layout.");
-
-    const [plan] = await this.read.select({ variants: media.variants, mimeType: media.mimeType })
-      .from(listingMedia).innerJoin(media, eq(media.id, listingMedia.mediaId))
-      .where(and(eq(listingMedia.listingId, listingId), eq(media.groupName, "plan"), eq(media.kind, "image")))
-      .orderBy(desc(listingMedia.position)).limit(1);
-    if (!plan) throw new BadRequestException("Upload a floor plan photo first (JPG, PNG or WebP — not a PDF yet).");
-
-    const path = plan.variants.full_jpeg ?? plan.variants.large_jpeg ?? plan.variants.card_jpeg ?? plan.variants.thumb_jpeg;
-    if (!path) throw new BadRequestException("That floor plan photo isn't ready yet. Try again in a moment.");
-    const { publicBase } = await import("../media/storage");
-    const url = path.startsWith("http") ? path : `${await publicBase()}/${path}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new BadRequestException("Couldn't read the floor plan photo.");
-    const base64 = Buffer.from(await res.arrayBuffer()).toString("base64");
-
     if (!this.claude.available) throw new BadRequestException("AI isn't configured, so a real layout can't be built right now.");
-    const { data, source } = await this.claude.json<Partial<FloorPlanExtraction>>(
-      "Read this floor plan and return the JSON described.",
-      () => ({ rooms: [] }),
-      { userId, feature: "floorplan.extract", system: SYSTEM, images: [{ base64, mediaType: "image/jpeg" }], maxTokens: 3000, effort: "medium" },
-    );
-    if (source !== "claude") throw new BadRequestException("Couldn't read that floor plan right now. Please try again.");
+
+    // A dedicated floor plan photo always wins, so it's never shadowed by a brochure's own plan page.
+    const [plan] = await this.read.select({ variants: media.variants })
+      .from(listingMedia).innerJoin(media, eq(media.id, listingMedia.mediaId))
+      .where(and(eq(listingMedia.listingId, listingId), eq(media.label, "Floor plan"), eq(media.kind, "image")))
+      .orderBy(desc(listingMedia.position)).limit(1);
+
+    const [brochure] = plan ? [] : await this.read.select({ variants: media.variants })
+      .from(listingMedia).innerJoin(media, eq(media.id, listingMedia.mediaId))
+      .where(and(eq(listingMedia.listingId, listingId), eq(media.label, "Brochure")))
+      .orderBy(desc(listingMedia.position)).limit(1);
+
+    if (!plan && !brochure) throw new BadRequestException("Upload a floor plan photo, or a brochure with one in it, first.");
+
+    const { publicBase } = await import("../media/storage");
+    const base = await publicBase();
+    const urlOf = (v: string) => (v.startsWith("http") ? v : `${base}/${v}`);
+
+    let data: Partial<FloorPlanExtraction>;
+    if (plan) {
+      const path = plan.variants.full_jpeg ?? plan.variants.large_jpeg ?? plan.variants.card_jpeg ?? plan.variants.thumb_jpeg;
+      if (!path) throw new BadRequestException("That floor plan photo isn't ready yet. Try again in a moment.");
+      const res = await fetch(urlOf(path));
+      if (!res.ok) throw new BadRequestException("Couldn't read the floor plan photo.");
+      const base64 = Buffer.from(await res.arrayBuffer()).toString("base64");
+      const { data: d } = await this.claude.json<Partial<FloorPlanExtraction>>(
+        "Read this floor plan and return the JSON described.", () => ({ rooms: [] }),
+        { userId, feature: "floorplan.extract", system: SYSTEM, images: [{ base64, mediaType: "image/jpeg" }], maxTokens: 3000, effort: "medium" },
+      );
+      data = d;
+    } else {
+      const path = brochure!.variants.original;
+      if (!path) throw new BadRequestException("That brochure isn't ready yet. Try again in a moment.");
+      const res = await fetch(urlOf(path));
+      if (!res.ok) throw new BadRequestException("Couldn't read the brochure.");
+      const pdfBase64 = Buffer.from(await res.arrayBuffer()).toString("base64");
+      const content: Anthropic.Beta.BetaContentBlockParam[] = [
+        { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdfBase64 } },
+        { type: "text", text: "Find the floor plan in this brochure, if it has one, and return the JSON described." },
+      ];
+      const res2 = await this.claude.chat({
+        userId, feature: "floorplan.extract", system: SYSTEM + BROCHURE_NOTE,
+        messages: [{ role: "user", content }], maxTokens: 3000, effort: "medium",
+      }).catch(() => null);
+      const text = res2 ? textOf(res2).replace(/```json|```/g, "").trim() : "";
+      const start = text.indexOf("{"), end = text.lastIndexOf("}");
+      try { data = start >= 0 ? JSON.parse(text.slice(start, end + 1)) : { rooms: [] }; }
+      catch { data = { rooms: [] }; }
+    }
 
     const extraction = sanitize(data);
-    if (!extraction) throw new BadRequestException("That didn't look like a readable floor plan. Try a clearer photo of the plan itself.");
+    if (!extraction) {
+      throw new BadRequestException(plan
+        ? "That didn't look like a readable floor plan. Try a clearer photo of the plan itself."
+        : "Couldn't find a floor plan in that brochure. Upload one as its own photo instead.");
+    }
 
     await this.db.update(listings).set({ floorplanData: extraction, updatedAt: new Date() }).where(eq(listings.id, listingId));
     await this.cache.invalidate(`listing:${listingId}`);

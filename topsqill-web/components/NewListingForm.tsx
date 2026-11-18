@@ -244,19 +244,26 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
           {listing?.id ? (
             <div className="field" style={{ gridColumn: "1 / -1" }}>
               <label>2D plan, 3D walkthrough and hologram</label>
-              {media.some((m) => m.category === "floorplan" && m.status === "ready" && m.media?.kind === "image") ? (
-                <>
-                  <p className="small muted" style={{ margin: "0 0 6px" }}>
-                    {floorplanData ? "Built from the floor plan photo you uploaded." : "Build it from the floor plan photo you uploaded below: AI reads the real rooms and sizes."}
-                  </p>
-                  <button type="button" className="btn btn-ai" onClick={buildFloorplan} disabled={busy === "floorplan"}>
-                    {busy === "floorplan" ? "Reading your floor plan…" : floorplanData ? "✨ Rebuild from floor plan" : "✨ Build 3D & hologram from floor plan"}
-                  </button>
-                  {floorplanData ? <div style={{ marginTop: 10 }}><HomeViews title={form.title || "your home"} facing={form.facing} floorplanData={floorplanData} /></div> : null}
-                </>
-              ) : (
-                <p className="small muted" style={{ margin: 0 }}>Add a floor plan photo below (not a PDF) to build a real 2D plan, 3D walkthrough and hologram from it.</p>
-              )}
+              {(() => {
+                const hasPlanPhoto = media.some((m) => m.category === "floorplan" && m.status === "ready" && m.media?.kind === "image");
+                const hasBrochure = media.some((m) => m.category === "brochure" && m.status === "ready");
+                if (!hasPlanPhoto && !hasBrochure) {
+                  return <p className="small muted" style={{ margin: 0 }}>Add a floor plan photo, or a brochure with one in it, below to build a real 2D plan, 3D walkthrough and hologram from it.</p>;
+                }
+                return (
+                  <>
+                    <p className="small muted" style={{ margin: "0 0 6px" }}>
+                      {floorplanData ? "Built from the floor plan you uploaded." : hasPlanPhoto
+                        ? "Build it from the floor plan photo you uploaded below: AI reads the real rooms and sizes."
+                        : "Build it from the floor plan page in the brochure you uploaded below: AI finds that page and reads the real rooms and sizes."}
+                    </p>
+                    <button type="button" className="btn btn-ai" onClick={buildFloorplan} disabled={busy === "floorplan"}>
+                      {busy === "floorplan" ? "Reading your floor plan…" : floorplanData ? "✨ Rebuild from floor plan" : "✨ Build 3D & hologram from floor plan"}
+                    </button>
+                    {floorplanData ? <div style={{ marginTop: 10 }}><HomeViews title={form.title || "your home"} facing={form.facing} floorplanData={floorplanData} /></div> : null}
+                  </>
+                );
+              })()}
             </div>
           ) : null}
           <div className="field" style={{ gridColumn: "1 / -1" }}>
