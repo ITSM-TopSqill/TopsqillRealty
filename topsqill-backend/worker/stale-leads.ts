@@ -24,7 +24,8 @@ type StaleLeadRow = {
  * the lead's owner (or assignee). The draft is only ever a suggestion -
  * nothing is sent automatically; the member reviews and taps send.
  */
-export async function remindStaleLeads(pool: Pool, notifyQueue?: Queue) {
+export async function remindStaleLeads(pool: Pool, notifyQueue?: Queue, staleDaysOverride?: number) {
+  const staleDays = staleDaysOverride ?? STALE_DAYS;
   const { rows } = await pool.query<StaleLeadRow>(
     `select l.id, l.owner_id, l.assignee_id, l.name, l.phone, l.stage, l.budget_max, l.locality,
             lst.title as listing_title, u.name as sender_name, u.agency as sender_agency
@@ -38,7 +39,7 @@ export async function remindStaleLeads(pool: Pool, notifyQueue?: Queue) {
              or l.followup_reminded_at < now() - ($2 || ' days')::interval)
       order by l.last_activity_at asc
       limit 50`,
-    [STALE_DAYS, RENUDGE_DAYS],
+    [staleDays, RENUDGE_DAYS],
   );
 
   let reminded = 0;
@@ -53,7 +54,7 @@ export async function remindStaleLeads(pool: Pool, notifyQueue?: Queue) {
       await pool.query(
         `insert into notifications (id, user_id, kind, title, body, target_type, target_id) values ($1,$2,'lead',$3,$4,'lead',$5)`,
         [notifId, r.assignee_id ?? r.owner_id, `Follow up with ${r.name}`,
-          `No activity for ${STALE_DAYS}+ days. A WhatsApp message is drafted and ready to send.`, r.id],
+          `No activity for ${staleDays}+ days. A WhatsApp message is drafted and ready to send.`, r.id],
       );
       await notifyQueue?.add("push", { notificationId: notifId }, { jobId: `push-${notifId}` }).catch(() => {});
       await notifyQueue?.add("deliver", { notificationId: notifId }, { jobId: `notif-${notifId}` }).catch(() => {});

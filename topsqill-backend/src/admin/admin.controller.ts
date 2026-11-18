@@ -76,6 +76,11 @@ export class AdminController {
   @Post("scraper/reload") @ApiOperation({ summary: "Re-read the api.sh keys now and forget which ones failed" })
   reloadScraperKeys(@CurrentUser() user: AuthUser) { return this.svc.reloadScraperKeys(user.id); }
 
+  @Post("leads/remind-stale") @ApiOperation({ summary: "Run the stale-lead follow-up reminder now, instead of waiting for the hourly check" })
+  remindStaleLeads(@Query("testStaleDays") testStaleDays?: string) {
+    return this.svc.remindStaleLeadsNow(testStaleDays !== undefined ? Number(testStaleDays) : undefined);
+  }
+
   @Get("connectors") @ApiOperation({ summary: "Every outside service and whether it is set up (never secret values)" })
   connectors() { return this.svc.connectors(); }
 

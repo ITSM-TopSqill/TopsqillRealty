@@ -12,6 +12,8 @@ import { ClaudeService } from "../ai/claude.service";
 import { env } from "../common/env";
 import { apishKeys } from "../common/key-pool";
 import { newId } from "../common/ids";
+import type { Pool } from "pg";
+import { remindStaleLeads } from "../../worker/stale-leads";
 
 type Decision = "approved" | "rejected" | "info";
 
@@ -20,11 +22,17 @@ export class AdminService {
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(DB_READ) private readonly read: Database,
+    @Inject("PG_POOLS") private readonly pools: { writePool: Pool; readPool: Pool },
     private readonly cache: CacheService,
     private readonly notifs: NotificationsService,
     private readonly mediaSvc: MediaService,
     private readonly claude: ClaudeService,
   ) {}
+
+  /** Runs the stale-lead reminder now, instead of waiting for the worker's hourly check. `testStaleDays` is for trying it out only. */
+  async remindStaleLeadsNow(testStaleDays?: number) {
+    return remindStaleLeads(this.pools.writePool, undefined, testStaleDays);
+  }
 
   /* --------------------------------- AI --------------------------------- */
 
