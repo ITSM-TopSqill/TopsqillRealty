@@ -1,19 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { buildPlan, canPlan, dims, labelSpot, ROOM_COLOURS, type FloorPlan } from "@/lib/floorplan";
+import { planFromExtraction, dims, labelSpot, ROOM_COLOURS, type FloorPlanExtraction, type FloorPlan } from "@/lib/floorplan";
 import type { Walkthrough, Hologram, WalkMode } from "@/lib/home3d";
 
-type Props = { title: string; kind: string; bhk?: number | null; areaSqft?: number | null; facing?: string | null };
+type Props = { title: string; facing?: string | null; floorplanData?: FloorPlanExtraction | null };
 type Tab = "plan" | "3d" | "holo";
 
 /**
- * A 2D floor plan, a 3D walkthrough and a hologram view of a listing, all
- * built from its bedrooms and area. They show a typical layout of that size,
- * not the home's real plan, and say so.
+ * A 2D floor plan, a 3D walkthrough and a hologram view of a listing, built
+ * only from a floor plan photo the owner uploaded (AI read its real rooms
+ * and sizes). Nothing is shown without that: no typical-layout guess.
  */
-export function HomeViews({ title, kind, bhk, areaSqft, facing }: Props) {
-  const plan = useMemo(() => (canPlan(kind, bhk, areaSqft) ? buildPlan(bhk!, areaSqft!) : null), [kind, bhk, areaSqft]);
+export function HomeViews({ title, facing, floorplanData }: Props) {
+  const plan = useMemo(() => (floorplanData ? planFromExtraction(floorplanData) : null), [floorplanData]);
   const [tab, setTab] = useState<Tab>("plan");
   if (!plan) return null;
   return (
@@ -28,8 +28,7 @@ export function HomeViews({ title, kind, bhk, areaSqft, facing }: Props) {
       </div>
       {tab === "plan" ? <PlanSvg plan={plan} facing={facing} title={title} /> : tab === "3d" ? <Walk plan={plan} title={title} /> : <Holo plan={plan} title={title} />}
       <p className="small muted" style={{ margin: "8px 0 0" }}>
-        Illustrative layout of a typical {plan.bhk} BHK with about {plan.carpetSqft.toLocaleString("en-IN")} sq ft of carpet area, made from this listing’s details.
-        It is not the actual floor plan: ask the owner for that.
+        Built from the floor plan the owner uploaded: {plan.bhk} BHK, about {plan.carpetSqft.toLocaleString("en-IN")} sq ft of carpet area.
       </p>
     </div>
   );

@@ -138,6 +138,9 @@ export const listings = pgTable("listings", {
   description: text("description"),
   amenities: jsonb("amenities").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   usps: jsonb("usps").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  // The real 2D/3D/hologram layout, read by AI from the floor plan the owner
+  // uploaded. Null until an owner uploads one and asks for it to be built.
+  floorplanData: jsonb("floorplan_data"),
   coverMediaId: varchar("cover_media_id", { length: 36 }),
   projectId: varchar("project_id", { length: 36 }),
   projectSourceId: varchar("project_source_id", { length: 36 }),

@@ -6,6 +6,7 @@ import { ProjectsService } from "./projects.service";
 import { AssistantService } from "./assistant.service";
 import { ListingChatService } from "./listing-chat.service";
 import { ListingImportService } from "./listing-import.service";
+import { FloorplanService } from "./floorplan.service";
 import { Type } from "class-transformer";
 import { ValidateNested, ArrayMaxSize } from "class-validator";
 import { CurrentUser, AuthUser, Public } from "../auth/public.decorator";
@@ -58,10 +59,14 @@ export class AiController {
     private readonly assistant: AssistantService,
     private readonly listingChat: ListingChatService,
     private readonly importer: ListingImportService,
+    private readonly floorplan: FloorplanService,
   ) {}
 
   @Post("listings/import") @ApiOperation({ summary: "Draft a listing from another listing or project page (nothing is published)" })
   importListing(@CurrentUser() user: AuthUser, @Body() dto: ListingImportDto) { return this.importer.preview(user.id, dto); }
+
+  @Post("listings/:id/floorplan") @ApiOperation({ summary: "Build the listing's real 2D/3D/hologram layout from its uploaded floor plan photo" })
+  buildFloorplan(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.floorplan.extract(user.id, id); }
 
   @Post("assistant") @ApiOperation({ summary: "Ask Topsqill.ai: search, match, price and write in one chat" })
   ask(@CurrentUser() user: AuthUser, @Body() dto: AskDto) { return this.assistant.ask(user.id, dto.message, dto.history ?? []); }

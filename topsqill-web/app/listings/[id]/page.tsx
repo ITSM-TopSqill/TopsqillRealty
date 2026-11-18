@@ -198,7 +198,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
       <PlansAndDocs media={listing.media ?? []} title={listing.title} />
       <PriceTrend listingId={listing.id} />
       <VastuScore facing={listing.facing} />
-      <HomeViews title={listing.title} kind={listing.kind} bhk={listing.bhk} areaSqft={listing.areaSqft} facing={listing.facing} />
+      <HomeViews title={listing.title} facing={listing.facing} floorplanData={listing.floorplanData} />
       <ListingExtras title={listing.title} videoUrl={listing.videoUrl} tourUrl={listing.tourUrl} lat={listing.lat} lng={listing.lng} locality={`${listing.locality}, ${listing.city}`} approximate={listing.locationExact === false} />
 
       {!mine && status === "active" ? <ListingAsk listingId={listing.id} signedIn={!!user} rent={rent} /> : null}

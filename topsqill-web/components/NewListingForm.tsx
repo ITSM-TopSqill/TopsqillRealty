@@ -11,8 +11,8 @@ import { refreshPages } from "@/lib/refresh";
 import type { Listing } from "@/lib/types";
 import { ImportFromLink, type ImportDraft, type ImportConfig } from "./ImportFromLink";
 import { videoEmbed, tourEmbed } from "@/lib/embeds";
-import { buildPlan, canPlan } from "@/lib/floorplan";
-import { PlanSvg } from "./HomeViews";
+import type { FloorPlanExtraction } from "@/lib/floorplan";
+import { HomeViews } from "./HomeViews";
 
 const KINDS = ["Apartment", "Builder floor", "Villa", "Plot", "Office", "Shop"];
 const CITIES = ["Gurgaon", "Noida", "Greater Noida", "Delhi", "Faridabad", "Mumbai", "Pune", "Bengaluru", "Hyderabad"];
@@ -57,7 +57,8 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
   const [media, setMedia] = useState<UploadedItem[]>(() =>
     (listing?.media ?? []).map((m) => ({ mediaId: m.id, name: m.label ?? "Photo", progress: 100, status: "ready" as const, media: m })));
   const cities = CITIES.includes(form.city) || !form.city ? CITIES : [form.city, ...CITIES];
-  const [busy, setBusy] = useState<"ai" | "save" | null>(null);
+  const [busy, setBusy] = useState<"ai" | "save" | "floorplan" | null>(null);
+  const [floorplanData, setFloorplanData] = useState<FloorPlanExtraction | null>(listing?.floorplanData ?? null);
   const [error, setError] = useState("");
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -103,6 +104,14 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
         usps: res.usps?.length ? res.usps.join("\n") : f.usps,
       }));
     } catch (e) { setError((e as Error).message); }
+    finally { setBusy(null); }
+  }
+
+  async function buildFloorplan() {
+    if (!listing?.id) return;
+    setBusy("floorplan"); setError("");
+    try { setFloorplanData(await clientApi<FloorPlanExtraction>(`/v1/ai/listings/${listing.id}/floorplan`, { method: "POST" })); }
+    catch (e) { setError((e as Error).message); }
     finally { setBusy(null); }
   }
 
@@ -232,11 +241,22 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
             <input id="tour" value={form.tourUrl} onChange={set("tourUrl")} placeholder="https://my.matterport.com/show/?m=…  (Matterport, Kuula, Momento360, CloudPano or 360° YouTube)" />
             {form.tourUrl && !tourEmbed(form.tourUrl) ? <span className="small error">Use a Matterport, Kuula, Momento360, CloudPano or 360° YouTube link.</span> : null}
           </div>
-          {canPlan(form.kind, Number(form.bhk), Number(form.areaSqft)) ? (
+          {listing?.id ? (
             <div className="field" style={{ gridColumn: "1 / -1" }}>
               <label>2D plan, 3D walkthrough and hologram</label>
-              <p className="small muted" style={{ margin: "0 0 6px" }}>Made automatically from the type, bedrooms and area, and shown on your listing as an illustrative layout (not the actual floor plan). Add your real floor plan as a photo too.</p>
-              <PlanSvg plan={buildPlan(Number(form.bhk), Number(form.areaSqft))} facing={form.facing} title={form.title || "your home"} height={260} />
+              {media.some((m) => m.category === "floorplan" && m.status === "ready" && m.media?.kind === "image") ? (
+                <>
+                  <p className="small muted" style={{ margin: "0 0 6px" }}>
+                    {floorplanData ? "Built from the floor plan photo you uploaded." : "Build it from the floor plan photo you uploaded below: AI reads the real rooms and sizes."}
+                  </p>
+                  <button type="button" className="btn btn-ai" onClick={buildFloorplan} disabled={busy === "floorplan"}>
+                    {busy === "floorplan" ? "Reading your floor plan…" : floorplanData ? "✨ Rebuild from floor plan" : "✨ Build 3D & hologram from floor plan"}
+                  </button>
+                  {floorplanData ? <div style={{ marginTop: 10 }}><HomeViews title={form.title || "your home"} facing={form.facing} floorplanData={floorplanData} /></div> : null}
+                </>
+              ) : (
+                <p className="small muted" style={{ margin: 0 }}>Add a floor plan photo below (not a PDF) to build a real 2D plan, 3D walkthrough and hologram from it.</p>
+              )}
             </div>
           ) : null}
           <div className="field" style={{ gridColumn: "1 / -1" }}>

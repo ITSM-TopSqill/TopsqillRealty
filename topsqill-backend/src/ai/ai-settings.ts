@@ -28,6 +28,7 @@ export const AI_FEATURES: Record<string, string> = {
   "write.profile": "Profile writing",
   "jobs.draft": "Job writing",
   "photo.tag": "Photo labels (Kitchen, Bedroom…)",
+  "floorplan.extract": "3D layout from an uploaded floor plan",
   "admin.brief": "Admin daily brief",
 };
 

@@ -22,6 +22,8 @@ export type Listing = {
   reviewedAt?: string | null; submittedAt?: string | null; inReview?: boolean;
   lat?: number | null; lng?: number | null; videoUrl?: string | null; tourUrl?: string | null; sourceUrl?: string | null;
   previousPriceInr?: number | null; priceDroppedAt?: string | null; locationExact?: boolean;
+  /** Real rooms and sizes AI read from the owner's uploaded floor plan, or null until that's done. */
+  floorplanData?: import("./floorplan").FloorPlanExtraction | null;
 };
 
 export type Paged<T> = { items: T[]; nextCursor: string | null };

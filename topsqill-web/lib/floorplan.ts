@@ -1,10 +1,9 @@
 /**
- * An illustrative floor plan built from a listing's bedrooms and area.
- *
- * It is not the home's real plan: it is a typical Indian layout of the same
- * size (living and dining at the front with the kitchen beside it, bedrooms
- * behind, attached and common bathrooms, a balcony off the living room) so
- * buyers can picture the space. Every view that shows it says so.
+ * A floor plan built only from a floor plan photo the owner uploaded: AI
+ * reads the real rooms and their sizes from it, and this turns that into
+ * the shapes the 2D plan, 3D walkthrough and hologram all draw from. There
+ * is no fallback "typical layout" here any more — without a real uploaded
+ * plan, nothing is shown, rather than guessing.
  *
  * Units are feet. x runs across the width, y from the front (entrance side,
  * y = 0) to the back. The balcony sits in front of the living room (y < 0).
@@ -21,104 +20,49 @@ export type FloorPlan = {
   start: { x: number; y: number };
   tour: { x: number; y: number; room: string; pause?: boolean; look?: number }[];
 };
-
-/** Kinds of property a layout makes sense for. */
-const HOMES = /apartment|flat|house|villa|builder floor|penthouse|studio|independent|row ?house|duplex/i;
-
-export function canPlan(kind: string | null | undefined, bhk: number | null | undefined, areaSqft: number | null | undefined) {
-  return !!kind && HOMES.test(kind) && !!bhk && bhk >= 1 && bhk <= 8 && !!areaSqft && areaSqft >= 250 && areaSqft <= 20_000;
-}
+/** What the server stores and sends down: the rooms and doors AI read from the real plan, nothing derived yet. */
+export type FloorPlanExtraction = { rooms: Room[]; doors: Door[]; width: number; depth: number; carpetSqft: number; bhk: number };
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
-export function buildPlan(bhkIn: number, areaSqft: number): FloorPlan {
-  const bhk = Math.max(1, Math.min(8, Math.round(bhkIn)));
-  // Listed areas in India are usually super built-up; the rooms get about 72% of it.
-  const carpet = Math.max(300, areaSqft * 0.72);
-  const bathW = 6;
-  // Bedrooms of a sensible size; a study takes spare width; spare depth goes to the living room.
-  const bedW = r1(Math.max(10, Math.min(15, Math.sqrt(carpet) * 0.42)));
-  const widths = Array.from({ length: bhk }, (_, i) => (i === 0 && bhk > 1 ? r1(bedW * 1.2) : bedW));
-  // At least 24 ft across, so the living room and kitchen fit side by side.
-  const short = 24 - (widths.reduce((a, b) => a + b, 0) + bathW);
-  if (short > 0) widths[widths.length - 1] = r1(widths[widths.length - 1] + short);
-  const bedsW = r1(widths.reduce((a, b) => a + b, 0));
-  const study = r1(Math.min(14, Math.max(0, Math.sqrt(carpet * 1.1) - bedsW - bathW)));
-  const studyW = study >= 7 ? study : 0;
-  const width = r1(bedsW + bathW + studyW);
-  const hall = 3.5;                                               // passage to the bedrooms
-  const depth = r1(Math.max(28, carpet / width));
-  const back = r1(Math.max(12, Math.min(17, depth * 0.48)));      // bedrooms row
-  const front = r1(depth - hall - back);                          // living + kitchen row
-  const backY = r1(front + hall);
-  const kitchenW = r1(Math.max(8, Math.min(width * 0.28, 12)));
-  const livingW = r1(width - kitchenW);
-  const hallY = r1(front + hall / 2);
-  const entryY = r1(Math.max(2.5, front - 2.5));
+/** Turns a real extraction into a drawable, walkable FloorPlan: computes walls and a walkthrough path. */
+export function planFromExtraction(e: FloorPlanExtraction): FloorPlan {
+  const walls = wallsFor(e.rooms, e.doors);
+  const main = e.doors.find((d) => d.main) ?? e.doors[0];
+  const start = main ? { x: r1(main.x + (main.axis === "v" ? 2.5 : 0)), y: r1(main.y + (main.axis === "h" ? 2.5 : 0)) } : { x: 3, y: 3 };
+  const tour = autoTour(e.rooms, start);
+  return { ...e, walls, start, tour };
+}
 
-  const rooms: Room[] = [];
-  const doors: Door[] = [];
-  rooms.push({ id: "living", kind: "living", name: "Living & dining", x: 0, y: 0, w: livingW, d: front });
-  rooms.push({ id: "kitchen", kind: "kitchen", name: "Kitchen", x: livingW, y: 0, w: kitchenW, d: front });
-  rooms.push({ id: "hall", kind: "living", name: "Passage", x: 0, y: front, w: width, d: hall });
-  doors.push({ x: 0, y: entryY, axis: "v", width: 3.5, main: true });
-  doors.push({ x: livingW, y: r1(front * 0.6), axis: "v", width: 4 });
-  // The passage is open to the living room.
-  doors.push({ x: r1(livingW / 2), y: front, axis: "h", width: livingW });
-
-  const balW = r1(Math.min(livingW * 0.7, 16));
-  const balX = r1((livingW - balW) / 2);
-  rooms.push({ id: "balcony", kind: "balcony", name: "Balcony", x: balX, y: -5, w: balW, d: 5 });
-  doors.push({ x: r1(balX + balW / 2), y: 0, axis: "h", width: Math.min(6, balW - 2) });
-
-  // Bedrooms side by side off the passage, the first (master) a little wider; a common bathroom at the end.
-  const bedSpace = bedsW;
-  const tour: FloorPlan["tour"] = [{ x: 3, y: entryY, room: "Entrance" }];
-  const living = { x: r1(livingW / 2), y: r1(front / 2), room: "Living & dining" };
-  // At each stop the camera faces the room's best view (look: 0 = +x, π/2 = towards the back, π = −x, −π/2 = the front).
-  tour.push({ ...living, pause: true, look: Math.PI }, { x: living.x, y: -2.5, room: "Balcony", pause: true, look: -Math.PI / 2 }, living);
-  let x = 0;
-  for (let i = 0; i < bhk; i++) {
-    const w = widths[i];
-    const name = i === 0 && bhk > 1 ? "Master bedroom" : bhk === 1 ? "Bedroom" : `Bedroom ${i + 1}`;
-    const doorX = r1(x + 2.5);
-    rooms.push({ id: `bed${i + 1}`, kind: "bedroom", name, x: r1(x), y: backY, w, d: back });
-    doors.push({ x: doorX, y: backY, axis: "h", width: 3 });
-    // Attached bathroom at the back corner, for all but the last bedroom of bigger homes.
-    let openD = back;
-    if (bhk > 1 && i < Math.min(bhk - 1, 3)) {
-      const bw = r1(Math.min(6, w - 4)), bd = r1(Math.min(8, back - 5));
-      const bx = r1(x + w - bw), by = r1(backY + back - bd);
-      rooms.push({ id: `bath${i + 1}`, kind: "bath", name: "Bath", x: bx, y: by, w: bw, d: bd });
-      doors.push({ x: r1(bx + bw / 2), y: by, axis: "h", width: 2.5 });
-      openD = back - bd;
+/**
+ * A simple walkthrough of real rooms: nearest-room-next from the entrance,
+ * pausing to look around the centre of each. No scripted camera moves (those
+ * assumed a generated layout); the camera just faces the way it is walking,
+ * which `look` left unset already does for every point here.
+ */
+function autoTour(rooms: Room[], start: { x: number; y: number }): FloorPlan["tour"] {
+  const centres = rooms.map((r) => ({ x: r1(r.x + r.w / 2), y: r1(r.y + r.d / 2), room: r.name }));
+  const left = [...centres];
+  const tour: FloorPlan["tour"] = [];
+  let at = start;
+  while (left.length) {
+    let bi = 0, bd = Infinity;
+    for (let i = 0; i < left.length; i++) {
+      const d = Math.hypot(left[i].x - at.x, left[i].y - at.y);
+      if (d < bd) { bd = d; bi = i; }
     }
-    tour.push({ x: living.x, y: hallY, room: "Passage" }, { x: doorX, y: hallY, room: name }, { x: doorX, y: r1(backY + 2), room: name },
-      { x: r1(x + w / 2), y: r1(backY + 2.3), room: name, pause: true, look: Math.PI / 2 }, { x: doorX, y: r1(backY + 2), room: name }, { x: doorX, y: hallY, room: "Passage" });
-    x += w;
+    const next = left.splice(bi, 1)[0];
+    tour.push({ ...next, pause: true });
+    at = next;
   }
-  const cbx = r1(bedSpace);
-  rooms.push({ id: "bath", kind: "bath", name: bhk > 1 ? "Common bath" : "Bath", x: cbx, y: backY, w: bathW, d: back });
-  doors.push({ x: r1(cbx + bathW / 2), y: backY, axis: "h", width: 2.5 });
-  if (studyW) {
-    const sx = r1(cbx + bathW);
-    rooms.push({ id: "study", kind: "study", name: "Study", x: sx, y: backY, w: studyW, d: back });
-    doors.push({ x: r1(sx + 2.5), y: backY, axis: "h", width: 3 });
-    tour.push({ x: living.x, y: hallY, room: "Passage" }, { x: r1(sx + 2.5), y: hallY, room: "Study" }, { x: r1(sx + 2.5), y: r1(backY + 2), room: "Study" },
-      { x: r1(sx + studyW / 2), y: r1(backY + 2.5), room: "Study", pause: true, look: Math.PI / 2 }, { x: r1(sx + 2.5), y: r1(backY + 2), room: "Study" }, { x: r1(sx + 2.5), y: hallY, room: "Passage" });
-  }
-  tour.push({ x: living.x, y: hallY, room: "Passage" }, living, { x: r1(livingW - 2.5), y: r1(front * 0.6), room: "Kitchen" },
-    { x: r1(livingW + kitchenW / 2), y: r1(front * 0.6), room: "Kitchen", pause: true, look: 0.35 });
-
-  const walls = wallsFor(rooms, doors);
-  return { rooms, walls, doors, width, depth, carpetSqft: Math.round(carpet), bhk, start: { x: 3, y: entryY }, tour };
+  return tour;
 }
 
 /**
  * Every room edge becomes a wall; edges on the same line are merged, then the
  * doorways are cut out. The balcony's outer edges are a low parapet.
  */
-function wallsFor(rooms: Room[], doors: Door[]): Wall[] {
+export function wallsFor(rooms: Room[], doors: Door[]): Wall[] {
   type Seg = { a: number; b: number };
   const lines = new Map<string, { axis: "h" | "v"; at: number; low: boolean; segs: Seg[] }>();
   const add = (axis: "h" | "v", at: number, a: number, b: number, low: boolean) => {
