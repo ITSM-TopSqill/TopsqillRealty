@@ -11,10 +11,17 @@ const STAGE_COLOR: Record<string, string> = {
   negotiation: "#DE8461", booked: "#12B76A", lost: "#8D8AA3",
 };
 
+/** A reminder is still live exactly while nothing has happened on the lead since it fired. */
+function isStale(lead: Lead) {
+  return !!lead.followupDraft && !!lead.followupRemindedAt
+    && (!lead.lastActivityAt || new Date(lead.followupRemindedAt) >= new Date(lead.lastActivityAt));
+}
+
 /** The CRM board. Moving a lead updates the API and the screen together. */
-export function LeadBoard({ columns }: { columns: Record<string, Lead[]> }) {
+export function LeadBoard({ columns, openLeadId }: { columns: Record<string, Lead[]>; openLeadId?: string }) {
   const [board, setBoard] = useState(columns);
-  const [open, setOpen] = useState<Lead | null>(null);
+  const [open, setOpen] = useState<Lead | null>(() =>
+    (openLeadId && Object.values(columns).flat().find((l) => l.id === openLeadId)) || null);
 
   async function move(lead: Lead, stage: string) {
     const from = lead.stage;
@@ -47,6 +54,7 @@ export function LeadBoard({ columns }: { columns: Record<string, Lead[]> }) {
               {items.map((lead) => (
                 <button key={lead.id} className="lead" onClick={() => setOpen(lead)}>
                   <b style={{ fontSize: 14 }}>{lead.name}</b>
+                  {isStale(lead) ? <span className="small" style={{ color: "#E08A00", fontWeight: 700, display: "block" }}>⏰ Follow-up ready</span> : null}
                   {lead.listingTitle ? <div className="small muted">{lead.listingTitle}</div> : null}
                   <div className="small muted">
                     {lead.budgetMax ? `Budget ${inr(lead.budgetMax)} · ` : ""}{timeAgo(lead.createdAt)}
@@ -71,9 +79,10 @@ export function LeadBoard({ columns }: { columns: Record<string, Lead[]> }) {
 }
 
 function LeadDrawer({ lead, onClose, onMove }: { lead: Lead; onClose: () => void; onMove: (l: Lead, s: string) => void }) {
-  const [draft, setDraft] = useState("");
+  const stale = isStale(lead);
+  const [draft, setDraft] = useState(() => (stale ? lead.followupDraft ?? "" : ""));
   const [busy, setBusy] = useState(false);
-  const [channel, setChannel] = useState<"whatsapp" | "email" | "call" | null>(null);
+  const [channel, setChannel] = useState<"whatsapp" | "email" | "call" | null>(stale ? "whatsapp" : null);
   const [note, setNote] = useState("");
   const [waAccount, setWaAccount] = useState<{ phoneNumberId: string; displayNumber: string | null } | null | undefined>(undefined);
   const [sending, setSending] = useState(false);
@@ -136,6 +145,12 @@ function LeadDrawer({ lead, onClose, onMove }: { lead: Lead; onClose: () => void
           <button className="btn btn-g sm" onClick={onClose}>Close</button>
         </div>
         <div className="pad col">
+          {stale ? (
+            <div className="card pad" style={{ background: "color-mix(in srgb, #E08A00 10%, transparent)", border: "1px solid #E08A00" }}>
+              <b className="small" style={{ color: "#B26B00" }}>⏰ This lead has gone quiet</b>
+              <p className="small" style={{ margin: "4px 0 0" }}>No activity in a while, so we drafted a nudge below — review it and send, or edit it first.</p>
+            </div>
+          ) : null}
           <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
             <span className="tag">{lead.source === "channel_partner" ? "channel partner" : lead.source.replace("portal_", "")}</span>
             <span className="tag">Score {lead.score}</span>

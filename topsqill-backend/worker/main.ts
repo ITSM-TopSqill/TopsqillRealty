@@ -10,6 +10,7 @@ import { processMedia, checkTranscodes } from "./media.processor";
 import { fanoutPost } from "./fanout.processor";
 import { flushCounters } from "./counters";
 import { syncLiveCampaigns } from "./campaign-sync";
+import { remindStaleLeads } from "./stale-leads";
 import { runMatch } from "./match.processor";
 import { deliverNotification } from "./notify.processor";
 
@@ -47,6 +48,8 @@ const notifyQueue = new Queue(QUEUES.notify, { connection });
 const statsTimer = setInterval(() => syncLiveCampaigns(pool, notifyQueue).catch((e) => console.error("campaign sync", e.message)), 15 * 60_000);
 // Finished streaming versions of uploaded videos are picked up every minute.
 const videoTimer = setInterval(() => checkTranscodes(pool, connection).catch((e) => console.error("transcode check", e.message)), 60_000);
+// Leads gone quiet for a couple of days get an AI-drafted nudge and a notification, every hour.
+const followupTimer = setInterval(() => remindStaleLeads(pool, notifyQueue).catch((e) => console.error("stale lead reminder", e.message)), 60 * 60_000);
 
 const health = createServer((req, res) => {
   const redisUp = connection.status === "ready";
@@ -60,6 +63,7 @@ async function shutdown() {
   clearInterval(timer);
   clearInterval(statsTimer);
   clearInterval(videoTimer);
+  clearInterval(followupTimer);
   health.close();
   await Promise.all(workers.map((w) => w.close()));
   await pool.end().catch(() => { });

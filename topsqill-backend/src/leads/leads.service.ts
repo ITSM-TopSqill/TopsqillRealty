@@ -123,7 +123,7 @@ export class LeadsService {
       id: leads.id, name: leads.name, phone: leads.phone, stage: leads.stage, score: leads.score,
       qualified: leads.qualified, source: leads.source, listingId: leads.listingId, locality: leads.locality,
       budgetMax: leads.budgetMax, note: leads.note, createdAt: leads.createdAt, lastActivityAt: leads.lastActivityAt,
-      assigneeId: leads.assigneeId,
+      assigneeId: leads.assigneeId, followupDraft: leads.followupDraft, followupRemindedAt: leads.followupRemindedAt,
     }).from(leads).where(and(...where)).orderBy(desc(leads.createdAt)).limit(500);
 
     const listingIds = [...new Set(rows.map((r) => r.listingId).filter(Boolean))] as string[];

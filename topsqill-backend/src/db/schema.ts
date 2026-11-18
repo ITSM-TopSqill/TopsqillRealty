@@ -448,6 +448,12 @@ export const leads = pgTable("leads", {
   /** The ad campaign that brought this lead, when it came from one. */
   campaignId: varchar("campaign_id", { length: 36 }),
   lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
+  // Set by the worker when a lead has gone quiet: an AI-drafted nudge, ready
+  // to review and send. Still fresh (not yet acted on) exactly while this is
+  // >= lastActivityAt; any real activity moves lastActivityAt past it.
+  followupDraft: text("followup_draft"),
+  followupDraftChannel: varchar("followup_draft_channel", { length: 16 }),
+  followupRemindedAt: timestamp("followup_reminded_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({

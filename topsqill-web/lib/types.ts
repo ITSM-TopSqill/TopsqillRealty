@@ -60,6 +60,8 @@ export type Lead = {
   listingId?: string | null; listingTitle?: string | null; locality?: string | null;
   budgetMax?: number | null; note?: string | null; createdAt: string; lastActivityAt?: string | null;
   activities?: { id: string; kind: string; body?: string | null; createdAt: string }[];
+  /** Set when the lead's gone quiet: an AI-drafted nudge, ready to review and send. */
+  followupDraft?: string | null; followupRemindedAt?: string | null;
 };
 
 export type Conversation = {

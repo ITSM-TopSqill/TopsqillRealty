@@ -11,8 +11,8 @@ import type { Lead } from "@/lib/types";
 export const metadata = { title: "Leads" };
 export const dynamic = "force-dynamic";
 
-export default async function LeadsPage() {
-  const [user, token] = await Promise.all([getUser(), getToken()]);
+export default async function LeadsPage({ searchParams }: { searchParams: Promise<{ lead?: string }> }) {
+  const [user, token, params] = await Promise.all([getUser(), getToken(), searchParams]);
   if (!user) redirect("/signin");
 
   const [board, stats] = await Promise.all([
@@ -67,7 +67,7 @@ export default async function LeadsPage() {
       ) : null}
 
       {board.total
-        ? <LeadBoard columns={board.columns} />
+        ? <LeadBoard columns={board.columns} openLeadId={params.lead} />
         : <Empty title="No leads yet" text="Connect a lead source, or run a campaign, and new enquiries will appear here automatically."
             action={<Link href="/leads/sources" className="btn btn-ai">Connect a source</Link>} />}
     </Shell>
