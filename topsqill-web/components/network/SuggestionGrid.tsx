@@ -2,19 +2,22 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
 import { Avatar, TypePill } from "@/components/ui";
 import { refreshCounts } from "@/components/Live";
+import { openChat } from "@/components/MessageDock";
 import type { NetPerson } from "./types";
 
 /**
- * People you may know, as cards: why they're suggested, connect in one tap,
- * dismiss the ones you don't want, and load more.
+ * People you may know, as cards: why they're suggested, connect or message
+ * in one tap, and load more. Suggestions stay put rather than being
+ * dismissable, so the same useful match isn't lost by an accidental tap.
  */
 export function SuggestionGrid({ initial, nextOffset, type }: { initial: NetPerson[]; nextOffset: number | null; type: string }) {
+  const router = useRouter();
   const [items, setItems] = useState(initial);
   const [next, setNext] = useState(nextOffset);
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [sent, setSent] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -23,6 +26,14 @@ export function SuggestionGrid({ initial, nextOffset, type }: { initial: NetPers
     setBusy(id); setError("");
     try { await clientApi(`/v1/profiles/${id}/connect`, { method: "POST" }); setSent((s) => new Set(s).add(id)); refreshCounts(); }
     catch (e) { setError((e as Error).message); }
+    finally { setBusy(null); }
+  }
+  async function message(id: string) {
+    setBusy(`msg:${id}`); setError("");
+    try {
+      const convo = await clientApi<{ id: string }>(`/v1/conversations/with/${id}`, { method: "POST" });
+      if (!openChat(convo.id)) router.push(`/messages?c=${convo.id}`);
+    } catch (e) { setError((e as Error).message); }
     finally { setBusy(null); }
   }
   async function more() {
@@ -36,14 +47,12 @@ export function SuggestionGrid({ initial, nextOffset, type }: { initial: NetPers
     finally { setBusy(null); }
   }
 
-  const shown = items.filter((p) => !hidden.has(p.id));
-  if (!shown.length) return <p className="small muted" style={{ padding: "18px 0" }}>No more suggestions right now. New members in your city will appear here.</p>;
+  if (!items.length) return <p className="small muted" style={{ padding: "18px 0" }}>No more suggestions right now. New members in your city will appear here.</p>;
   return (
     <>
       <div className="nw-grid">
-        {shown.map((p) => (
+        {items.map((p) => (
           <article key={p.id} className="nw-card">
-            <button className="nw-x" aria-label={`Hide ${p.name}`} title="Not interested" onClick={() => setHidden((h) => new Set(h).add(p.id))}>×</button>
             <div className="nw-cover" style={{ background: `linear-gradient(135deg, color-mix(in srgb, var(--vio) 30%, transparent), color-mix(in srgb, #12B76A 20%, transparent))` }} />
             <Link href={`/profile/${p.id}`} className="nw-cav"><Avatar person={p} media={p.avatar ?? null} size={72} /></Link>
             <div className="nw-cbody">
@@ -56,9 +65,12 @@ export function SuggestionGrid({ initial, nextOffset, type }: { initial: NetPers
               <p className="nw-head" style={{ minHeight: 36, WebkitLineClamp: 2 }}>{p.headline || p.agency || (p.city ? `Based in ${p.city}` : "")}</p>
               <p className="nw-reason">{p.reason}</p>
             </div>
-            {sent.has(p.id)
-              ? <span className="btn btn-g sm nw-cbtn" aria-live="polite">✓ Invitation sent</span>
-              : <button className="btn btn-o sm nw-cbtn" onClick={() => connect(p.id)} disabled={busy === p.id}>{busy === p.id ? "Sending…" : "+ Connect"}</button>}
+            <div className="row nw-cbtn" style={{ gap: 6 }}>
+              {sent.has(p.id)
+                ? <span className="btn btn-g sm" style={{ flex: 1 }} aria-live="polite">✓ Invitation sent</span>
+                : <button className="btn btn-o sm" style={{ flex: 1 }} onClick={() => connect(p.id)} disabled={!!busy}>{busy === p.id ? "Sending…" : "+ Connect"}</button>}
+              <button className="btn btn-g sm" style={{ flex: 1 }} onClick={() => message(p.id)} disabled={!!busy}>{busy === `msg:${p.id}` ? "Opening…" : "💬 Message"}</button>
+            </div>
           </article>
         ))}
       </div>

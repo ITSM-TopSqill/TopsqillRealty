@@ -62,7 +62,7 @@ export function ImportFromLink({ onDraft, onConfig }: {
 
 
   return (
-    <div className="card pad" style={{ border: "2px solid var(--vio)" }}>
+    <div>
       <h2 style={{ fontSize: 17, marginBottom: 4 }}>🔗 Import from a link</h2>
       <p className="small muted" style={{ marginBottom: 10 }}>
         Paste the property’s page on a builder’s site or another portal. We read it and fill in the form below; you check everything before publishing.

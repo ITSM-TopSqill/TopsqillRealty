@@ -53,6 +53,8 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
   // A listing sent back by the review team goes back for review when saved.
   const resubmit = listing?.status === "rejected" || listing?.status === "draft";
   const [raw, setRaw] = useState("");
+  const [entryTab, setEntryTab] = useState<"manual" | "ai" | "import">("manual");
+  const [aiResult, setAiResult] = useState<{ title?: string; description?: string; usps?: string[] } | null>(null);
   const [form, setForm] = useState<Form>(listing ? fromListing(listing) : { ...EMPTY, city: defaultCity });
   const [media, setMedia] = useState<UploadedItem[]>(() =>
     (listing?.media ?? []).map((m) => ({ mediaId: m.id, name: m.label ?? "Photo", progress: 100, status: "ready" as const, media: m })));
@@ -91,7 +93,7 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
 
   async function fillWithAi() {
     if (raw.trim().length < 8) { setError("Describe the property in a sentence first."); return; }
-    setBusy("ai"); setError("");
+    setBusy("ai"); setError(""); setAiResult(null);
     try {
       const res = await clientApi<{ title?: string; description?: string; usps?: string[]; priceTip?: string }>(
         "/v1/ai/write/listing",
@@ -103,6 +105,7 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
         description: res.description ?? f.description,
         usps: res.usps?.length ? res.usps.join("\n") : f.usps,
       }));
+      setAiResult(res);
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(null); }
   }
@@ -166,19 +169,48 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
           {listing?.reviewNote ? <p className="small" style={{ margin: "6px 0 0", whiteSpace: "pre-wrap" }}><b>Note from our team:</b> {listing.reviewNote}</p> : null}
         </div>
       ) : null}
-      {!editing ? (
-        <ImportFromLink onDraft={applyDraft} onConfig={applyConfig} />
-      ) : null}
       <div className="card pad" style={{ border: "2px solid var(--vio)" }}>
-        <h2 style={{ fontSize: 17, marginBottom: 4 }}>✨ Describe it like you would to a client</h2>
-        <p className="small muted" style={{ marginBottom: 10 }}>
-          For example: “3 BHK on the 14th floor in Sector 150 Noida, park facing, 1850 sq ft, ready to move, asking 1.65 Cr”.
-        </p>
-        <textarea rows={3} value={raw} onChange={(e) => setRaw(e.target.value)}
-          style={{ width: "100%", border: "1.5px solid var(--line)", borderRadius: 12, padding: 10, background: "var(--card)" }} />
-        <button className="btn btn-ai sm" style={{ marginTop: 10 }} onClick={fillWithAi} disabled={busy !== null}>
-          {busy === "ai" ? "Reading…" : "Fill with AI"}
-        </button>
+        <div className="row" role="tablist" style={{ gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+          <button type="button" role="tab" aria-selected={entryTab === "manual"} className={`chip${entryTab === "manual" ? " on" : ""}`} onClick={() => setEntryTab("manual")}>
+            ✍️ Type manually
+          </button>
+          <button type="button" role="tab" aria-selected={entryTab === "ai"} className={`chip${entryTab === "ai" ? " on" : ""}`} onClick={() => setEntryTab("ai")}>
+            ✨ Fill with AI{aiResult ? " ✓" : ""}
+          </button>
+          {!editing ? (
+            <button type="button" role="tab" aria-selected={entryTab === "import"} className={`chip${entryTab === "import" ? " on" : ""}`} onClick={() => setEntryTab("import")}>
+              🔗 Import from a link{form.sourceUrl ? " ✓" : ""}
+            </button>
+          ) : null}
+        </div>
+
+        {entryTab === "manual" ? (
+          <p className="small muted" style={{ margin: 0 }}>
+            Type the details directly in the fields below — title, bedrooms, area, price and the rest.
+          </p>
+        ) : entryTab === "ai" ? (
+          <div>
+            <h2 style={{ fontSize: 17, marginBottom: 4 }}>✨ Describe it like you would to a client</h2>
+            <p className="small muted" style={{ marginBottom: 10 }}>
+              For example: “3 BHK on the 14th floor in Sector 150 Noida, park facing, 1850 sq ft, ready to move, asking 1.65 Cr”.
+            </p>
+            <textarea rows={3} value={raw} onChange={(e) => setRaw(e.target.value)}
+              style={{ width: "100%", border: "1.5px solid var(--line)", borderRadius: 12, padding: 10, background: "var(--card)" }} />
+            <button className="btn btn-ai sm" style={{ marginTop: 10 }} onClick={fillWithAi} disabled={busy !== null}>
+              {busy === "ai" ? "Reading…" : aiResult ? "Fill with AI again" : "Fill with AI"}
+            </button>
+            {aiResult ? (
+              <div className="col" style={{ gap: 6, marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 14 }}>
+                <p className="small" style={{ margin: 0 }}>✓ Filled in below — check and edit it under <b>Type manually</b>.</p>
+                {aiResult.title ? <p className="small" style={{ margin: 0 }}><b>Title:</b> {aiResult.title}</p> : null}
+                {aiResult.description ? <p className="small muted" style={{ margin: 0 }}>{aiResult.description}</p> : null}
+                {aiResult.usps?.length ? <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>{aiResult.usps.map((u, i) => <li key={i}>{u}</li>)}</ul> : null}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <ImportFromLink onDraft={(d) => { applyDraft(d); }} onConfig={applyConfig} />
+        )}
       </div>
 
       <div className="card pad">

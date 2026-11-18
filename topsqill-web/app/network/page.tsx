@@ -188,7 +188,6 @@ export default async function NetworkPage({ searchParams }: { searchParams: Prom
         .nw-cbody{padding:8px 12px 4px;flex:1}
         .nw-reason{font-size:12px;color:var(--ink3);margin:4px 0 0}
         .nw-cbtn{margin:8px 12px 12px;justify-content:center}
-        .nw-x{position:absolute;top:6px;right:6px;width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.9);border:0;font-size:16px;line-height:1;cursor:pointer;color:#333;z-index:2}
         .nw-empty{text-align:center;padding:30px 10px}
         .nw-empty .ico{font-size:34px}
         @media (max-width: 900px){

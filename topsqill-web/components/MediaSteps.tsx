@@ -58,6 +58,7 @@ export function orderMedia(items: UploadedItem[]) {
 export function MediaSteps({ items, onChange }: { items: UploadedItem[]; onChange: Dispatch<SetStateAction<UploadedItem[]>> }) {
   const byCat = (id: string) => items.filter((i) => categoryOf(i) === id);
   const [open, setOpen] = useState<string | null>(() => (items.length ? null : "photo"));
+  const [activeStep, setActiveStep] = useState<string>(STEPS[0].id);
   const total = 30;
 
   function setCat(id: string, next: UploadedItem[]) {
@@ -69,64 +70,67 @@ export function MediaSteps({ items, onChange }: { items: UploadedItem[]; onChang
 
   return (
     <div className="msteps">
-      {STEPS.map((step, si) => {
-        const done = step.cats.some((c) => byCat(c.id).length);
-        return (
-          <section key={step.id} style={{ marginTop: si ? 18 : 0 }}>
-            <div className="row" style={{ gap: 8, marginBottom: 8 }}>
-              <span className="ms-step" style={{ color: step.color, background: `color-mix(in srgb, ${step.color} 13%, transparent)` }}>{step.label}</span>
-              {done ? <span className="small" style={{ color: step.color, fontWeight: 700 }}>✓ Added</span> : null}
-            </div>
-            <div className="ms-card">
-              {step.id === "media" ? (
-                <div className="ms-src">
-                  <span className="small"><b>Photos on your phone?</b> Send them to Topsqill on WhatsApp or pick from your Instagram:</span>
-                  <MediaSources room={total - items.length} have={items.map((m) => m.mediaId)}
-                    onAdd={(added) => onChange((prev) => orderMedia([...prev, ...added.filter((a) => !prev.some((x) => x.mediaId === a.mediaId))
-                      .map((a) => ({ ...a, category: a.media?.kind === "video" ? "video" : "photo" }))]))} />
+      <div className="row" role="tablist" style={{ gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+        {STEPS.map((step) => {
+          const done = step.cats.some((c) => byCat(c.id).length);
+          return (
+            <button key={step.id} type="button" role="tab" aria-selected={activeStep === step.id}
+              className={`chip${activeStep === step.id ? " on" : ""}`} onClick={() => setActiveStep(step.id)}>
+              {step.label}{done ? " ✓" : ""}
+            </button>
+          );
+        })}
+      </div>
+      {STEPS.filter((step) => step.id === activeStep).map((step) => (
+        <section key={step.id}>
+          <div className="ms-card">
+            {step.id === "media" ? (
+              <div className="ms-src">
+                <span className="small"><b>Photos on your phone?</b> Send them to Topsqill on WhatsApp or pick from your Instagram:</span>
+                <MediaSources room={total - items.length} have={items.map((m) => m.mediaId)}
+                  onAdd={(added) => onChange((prev) => orderMedia([...prev, ...added.filter((a) => !prev.some((x) => x.mediaId === a.mediaId))
+                    .map((a) => ({ ...a, category: a.media?.kind === "video" ? "video" : "photo" }))]))} />
+              </div>
+            ) : null}
+            {step.cats.map((c) => {
+              const n = ORDER.indexOf(c.id) + 1;
+              const files = byCat(c.id);
+              const isOpen = open === c.id;
+              const busy = files.some((f) => f.status === "uploading" || f.status === "processing");
+              const thumbs = files.slice(0, 3).map((f) => imageUrl(f.media, "thumb") ?? f.previewUrl).filter(Boolean) as string[];
+              return (
+                <div key={c.id} className={`ms-row${isOpen ? " open" : ""}`}>
+                  <button type="button" className="ms-head" aria-expanded={isOpen} aria-controls={`ms-${c.id}`} onClick={() => setOpen(isOpen ? null : c.id)}>
+                    <span className="ms-tile" style={{ background: c.tint }} aria-hidden>
+                      {thumbs.length ? <img src={thumbs[0]} alt="" /> : <span>{c.icon}</span>}
+                    </span>
+                    <span className="ms-text">
+                      <b>{n}. {c.title}</b>
+                      <span>{c.desc}</span>
+                      <small>{c.hint}</small>
+                    </span>
+                    <span className="ms-state">
+                      {busy ? <span className="ms-pill busy">Uploading…</span>
+                        : files.length ? <span className="ms-pill ok">✓ {files.length} added</span>
+                        : <span className="ms-pill">{c.cover ? "Recommended" : "Optional"}</span>}
+                      <span className="ms-add">{isOpen ? "Close" : files.length ? "Manage" : "+ Add"}</span>
+                    </span>
+                  </button>
+                  {isOpen ? (
+                    <div id={`ms-${c.id}`} className="ms-body">
+                      <MediaUploader items={files} onChange={(next) => setCat(c.id, next)} max={c.max} accept={c.accept} coverFirst={c.cover}
+                        category={c.id} icon={c.icon} compact
+                        title={`Add ${c.title.toLowerCase()}`} hint={`Drag files here, or tap to choose · ${c.hint}`} />
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-              {step.cats.map((c) => {
-                const n = ORDER.indexOf(c.id) + 1;
-                const files = byCat(c.id);
-                const isOpen = open === c.id;
-                const busy = files.some((f) => f.status === "uploading" || f.status === "processing");
-                const thumbs = files.slice(0, 3).map((f) => imageUrl(f.media, "thumb") ?? f.previewUrl).filter(Boolean) as string[];
-                return (
-                  <div key={c.id} className={`ms-row${isOpen ? " open" : ""}`}>
-                    <button type="button" className="ms-head" aria-expanded={isOpen} aria-controls={`ms-${c.id}`} onClick={() => setOpen(isOpen ? null : c.id)}>
-                      <span className="ms-tile" style={{ background: c.tint }} aria-hidden>
-                        {thumbs.length ? <img src={thumbs[0]} alt="" /> : <span>{c.icon}</span>}
-                      </span>
-                      <span className="ms-text">
-                        <b>{n}. {c.title}</b>
-                        <span>{c.desc}</span>
-                        <small>{c.hint}</small>
-                      </span>
-                      <span className="ms-state">
-                        {busy ? <span className="ms-pill busy">Uploading…</span>
-                          : files.length ? <span className="ms-pill ok">✓ {files.length} added</span>
-                          : <span className="ms-pill">{c.cover ? "Recommended" : "Optional"}</span>}
-                        <span className="ms-add">{isOpen ? "Close" : files.length ? "Manage" : "+ Add"}</span>
-                      </span>
-                    </button>
-                    {isOpen ? (
-                      <div id={`ms-${c.id}`} className="ms-body">
-                        <MediaUploader items={files} onChange={(next) => setCat(c.id, next)} max={c.max} accept={c.accept} coverFirst={c.cover}
-                          category={c.id} icon={c.icon} compact
-                          title={`Add ${c.title.toLowerCase()}`} hint={`Drag files here, or tap to choose · ${c.hint}`} />
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-              {step.id === "media" ? <p className="small muted" style={{ margin: "10px 2px 0" }}>Each upload is optional, but listings with photos and a video get far more enquiries.</p> : null}
-            </div>
-          </section>
-        );
-      })}
+              );
+            })}
+            {step.id === "media" ? <p className="small muted" style={{ margin: "10px 2px 0" }}>Each upload is optional, but listings with photos and a video get far more enquiries.</p> : null}
+          </div>
+        </section>
+      ))}
       <style>{`
-        .ms-step{display:inline-block;font-size:12.5px;font-weight:800;padding:4px 10px;border-radius:999px}
         .ms-card{border:1.5px solid var(--line);border-radius:16px;padding:6px 14px 12px;background:var(--card)}
         .ms-src{display:flex;flex-direction:column;gap:6px;padding:10px 0 4px}
         .ms-row{border-top:1px solid var(--line)}
