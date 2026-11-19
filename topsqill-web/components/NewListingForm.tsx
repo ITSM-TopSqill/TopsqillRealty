@@ -13,7 +13,7 @@ import { ImportFromLink, type ImportDraft, type ImportConfig } from "./ImportFro
 import { videoEmbed } from "@/lib/embeds";
 import type { FloorPlanExtraction } from "@/lib/floorplan";
 import { HomeViews } from "./HomeViews";
-import { AMENITIES_LIST } from "@/lib/amenities";
+import { AmenitiesPicker } from "./AmenitiesPicker";
 
 const KINDS = ["Apartment", "Builder floor", "Villa", "Plot", "Office", "Shop"];
 const CITIES = ["Gurgaon", "Noida", "Greater Noida", "Delhi", "Faridabad", "Mumbai", "Pune", "Bengaluru", "Hyderabad"];
@@ -257,15 +257,7 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
           </div>
           <div className="field" style={{ gridColumn: "1 / -1" }}>
             <label>Amenities</label>
-            <div className="row" style={{ gap: "6px 14px", flexWrap: "wrap" }}>
-              {AMENITIES_LIST.map((a) => (
-                <label key={a} className="small" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 160 }}>
-                  <input type="checkbox" checked={form.amenities.includes(a)}
-                    onChange={() => setForm((f) => ({ ...f, amenities: f.amenities.includes(a) ? f.amenities.filter((x) => x !== a) : [...f.amenities, a] }))} />
-                  {a}
-                </label>
-              ))}
-            </div>
+            <AmenitiesPicker value={form.amenities} onChange={(amenities) => setForm((f) => ({ ...f, amenities }))} />
           </div>
           <div className="field"><label htmlFor="rera">RERA number</label>
             <input id="rera" value={form.reraNumber} onChange={set("reraNumber")} placeholder="UPRERAPRJ123456" maxLength={64} />
