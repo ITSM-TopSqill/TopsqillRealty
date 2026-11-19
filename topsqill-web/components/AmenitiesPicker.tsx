@@ -34,7 +34,8 @@ export function AmenitiesPicker({ value, onChange }: { value: string[]; onChange
         }}>
           {AMENITIES_LIST.map(([icon, label]) => (
             <label key={label} className="small" style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 6px", borderRadius: 8, cursor: "pointer" }}>
-              <input type="checkbox" checked={value.includes(label)} onChange={() => toggle(label)} />
+              <input type="checkbox" checked={value.includes(label)} onChange={() => toggle(label)}
+                style={{ width: 16, height: 16, flex: "none", border: "1.5px solid var(--line)", borderRadius: 4, padding: 0, background: "var(--card)" }} />
               <span>{icon}</span>
               <span>{label}</span>
             </label>
