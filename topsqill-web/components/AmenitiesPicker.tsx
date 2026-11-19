@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AMENITIES_LIST } from "@/lib/amenities";
 
+const ICON_OF = new Map(AMENITIES_LIST.map(([icon, label]) => [label, icon]));
+
 /** A dropdown with a scrollable, checkable list of amenities, each with an icon. */
 export function AmenitiesPicker({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
   const [open, setOpen] = useState(false);
@@ -25,7 +27,23 @@ export function AmenitiesPicker({ value, onChange }: { value: string[]; onChange
         {value.length ? `${value.length} amenity${value.length === 1 ? "" : "ies"} selected` : "Choose amenities"} {open ? "▲" : "▼"}
       </button>
       {value.length ? (
-        <div className="small muted" style={{ marginTop: 6 }}>{value.join(", ")}</div>
+        <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+          {value.map((label) => (
+            <span key={label} className="small" style={{
+              display: "inline-flex", alignItems: "center", gap: 6, background: "var(--soft)",
+              border: "1px solid var(--line)", borderRadius: 999, padding: "4px 6px 4px 10px",
+            }}>
+              <span>{ICON_OF.get(label)}</span>
+              <span>{label}</span>
+              <button type="button" onClick={() => toggle(label)} aria-label={`Remove ${label}`}
+                style={{
+                  display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18,
+                  borderRadius: "50%", border: 0, background: "var(--line)", color: "var(--ink2)", cursor: "pointer",
+                  fontSize: 12, lineHeight: 1, padding: 0,
+                }}>✕</button>
+            </span>
+          ))}
+        </div>
       ) : null}
       {open ? (
         <div className="card" style={{
