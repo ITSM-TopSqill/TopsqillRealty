@@ -680,6 +680,16 @@ export const instagramAccounts = pgTable("instagram_accounts", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** A member's own Facebook Page, for picking its photos and videos. */
+export const facebookAccounts = pgTable("facebook_accounts", {
+  ownerId: varchar("owner_id", { length: 36 }).primaryKey(),
+  pageId: varchar("page_id", { length: 40 }).notNull(),
+  pageName: varchar("page_name", { length: 120 }),
+  secretRef: text("secret_ref").notNull(),                         // the Page token, in Secret Manager
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const whatsappAccounts = pgTable("whatsapp_accounts", {
   id: varchar("id", { length: 36 }).primaryKey(),
   ownerId: varchar("owner_id", { length: 36 }).notNull(),

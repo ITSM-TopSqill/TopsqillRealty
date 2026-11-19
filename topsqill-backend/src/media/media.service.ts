@@ -57,7 +57,7 @@ export class MediaService {
    * WhatsApp number, or picked from their own Instagram) and processes it like
    * an upload. Nothing is ever taken from other sites.
    */
-  async storeOwn(userId: string, body: Buffer, mimeHint: string, source: "whatsapp" | "instagram") {
+  async storeOwn(userId: string, body: Buffer, mimeHint: string, source: "whatsapp" | "instagram" | "facebook") {
     const img = sniffImage(body);
     const isVideo = !img && /^video\//.test(mimeHint);
     if (!img && !isVideo) throw new BadRequestException("Only photos and videos can be added.");
@@ -76,7 +76,7 @@ export class MediaService {
   }
 
   /** My recent photos and videos from one source (WhatsApp or Instagram), newest first, for picking into a listing. */
-  async mine(userId: string, source: "whatsapp" | "instagram" | "upload") {
+  async mine(userId: string, source: "whatsapp" | "instagram" | "facebook" | "upload") {
     const rows = await this.read.select().from(media)
       .where(and(eq(media.ownerId, userId), eq(media.source, source), inArray(media.kind, ["image", "video"]), ne(media.status, "failed")))
       .orderBy(desc(media.createdAt)).limit(60);

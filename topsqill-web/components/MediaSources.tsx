@@ -9,24 +9,29 @@ import type { UploadedItem } from "./MediaUploader";
 type Inbox = { configured: boolean; number: string | null; myPhone: string | null };
 type IgStatus = { configured: boolean; connected: boolean; username: string | null };
 type IgItem = { id: string; type: "image" | "video"; url: string; thumb: string; caption: string; permalink: string; at: string };
+type FbStatus = { configured: boolean; connected: boolean; pageName: string | null };
+type FbItem = { id: string; type: "image" | "video"; url: string; thumb: string; caption: string; at: string };
 
 /**
- * The member's own photos and videos, from two places besides their device:
+ * The member's own photos and videos, from three places besides their device:
  *  - WhatsApp: they send them to Topsqill's WhatsApp number from the number
  *    they signed in with, and they show up here within seconds.
  *  - Instagram: they connect their own account and pick posts and reels.
+ *  - Facebook: they connect their own Page and pick its photos and videos.
  * Nothing is ever taken from another listing site.
  */
 export function MediaSources({ onAdd, room, have }: { onAdd: (items: UploadedItem[]) => void; room: number; have: string[] }) {
-  const [tab, setTab] = useState<"whatsapp" | "instagram" | null>(null);
+  const [tab, setTab] = useState<"whatsapp" | "instagram" | "facebook" | null>(null);
   return (
     <div style={{ marginBottom: 10 }}>
       <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
         <button type="button" className={`chip${tab === "whatsapp" ? " on" : ""}`} onClick={() => setTab(tab === "whatsapp" ? null : "whatsapp")}>🟢 From WhatsApp</button>
         <button type="button" className={`chip${tab === "instagram" ? " on" : ""}`} onClick={() => setTab(tab === "instagram" ? null : "instagram")}>📸 From Instagram</button>
+        <button type="button" className={`chip${tab === "facebook" ? " on" : ""}`} onClick={() => setTab(tab === "facebook" ? null : "facebook")}>📘 From Facebook</button>
       </div>
       {tab === "whatsapp" ? <WhatsAppPanel onAdd={onAdd} room={room} have={have} /> : null}
       {tab === "instagram" ? <InstagramPanel onAdd={onAdd} room={room} /> : null}
+      {tab === "facebook" ? <FacebookPanel onAdd={onAdd} room={room} /> : null}
     </div>
   );
 }
@@ -178,6 +183,89 @@ function InstagramPanel({ onAdd, room }: { onAdd: (items: UploadedItem[]) => voi
         </button>
         {after ? <button type="button" className="linklike small" onClick={() => loadMedia(after)}>Show older posts</button> : null}
       </div>
+      {note ? <p className="small muted" style={{ margin: "6px 0 0" }}>{note}</p> : null}
+      {error && items.length ? <p className="small error" style={{ margin: "6px 0 0" }}>{error}</p> : null}
+    </div>
+  );
+}
+
+function FacebookPanel({ onAdd, room }: { onAdd: (items: UploadedItem[]) => void; room: number }) {
+  const [status, setStatus] = useState<FbStatus | null>(null);
+  const [items, setItems] = useState<FbItem[]>([]);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+
+  const loadStatus = useCallback(() => clientApi<FbStatus>("/v1/facebook/status").then(setStatus).catch((e) => setError((e as Error).message)), []);
+  const loadMedia = useCallback(async () => {
+    try { setItems((await clientApi<{ items: FbItem[] }>("/v1/facebook/media")).items); }
+    catch (e) { setError((e as Error).message); }
+  }, []);
+  useEffect(() => { loadStatus(); }, [loadStatus]);
+  useEffect(() => { if (status?.connected) loadMedia(); }, [status?.connected, loadMedia]);
+
+  // The Facebook login opens in a small window, which tells us when it's done.
+  useEffect(() => {
+    const on = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin || e.data?.type !== "topsqill-connected" || e.data?.service !== "facebook") return;
+      if (e.data.error) setError(e.data.error); else { setError(""); loadStatus(); }
+    };
+    window.addEventListener("message", on);
+    return () => window.removeEventListener("message", on);
+  }, [loadStatus]);
+
+  const connect = () => {
+    setError("");
+    const w = window.open("/api/facebook/start", "facebook", "width=520,height=720");
+    if (!w) window.location.href = "/api/facebook/start";
+  };
+  const disconnect = async () => { await clientApi("/v1/facebook", { method: "DELETE" }).catch(() => {}); setItems([]); loadStatus(); };
+  const add = async () => {
+    setBusy(true); setNote(""); setError("");
+    try {
+      const ids = items.filter((i) => picked.has(i.id)).map((i) => i.id).slice(0, room);
+      const r = await clientApi<{ items: { id: string; mediaId?: string; kind?: string; error?: string }[] }>("/v1/facebook/import", { method: "POST", body: { ids } });
+      const ok = r.items.filter((i) => i.mediaId);
+      onAdd(ok.map((i) => {
+        const src = items.find((x) => x.id === i.id);
+        return { mediaId: i.mediaId!, name: i.kind === "video" ? "Facebook video" : "Facebook photo", progress: 100, status: "processing" as const, previewUrl: src?.thumb };
+      }));
+      const failed = r.items.length - ok.length;
+      setNote(`${ok.length} added below${failed ? `; ${failed} couldn’t be copied` : ""}. They appear once processed.`);
+      setPicked(new Set());
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  if (!status) return <div style={panel}><p className="small muted" style={{ margin: 0 }}>{error || "Loading…"}</p></div>;
+  if (!status.configured) return <div style={panel}><p className="small" style={{ margin: 0 }}>Facebook isn’t switched on for Topsqill yet. Upload from your device for now.</p></div>;
+  if (!status.connected) {
+    return (
+      <div style={panel}>
+        <p className="small" style={{ margin: 0 }}>Connect your Facebook Page to pick photos and videos from its posts. You’ll need a Facebook Page for your business (not a personal profile).</p>
+        <button type="button" className="btn btn-p sm" style={{ marginTop: 8 }} onClick={connect}>Connect Facebook</button>
+        {error ? <p className="small error" style={{ margin: "6px 0 0" }}>{error}</p> : null}
+      </div>
+    );
+  }
+  return (
+    <div style={panel}>
+      <div className="spread small" style={{ flexWrap: "wrap", gap: 6 }}>
+        <span>Connected to <b>{status.pageName ?? "your Page"}</b>. Pick your own photos and videos.</span>
+        <button type="button" className="linklike small" onClick={disconnect}>Disconnect</button>
+      </div>
+      {items.length ? (
+        <div style={grid}>
+          {items.map((i) => (
+            <Tile key={i.id} on={picked.has(i.id)} thumb={i.thumb} video={i.type === "video"} label={i.caption || (i.type === "video" ? "Video" : "Photo")}
+              onClick={() => setPicked((p) => { const n = new Set(p); if (n.has(i.id)) n.delete(i.id); else if (n.size < room) n.add(i.id); return n; })} />
+          ))}
+        </div>
+      ) : <p className="small muted" style={{ margin: "10px 0 0" }}>{error || "No photos or videos found on this Page."}</p>}
+      <button type="button" className="btn btn-o sm" style={{ marginTop: 10 }} disabled={busy || !picked.size || room <= 0} onClick={add}>
+        {busy ? "Copying…" : room <= 0 ? "The listing already has 20 files" : `Add ${picked.size || ""} to the listing`.replace("  ", " ")}
+      </button>
       {note ? <p className="small muted" style={{ margin: "6px 0 0" }}>{note}</p> : null}
       {error && items.length ? <p className="small error" style={{ margin: "6px 0 0" }}>{error}</p> : null}
     </div>

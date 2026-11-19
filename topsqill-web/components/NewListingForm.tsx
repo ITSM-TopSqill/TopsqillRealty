@@ -10,9 +10,10 @@ import { LocationPicker } from "./LocationPicker";
 import { refreshPages } from "@/lib/refresh";
 import type { Listing } from "@/lib/types";
 import { ImportFromLink, type ImportDraft, type ImportConfig } from "./ImportFromLink";
-import { videoEmbed, tourEmbed } from "@/lib/embeds";
+import { videoEmbed } from "@/lib/embeds";
 import type { FloorPlanExtraction } from "@/lib/floorplan";
 import { HomeViews } from "./HomeViews";
+import { AMENITIES_LIST } from "@/lib/amenities";
 
 const KINDS = ["Apartment", "Builder floor", "Villa", "Plot", "Office", "Shop"];
 const CITIES = ["Gurgaon", "Noida", "Greater Noida", "Delhi", "Faridabad", "Mumbai", "Pune", "Bengaluru", "Hyderabad"];
@@ -20,16 +21,16 @@ const CITIES = ["Gurgaon", "Noida", "Greater Noida", "Delhi", "Faridabad", "Mumb
 type Form = {
   title: string; purpose: "sale" | "rent"; kind: string; bhk: string; areaSqft: string; priceInr: string;
   city: string; locality: string; possession: string; furnishing: string; facing: string;
-  description: string; amenities: string; usps: string;
-  videoUrl: string; tourUrl: string; reraNumber: string;
+  description: string; amenities: string[]; usps: string[];
+  videoUrl: string; reraNumber: string;
   lat: number | null; lng: number | null; exact: boolean; sourceUrl: string;
 };
 
 const EMPTY: Form = {
   title: "", purpose: "sale", kind: "Apartment", bhk: "3", areaSqft: "", priceInr: "",
   city: "", locality: "", possession: "Ready to move", furnishing: "Unfurnished", facing: "",
-  description: "", amenities: "", usps: "",
-  videoUrl: "", tourUrl: "", reraNumber: "", lat: null, lng: null, exact: true, sourceUrl: "",
+  description: "", amenities: [], usps: [],
+  videoUrl: "", reraNumber: "", lat: null, lng: null, exact: true, sourceUrl: "",
 };
 
 function fromListing(l: Listing): Form {
@@ -37,8 +38,8 @@ function fromListing(l: Listing): Form {
     title: l.title, purpose: l.purpose, kind: l.kind, bhk: l.bhk != null ? String(l.bhk) : "",
     areaSqft: l.areaSqft != null ? String(l.areaSqft) : "", priceInr: l.priceInr != null ? String(l.priceInr) : "",
     city: l.city, locality: l.locality, possession: l.possession ?? "Ready to move", furnishing: l.furnishing ?? "Unfurnished",
-    facing: l.facing ?? "", description: l.description ?? "", amenities: (l.amenities ?? []).join(", "), usps: (l.usps ?? []).join("\n"),
-    videoUrl: l.videoUrl ?? "", tourUrl: l.tourUrl ?? "", reraNumber: l.reraNumber ?? "",
+    facing: l.facing ?? "", description: l.description ?? "", amenities: l.amenities ?? [], usps: l.usps ?? [],
+    videoUrl: l.videoUrl ?? "", reraNumber: l.reraNumber ?? "",
     lat: l.lat ?? null, lng: l.lng ?? null, exact: l.locationExact !== false, sourceUrl: l.sourceUrl ?? "",
   };
 }
@@ -75,8 +76,8 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
       city: d.city || f.city, locality: d.locality || f.locality,
       possession: d.possession === "Ready to move" ? "Ready to move" : "Under construction",
       furnishing: d.furnishing || f.furnishing, facing: d.facing,
-      description: d.description || f.description, amenities: d.amenities.join(", "), usps: d.usps.join("\n"),
-      videoUrl: d.videoUrl, tourUrl: d.tourUrl, reraNumber: d.reraNumber,
+      description: d.description || f.description, amenities: d.amenities, usps: d.usps,
+      videoUrl: d.videoUrl, reraNumber: d.reraNumber,
       lat: d.lat, lng: d.lng, exact: d.locationExact, sourceUrl: d.sourceUrl,
     }));
   }
@@ -103,7 +104,7 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
         ...f,
         title: res.title ?? f.title,
         description: res.description ?? f.description,
-        usps: res.usps?.length ? res.usps.join("\n") : f.usps,
+        usps: res.usps?.length ? res.usps : f.usps,
       }));
       setAiResult(res);
     } catch (e) { setError((e as Error).message); }
@@ -124,7 +125,6 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
       return;
     }
     if (form.videoUrl && !videoEmbed(form.videoUrl)) { setError("The video link must be a YouTube or Vimeo link."); return; }
-    if (form.tourUrl && !tourEmbed(form.tourUrl)) { setError("The 3D tour link must be from Matterport, Kuula, Momento360, CloudPano or a 360° YouTube video."); return; }
     setBusy("save"); setError("");
     try {
       const body = {
@@ -133,12 +133,11 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
         priceInr: Number(form.priceInr), city: form.city, locality: form.locality,
         possession: form.possession, furnishing: form.furnishing, facing: form.facing || (editing ? "" : undefined),
         description: form.description || (editing ? "" : undefined),
-        amenities: form.amenities.split(",").map((s) => s.trim()).filter(Boolean),
-        usps: form.usps.split("\n").map((s) => s.trim()).filter(Boolean),
+        amenities: form.amenities,
+        usps: form.usps,
         // Only files that finished processing are attached.
         mediaIds: orderMedia(media).filter((m) => m.status === "ready").map((m) => m.mediaId),
         videoUrl: form.videoUrl.trim() || (editing ? "" : undefined),
-        tourUrl: form.tourUrl.trim() || (editing ? "" : undefined),
         reraNumber: form.reraNumber.trim() || (editing ? "" : undefined),
         // "Approximate area only" saves the point rounded to about 150 m, so the exact building isn't shown.
         lat: form.lat != null ? (form.exact ? form.lat : Math.round(form.lat * 700) / 700) : (editing ? null : undefined),
@@ -256,11 +255,17 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
           <div className="field" style={{ gridColumn: "1 / -1" }}><label htmlFor="description">Description</label>
             <textarea id="description" rows={4} value={form.description} onChange={set("description")} />
           </div>
-          <div className="field" style={{ gridColumn: "1 / -1" }}><label htmlFor="amenities">Amenities (comma separated)</label>
-            <input id="amenities" value={form.amenities} onChange={set("amenities")} placeholder="Clubhouse, Swimming pool, Covered parking" />
-          </div>
-          <div className="field" style={{ gridColumn: "1 / -1" }}><label htmlFor="usps">Selling points, one per line</label>
-            <textarea id="usps" rows={3} value={form.usps} onChange={set("usps")} />
+          <div className="field" style={{ gridColumn: "1 / -1" }}>
+            <label>Amenities</label>
+            <div className="row" style={{ gap: "6px 14px", flexWrap: "wrap" }}>
+              {AMENITIES_LIST.map((a) => (
+                <label key={a} className="small" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 160 }}>
+                  <input type="checkbox" checked={form.amenities.includes(a)}
+                    onChange={() => setForm((f) => ({ ...f, amenities: f.amenities.includes(a) ? f.amenities.filter((x) => x !== a) : [...f.amenities, a] }))} />
+                  {a}
+                </label>
+              ))}
+            </div>
           </div>
           <div className="field"><label htmlFor="rera">RERA number</label>
             <input id="rera" value={form.reraNumber} onChange={set("reraNumber")} placeholder="UPRERAPRJ123456" maxLength={64} />
@@ -268,10 +273,6 @@ export function NewListingForm({ defaultCity, listing }: { defaultCity: string; 
           <div className="field" style={{ gridColumn: "span 2" }}><label htmlFor="video">Walkthrough video link</label>
             <input id="video" value={form.videoUrl} onChange={set("videoUrl")} placeholder="https://youtube.com/watch?v=…  or a Vimeo link" />
             {form.videoUrl && !videoEmbed(form.videoUrl) ? <span className="small error">Use a YouTube or Vimeo link.</span> : null}
-          </div>
-          <div className="field" style={{ gridColumn: "1 / -1" }}><label htmlFor="tour">3D tour link</label>
-            <input id="tour" value={form.tourUrl} onChange={set("tourUrl")} placeholder="https://my.matterport.com/show/?m=…  (Matterport, Kuula, Momento360, CloudPano or 360° YouTube)" />
-            {form.tourUrl && !tourEmbed(form.tourUrl) ? <span className="small error">Use a Matterport, Kuula, Momento360, CloudPano or 360° YouTube link.</span> : null}
           </div>
           {listing?.id ? (
             <div className="field" style={{ gridColumn: "1 / -1" }}>

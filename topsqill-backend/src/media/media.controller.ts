@@ -28,10 +28,10 @@ export class MediaController {
   @Post("uploads") @ApiOperation({ summary: "Get a direct upload link for a photo, video or 3D model" })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateUploadDto) { return this.svc.createUpload(user.id, dto); }
 
-  @Get("mine") @ApiOperation({ summary: "My recent photos and videos from one source: whatsapp, instagram or upload" })
+  @Get("mine") @ApiOperation({ summary: "My recent photos and videos from one source: whatsapp, instagram, facebook or upload" })
   mine(@CurrentUser() user: AuthUser, @Query("source") source = "whatsapp") {
-    if (!["whatsapp", "instagram", "upload"].includes(source)) throw new BadRequestException("Unknown source.");
-    return this.svc.mine(user.id, source as "whatsapp" | "instagram" | "upload");
+    if (!["whatsapp", "instagram", "facebook", "upload"].includes(source)) throw new BadRequestException("Unknown source.");
+    return this.svc.mine(user.id, source as "whatsapp" | "instagram" | "facebook" | "upload");
   }
 
   @Post(":id/confirm") @ApiOperation({ summary: "Tell the server the upload finished" })

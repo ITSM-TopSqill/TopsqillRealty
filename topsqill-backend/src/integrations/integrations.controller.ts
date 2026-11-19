@@ -4,6 +4,7 @@ import { IsIn, IsOptional, IsString, IsArray, MaxLength, ArrayMaxSize, ArrayMinS
 import { WhatsAppService } from "./whatsapp.service";
 import { MediaInboxService } from "./media-inbox.service";
 import { InstagramService } from "./instagram.service";
+import { FacebookService } from "./facebook.service";
 import { CurrentUser, AuthUser, Public } from "../auth/public.decorator";
 import { verifyMetaSignature } from "../common/meta-signature";
 import { env, isProd } from "../common/env";
@@ -23,6 +24,8 @@ class SendWaDto {
 }
 class IgCallbackDto { @IsString() @MaxLength(2000) code: string; @IsString() @MaxLength(200) state: string; }
 class IgImportDto { @IsArray() @ArrayMinSize(1) @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(40, { each: true }) ids: string[]; }
+class FbCallbackDto { @IsString() @MaxLength(2000) code: string; @IsString() @MaxLength(200) state: string; }
+class FbImportDto { @IsArray() @ArrayMinSize(1) @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(40, { each: true }) ids: string[]; }
 class OptInDto {
   @IsString() phone: string;
   @IsIn(["lead form", "chat", "manual", "website"]) source: string;
@@ -41,9 +44,10 @@ export class IntegrationsController {
     private readonly wa: WhatsAppService,
     private readonly inbox: MediaInboxService,
     private readonly ig: InstagramService,
+    private readonly fb: FacebookService,
   ) {}
 
-  /* ------------------- my own photos and videos: WhatsApp, Instagram ------------------- */
+  /* ------------------- my own photos and videos: WhatsApp, Instagram, Facebook ------------------- */
 
   @Get("whatsapp/inbox") @ApiOperation({ summary: "Topsqill's WhatsApp number that members send their photos and videos to" })
   async inboxInfo(@CurrentUser() user: AuthUser) {
@@ -67,6 +71,24 @@ export class IntegrationsController {
 
   @Post("instagram/import") @ApiOperation({ summary: "Copy picked Instagram photos and videos into my Topsqill media" })
   igImport(@CurrentUser() user: AuthUser, @Body() dto: IgImportDto) { return this.ig.import(user.id, dto.ids); }
+
+  @Get("facebook/status")
+  fbStatus(@CurrentUser() user: AuthUser) { return this.fb.status(user.id); }
+
+  @Get("facebook/authorize") @ApiOperation({ summary: "The Facebook login link to connect my Page" })
+  fbAuthorize(@CurrentUser() user: AuthUser) { return this.fb.authorizeUrl(user.id); }
+
+  @Post("facebook/callback") @ApiOperation({ summary: "Finish connecting Facebook (called by the website after Facebook's login)" })
+  fbCallback(@CurrentUser() user: AuthUser, @Body() dto: FbCallbackDto) { return this.fb.connect(user.id, dto.code, dto.state); }
+
+  @Delete("facebook")
+  fbDisconnect(@CurrentUser() user: AuthUser) { return this.fb.disconnect(user.id); }
+
+  @Get("facebook/media") @ApiOperation({ summary: "My Facebook Page's photos and videos, to pick from" })
+  fbMedia(@CurrentUser() user: AuthUser) { return this.fb.media(user.id); }
+
+  @Post("facebook/import") @ApiOperation({ summary: "Copy picked Facebook photos and videos into my Topsqill media" })
+  fbImport(@CurrentUser() user: AuthUser, @Body() dto: FbImportDto) { return this.fb.import(user.id, dto.ids); }
 
   /* -------------------------------- whatsapp -------------------------------- */
 
