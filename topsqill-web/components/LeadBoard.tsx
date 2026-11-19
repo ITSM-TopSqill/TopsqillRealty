@@ -78,12 +78,16 @@ export function LeadBoard({ columns, openLeadId }: { columns: Record<string, Lea
   );
 }
 
-function LeadDrawer({ lead, onClose, onMove }: { lead: Lead; onClose: () => void; onMove: (l: Lead, s: string) => void }) {
+function LeadDrawer({ lead: initialLead, onClose, onMove }: { lead: Lead; onClose: () => void; onMove: (l: Lead, s: string) => void }) {
+  const [lead, setLead] = useState(initialLead);
   const stale = isStale(lead);
   const [draft, setDraft] = useState(() => (stale ? lead.followupDraft ?? "" : ""));
   const [busy, setBusy] = useState(false);
   const [channel, setChannel] = useState<"whatsapp" | "email" | "call" | null>(stale ? "whatsapp" : null);
   const [note, setNote] = useState("");
+  const [addingEmail, setAddingEmail] = useState(false);
+  const [emailInput, setEmailInput] = useState("");
+  const [savingEmail, setSavingEmail] = useState(false);
   const [waAccount, setWaAccount] = useState<{ phoneNumberId: string; displayNumber: string | null } | null | undefined>(undefined);
   const [sending, setSending] = useState(false);
   type WaMsg = { id: string; direction: string; body: string | null; template: string | null; status: string; createdAt: string };
@@ -96,6 +100,20 @@ function LeadDrawer({ lead, onClose, onMove }: { lead: Lead; onClose: () => void
   }, [waAccount, lead.id]);
 
   function flash(t: string) { setNote(t); setTimeout(() => setNote(""), 2500); }
+
+  async function saveEmail() {
+    const email = emailInput.trim();
+    if (!email) return;
+    setSavingEmail(true);
+    try {
+      await clientApi(`/v1/leads/${lead.id}/contact`, { method: "POST", body: { email } });
+      setLead((l) => ({ ...l, email }));
+      setAddingEmail(false);
+      setEmailInput("");
+      flash("Email added");
+    } catch (e) { flash((e as Error).message); }
+    finally { setSavingEmail(false); }
+  }
 
   /** Sends through the dealer's own connected WhatsApp Business number - tracked, not a hand-off to the phone's app. */
   async function sendViaWhatsApp() {
@@ -159,7 +177,27 @@ function LeadDrawer({ lead, onClose, onMove }: { lead: Lead; onClose: () => void
 
           <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 14px", fontSize: 14, margin: 0 }}>
             {lead.phone ? <><dt className="muted">Phone</dt><dd style={{ margin: 0, fontWeight: 700 }}><a href={`tel:${lead.phone}`}>{lead.phone}</a></dd></> : null}
-            {lead.email ? <><dt className="muted">Email</dt><dd style={{ margin: 0 }}>{lead.email}</dd></> : null}
+            {lead.email ? (
+              <><dt className="muted">Email</dt><dd style={{ margin: 0 }}>{lead.email}</dd></>
+            ) : (
+              <>
+                <dt className="muted">Email</dt>
+                <dd style={{ margin: 0 }}>
+                  {addingEmail ? (
+                    <span className="row" style={{ gap: 6 }}>
+                      <input type="email" value={emailInput} onChange={(e) => setEmailInput(e.target.value)}
+                        placeholder="name@example.com" autoFocus
+                        style={{ border: "1.5px solid var(--line)", borderRadius: 8, padding: "3px 8px", fontSize: 13, width: 170 }} />
+                      <button className="btn btn-p sm" onClick={saveEmail} disabled={savingEmail || !emailInput.trim()}>Save</button>
+                      <button className="btn btn-g sm" onClick={() => { setAddingEmail(false); setEmailInput(""); }}>Cancel</button>
+                    </span>
+                  ) : (
+                    <button className="small" style={{ color: "var(--vio)", fontWeight: 700, background: "none", border: 0, padding: 0, cursor: "pointer" }}
+                      onClick={() => setAddingEmail(true)}>+ Add email</button>
+                  )}
+                </dd>
+              </>
+            )}
             {lead.listingTitle ? <><dt className="muted">Interested in</dt><dd style={{ margin: 0 }}>{lead.listingTitle}</dd></> : null}
             {lead.budgetMax ? <><dt className="muted">Budget</dt><dd style={{ margin: 0 }}>{inr(lead.budgetMax)}</dd></> : null}
             {lead.note ? <><dt className="muted">Note</dt><dd style={{ margin: 0 }}>{lead.note}</dd></> : null}

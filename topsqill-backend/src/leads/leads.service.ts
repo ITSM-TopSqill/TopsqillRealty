@@ -233,4 +233,17 @@ export class LeadsService {
     await this.get(userId, id);
     return this.addActivity(id, userId, kind, body);
   }
+
+  async setContact(userId: string, id: string, contact: { phone?: string; email?: string }) {
+    const lead = await this.get(userId, id);
+    const phone = contact.phone?.trim() || undefined;
+    const email = contact.email?.trim().toLowerCase() || undefined;
+    if (!phone && !email) return { ok: true };
+    await this.db.update(leads)
+      .set({ ...(phone ? { phone } : {}), ...(email ? { email } : {}), updatedAt: new Date() })
+      .where(eq(leads.id, id));
+    const added = [phone && !lead.phone ? "phone" : null, email && !lead.email ? "email" : null].filter(Boolean);
+    if (added.length) await this.addActivity(id, userId, "system", `Added ${added.join(" and ")}`);
+    return { ok: true };
+  }
 }

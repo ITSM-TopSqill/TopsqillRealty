@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
-import { IsIn, IsOptional, IsString, IsInt, MaxLength, IsBoolean } from "class-validator";
+import { IsIn, IsOptional, IsString, IsInt, MaxLength, IsBoolean, IsEmail } from "class-validator";
 import { LeadsService, Stage } from "./leads.service";
 import { CurrentUser, AuthUser } from "../auth/public.decorator";
 
@@ -25,6 +25,10 @@ class NoteDto {
   @IsOptional() @IsIn(["note", "call", "whatsapp", "email", "visit"]) kind?: string;
 }
 class AssignDto { @IsString() assigneeId: string; }
+class ContactDto {
+  @IsOptional() @IsString() @MaxLength(16) phone?: string;
+  @IsOptional() @IsEmail() @MaxLength(160) email?: string;
+}
 
 @ApiTags("leads")
 @Controller("v1/leads")
@@ -60,5 +64,10 @@ export class LeadsController {
   @Post(":id/activity")
   note(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: NoteDto) {
     return this.svc.note(user.id, id, dto.body, dto.kind);
+  }
+
+  @Post(":id/contact") @ApiOperation({ summary: "Add or correct this lead's phone/email" })
+  contact(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: ContactDto) {
+    return this.svc.setContact(user.id, id, dto);
   }
 }
