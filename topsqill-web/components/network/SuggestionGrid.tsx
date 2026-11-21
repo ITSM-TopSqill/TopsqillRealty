@@ -9,6 +9,11 @@ import { refreshCounts } from "@/components/Live";
 import { openChat } from "@/components/MessageDock";
 import type { NetPerson } from "./types";
 
+// Lets the two buttons share the card's width without ever overflowing it.
+const btnFlex: React.CSSProperties = {
+  flex: "1 1 120px", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+};
+
 /**
  * People you may know, as cards: why they're suggested, connect or message
  * in one tap, and load more. Suggestions stay put rather than being
@@ -65,11 +70,11 @@ export function SuggestionGrid({ initial, nextOffset, type }: { initial: NetPers
               <p className="nw-head" style={{ minHeight: 36, WebkitLineClamp: 2 }}>{p.headline || p.agency || (p.city ? `Based in ${p.city}` : "")}</p>
               <p className="nw-reason">{p.reason}</p>
             </div>
-            <div className="row nw-cbtn" style={{ gap: 6 }}>
+            <div className="row nw-cbtn" style={{ gap: 6, flexWrap: "wrap" }}>
               {sent.has(p.id)
-                ? <span className="btn btn-g sm" style={{ flex: 1 }} aria-live="polite">✓ Invitation sent</span>
-                : <button className="btn btn-o sm" style={{ flex: 1 }} onClick={() => connect(p.id)} disabled={!!busy}>{busy === p.id ? "Sending…" : "+ Connect"}</button>}
-              <button className="btn btn-p sm" style={{ flex: 1 }} onClick={() => message(p.id)} disabled={!!busy}>{busy === `msg:${p.id}` ? "Opening…" : "💬 Message"}</button>
+                ? <span className="btn btn-g sm" style={btnFlex} aria-live="polite">✓ Invitation sent</span>
+                : <button className="btn btn-o sm" style={btnFlex} onClick={() => connect(p.id)} disabled={!!busy}>{busy === p.id ? "Sending…" : "+ Connect"}</button>}
+              <button className="btn btn-p sm" style={btnFlex} onClick={() => message(p.id)} disabled={!!busy}>{busy === `msg:${p.id}` ? "Opening…" : "💬 Message"}</button>
             </div>
           </article>
         ))}
