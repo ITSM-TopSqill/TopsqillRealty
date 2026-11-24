@@ -78,6 +78,8 @@ export async function metaLaunch(ctx: MetaCtx, ad: MetaAd, onStep?: (ids: Record
 
   // 1. Lead form on Topsqill's Page: name and phone are filled in from the person's profile.
   const pToken = await pageToken(ctx);
+  // Without this the Page never tells Meta to send us leadgen webhooks, so a filled-in form never reaches Topsqill.
+  await graph({ token: pToken, version: ctx.version }, `${ctx.pageId}/subscribed_apps`, { body: { subscribed_fields: "leadgen" } }).catch(() => {});
   const form = await graph<{ id: string }>({ token: pToken, version: ctx.version }, `${ctx.pageId}/leadgen_forms`, { body: {
     name: `${ad.name} · ${new Date().toISOString().slice(0, 10)}`.slice(0, 100),
     locale: "EN_US",
