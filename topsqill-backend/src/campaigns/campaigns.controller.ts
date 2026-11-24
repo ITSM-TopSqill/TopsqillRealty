@@ -5,13 +5,25 @@ import { CampaignsService } from "./campaigns.service";
 import { CurrentUser, AuthUser } from "../auth/public.decorator";
 
 class CreateCampaignDto {
-  @IsString() listingId: string;
+  // Either a listingId (promote a listing) or mediaIds + headline + city
+  // (a listing-less "From Creative" / "From Video" campaign) must be given;
+  // the service checks that, since one or the other is always required.
+  @IsOptional() @IsString() listingId?: string;
   // The real floor is the admin's configured minimum (checked in the service);
   // this is just a sanity bound so a bad request can't send ₹0 or less.
   @IsInt() @Min(1) budgetInr: number;
   @IsOptional() @IsInt() @Min(3) days?: number;
   @IsOptional() @IsString() goal?: string;
   @IsOptional() @IsString() @MaxLength(400) notes?: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(6) @IsString({ each: true }) mediaIds?: string[];
+  @IsOptional() @IsString() @MaxLength(60) headline?: string;
+  @IsOptional() @IsString() @MaxLength(400) text?: string;
+  @IsOptional() @IsString() @MaxLength(80) city?: string;
+  @IsOptional() @IsString() @MaxLength(300) link?: string;
+}
+
+class MediaDto {
+  @IsArray() @ArrayMaxSize(10) @IsString({ each: true }) mediaIds: string[];
 }
 
 class RenameDto { @IsString() @MaxLength(160) name: string; }
@@ -37,6 +49,9 @@ export class CampaignsController {
 
   @Get(":id")
   get(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.get(user.id, id); }
+
+  @Patch(":id/media") @ApiOperation({ summary: "Add photos/video to a listing-less campaign still in draft" })
+  media(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: MediaDto) { return this.svc.addMedia(user.id, id, dto.mediaIds); }
 
   @Patch(":id/creatives") @ApiOperation({ summary: "Save my edits to the ad text (live preview)" })
   creatives(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: CreativesDto) { return this.svc.updateCreatives(user.id, id, dto); }

@@ -160,15 +160,21 @@ export class AdsService {
     const c = await this.campaign(userId, id);
     const ready = await readyPlatforms(this.q);
     const w = await ledger.balance(this.q, userId);
-    const [l] = await this.q("select id, title, status, hidden, purpose, possession, rera_number, lat, lng, cover_media_id from listings where id = $1", [c.listing_id]);
-    const photos = l ? await this.q(`select m.id, m.kind, m.variants from listing_media lm join media m on m.id = lm.media_id where lm.listing_id = $1 and m.status = 'ready' and m.kind in ('image','video') order by lm.position`, [l.id]) : [];
+    const [l] = c.listing_id ? await this.q("select id, title, status, hidden, purpose, possession, rera_number, lat, lng, cover_media_id from listings where id = $1", [c.listing_id]) : [null];
+    const photos = l
+      ? await this.q(`select m.id, m.kind, m.variants from listing_media lm join media m on m.id = lm.media_id where lm.listing_id = $1 and m.status = 'ready' and m.kind in ('image','video') order by lm.position`, [l.id])
+      : (c.media_ids?.length ? await this.q(`select id, kind, variants from media where id = any($1) and status = 'ready' and kind in ('image','video')`, [c.media_ids]) : []);
     const deliveries = await this.q(`select platform, status, error, stats, spend_paise as "spendPaise", budget_inr as "budgetInr", synced_at as "syncedAt" from campaign_deliveries where campaign_id = $1 order by created_at`, [id]);
     const { publicBase } = await import("../media/storage");
     const base = publicBase();
     const problems: string[] = [];
     if (!ready.settings.enabled) problems.push("Ads aren't switched on yet.");
-    if (!l || l.hidden || l.status !== "active") problems.push("The listing must be live (approved) to advertise it.");
-    if (l?.purpose === "sale" && l?.possession === "Under construction" && !l?.rera_number) problems.push("Add the project's RERA number to the listing: it must be shown in ads for under-construction homes.");
+    if (c.listing_id) {
+      if (!l || l.hidden || l.status !== "active") problems.push("The listing must be live (approved) to advertise it.");
+      if (l?.purpose === "sale" && l?.possession === "Under construction" && !l?.rera_number) problems.push("Add the project's RERA number to the listing: it must be shown in ads for under-construction homes.");
+    } else if (!photos.length) {
+      problems.push("Add at least one photo or a video.");
+    }
     return {
       status: c.status, enabled: ready.settings.enabled,
       platforms: { meta: ready.meta, google: ready.google },

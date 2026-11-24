@@ -112,6 +112,8 @@ export type CampaignCreatives = {
 
 export type Campaign = {
   id: string; name: string; goal: string; budgetInr: number; days: number; status: string;
+  /** Set only for a listing-less campaign ("From Creative" / "From Video"). */
+  city?: string | null; link?: string | null;
   listingId?: string | null; plan?: CampaignPlan | null; creatives?: CampaignCreatives | null;
   forecast?: { reach: number; clicks: number; leads: number; qualified: number; qualifiedRatePct: number; costPerLead: number; costPerQualifiedLead: number } | null;
   spendInr: number; leadsCount: number; qualifiedCount: number; launchedAt?: string | null; createdAt: string;

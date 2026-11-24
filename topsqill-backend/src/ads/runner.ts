@@ -47,9 +47,9 @@ export async function launchCampaign(pool: Pool, campaignId: string) {
   const s = await loadAds(q);
   const [c] = await q<CampaignRow>("select * from campaigns where id = $1", [campaignId]);
   if (!c) throw new Error("Campaign not found.");
-  const [l] = await q<CampaignRow>("select * from listings where id = $1", [c.listing_id]);
-  if (!l) throw new Error("The campaign's listing is gone.");
-  const mediaIds: string[] = c.media_ids?.length ? c.media_ids : [l.cover_media_id].filter(Boolean);
+  const [l] = c.listing_id ? await q<CampaignRow>("select * from listings where id = $1", [c.listing_id]) : [null];
+  if (c.listing_id && !l) throw new Error("The campaign's listing is gone.");
+  const mediaIds: string[] = c.media_ids?.length ? c.media_ids : l ? [l.cover_media_id].filter(Boolean) : [];
   const media = mediaIds.length ? await q<{ id: string; kind: string; variants: Record<string, string> }>("select id, kind, variants from media where id = any($1) and status = 'ready'", [mediaIds]) : [];
   const base = await publicBaseUrl();
   const url = (v?: string) => (!v ? null : v.startsWith("http") ? v : `${base}/${v}`);
@@ -71,8 +71,9 @@ export async function launchCampaign(pool: Pool, campaignId: string) {
   const endsAt = c.ends_at ? new Date(c.ends_at) : new Date(Date.now() + days * 86_400_000);
   const platforms: Platform[] = (c.platforms ?? []).filter((p: string) => p === "meta" || p === "google");
   const share = (p: Platform) => platforms.length === 1 ? 1 : p === "meta" ? 0.7 : 0.3;     // Meta brings most property leads
-  const bhk = l.bhk ? `${l.bhk} BHK` : "";
-  const place = { lat: l.lat ?? null, lng: l.lng ?? null, city: l.city };
+  const bhk = l?.bhk ? `${l.bhk} BHK` : "";
+  // A listing has a pinned address to target around; a creative/video campaign only has a city.
+  const place = l ? { lat: l.lat ?? null, lng: l.lng ?? null, city: l.city } : { lat: null, lng: null, city: c.city || "India" };
   const results: { platform: Platform; status: "live" | "failed"; error?: string }[] = [];
 
   for (const platform of platforms) {
@@ -81,16 +82,18 @@ export async function launchCampaign(pool: Pool, campaignId: string) {
     const daily = Math.round((budgetPaise * share(platform)) / days);
     const deliveryId = randomUUID();
     await q("insert into campaign_deliveries (id, campaign_id, platform, budget_inr, status) values ($1,$2,$3,$4,'pending')", [deliveryId, campaignId, platform, Math.round((budgetPaise * share(platform)) / 100)]);
-    const link = `${webUrl()}/listings/${l.id}?ad=${campaignId}&utm_source=${platform}&utm_medium=paid&utm_campaign=tsq_${campaignId}`;
+    const link = l
+      ? `${webUrl()}/listings/${l.id}?ad=${campaignId}&utm_source=${platform}&utm_medium=paid&utm_campaign=tsq_${campaignId}`
+      : `${c.link || webUrl()}${c.link?.includes("?") ? "&" : "?"}ad=${campaignId}&utm_source=${platform}&utm_medium=paid&utm_campaign=tsq_${campaignId}`;
     try {
       if (platform === "meta") {
         const ctx = await metaCtx(s);
         if (!ctx) throw new Error("Meta isn't set up (Admin → Ads).");
         const ids = await metaLaunch(ctx, {
-          name: c.name, link, privacyUrl: `${webUrl()}/privacy`, purpose: l.purpose,
-          headline: (cr.headlines?.[0] ?? `${bhk} in ${l.locality}`).slice(0, 60),
-          primaryText: (cr.primaryTexts?.[0] ?? l.title).slice(0, 500),
-          description: `${l.locality}, ${l.city}`.slice(0, 60),
+          name: c.name, link, privacyUrl: `${webUrl()}/privacy`, purpose: l?.purpose ?? "sale",
+          headline: (cr.headlines?.[0] ?? (l ? `${bhk} in ${l.locality}` : c.name)).slice(0, 60),
+          primaryText: (cr.primaryTexts?.[0] ?? (l ? l.title : c.name)).slice(0, 500),
+          description: (l ? `${l.locality}, ${l.city}` : c.city || "").slice(0, 60),
           pictures, video: videoRow ? { url: url(videoRow.variants.mp4)!, thumbnail: pictures[0] ?? "" } : null,
           place: { ...place, radiusKm: s.meta.radiusKm }, dailyBudgetPaise: daily, endsAt, ctaLabel: cr.cta,
         }, async (partial) => { await q("update campaign_deliveries set external = $2 where id = $1", [deliveryId, JSON.stringify(partial)]); });
@@ -99,12 +102,16 @@ export async function launchCampaign(pool: Pool, campaignId: string) {
         const ctx = await googleCtx(s);
         if (!ctx) throw new Error("Google Ads isn't set up (Admin → Ads).");
         const g = cr.googleAd ?? {};
-        const rent = l.purpose === "rent";
+        const rent = l?.purpose === "rent";
         const ids = await googleLaunch(ctx, {
           name: c.name, finalUrl: link, dailyBudgetPaise: daily, place: { ...place, radiusKm: s.google.radiusKm },
-          headlines: [...(g.headlines ?? []), `${bhk} in ${l.locality}`, rent ? `${bhk} for Rent ${l.locality}` : `${bhk} Flat for Sale`, `Verified Listing, ${l.city}`, "Book a Site Visit Today", l.possession ?? ""],
-          descriptions: [...(g.descriptions ?? []), `${bhk} ${l.kind} in ${l.locality}, ${l.city}. See photos, price and location now.`, "Talk to the owner or agent directly. Free site visit."],
-          keywords: keywordsFor(l),
+          headlines: l
+            ? [...(g.headlines ?? []), `${bhk} in ${l.locality}`, rent ? `${bhk} for Rent ${l.locality}` : `${bhk} Flat for Sale`, `Verified Listing, ${l.city}`, "Book a Site Visit Today", l.possession ?? ""]
+            : [...(g.headlines ?? []), c.name, `See it in ${c.city || "your city"}`, "Learn More Today"],
+          descriptions: l
+            ? [...(g.descriptions ?? []), `${bhk} ${l.kind} in ${l.locality}, ${l.city}. See photos, price and location now.`, "Talk to the owner or agent directly. Free site visit."]
+            : [...(g.descriptions ?? []), cr.primaryTexts?.[0] ?? c.name, "Get in touch today."],
+          keywords: l ? keywordsFor(l) : keywordsForCreative(c),
         });
         await q("update campaign_deliveries set status = 'live', external = $2, external_campaign_id = $3, synced_at = now(), error = null where id = $1", [deliveryId, JSON.stringify(ids), ids.campaignId]);
       }
@@ -131,6 +138,13 @@ function keywordsFor(l: CampaignRow) {
     `${kind} ${verb} ${loc}`, `property in ${loc}`, `${bhk} ${verb} ${city}`, `${loc} ${city} ${kind}`,
     l.purpose === "rent" ? `house for rent ${loc}` : `buy ${bhk} ${loc}`,
   ].map((k) => k.replace(/\s+/g, " ").trim()).filter((k) => k.split(" ").length >= 2);
+}
+
+/** Generic keywords for a listing-less (creative/video) campaign: just the city and goal, since there's no address or price to key off. */
+function keywordsForCreative(c: CampaignRow) {
+  const city = String(c.city ?? "").toLowerCase();
+  const goal = String(c.goal ?? "").toLowerCase();
+  return [`property in ${city}`, `real estate ${city}`, `homes in ${city}`, goal].map((k) => k.replace(/\s+/g, " ").trim()).filter((k) => k.split(" ").length >= 2);
 }
 
 async function publicBaseUrl() {

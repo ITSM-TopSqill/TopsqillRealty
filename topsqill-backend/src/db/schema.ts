@@ -595,6 +595,9 @@ export const campaigns = pgTable("campaigns", {
   listingId: varchar("listing_id", { length: 36 }),
   projectId: varchar("project_id", { length: 36 }),
   name: varchar("name", { length: 160 }).notNull(),
+  /** Set only for a listing-less campaign ("From Creative" / "From Video"): the city to target and the ad's destination link. */
+  city: varchar("city", { length: 80 }),
+  link: text("link"),
   goal: varchar("goal", { length: 40 }).notNull().default("Qualified buyers"),
   budgetInr: bigint("budget_inr", { mode: "number" }).notNull(),
   days: smallint("days").notNull().default(15),

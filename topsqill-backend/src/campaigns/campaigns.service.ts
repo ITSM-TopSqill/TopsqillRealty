@@ -1,7 +1,7 @@
 import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException } from "@nestjs/common";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
-import { campaigns, listings, requirements, users } from "../db/schema";
+import { campaigns, listings, media, requirements, users } from "../db/schema";
 import { ClaudeService } from "../ai/claude.service";
 import { SearchService } from "../search/search.service";
 import { buildPlan, forecast, segmentOf, type Plan } from "./planner";
@@ -32,12 +32,18 @@ export class CampaignsService {
   }
 
   /** Builds the whole campaign: targeting, channels, creatives and a forecast. */
-  async create(userId: string, input: { listingId: string; goal?: string; budgetInr: number; days?: number; notes?: string }) {
+  async create(userId: string, input: {
+    listingId?: string; goal?: string; budgetInr: number; days?: number; notes?: string;
+    mediaIds?: string[]; headline?: string; text?: string; city?: string; link?: string;
+  }) {
+    const adsSettings = await loadAds(this.q);
+    if (input.budgetInr < adsSettings.minCampaignInr) throw new BadRequestException(`The minimum campaign budget is ₹${adsSettings.minCampaignInr.toLocaleString("en-IN")}.`);
+
+    if (!input.listingId) return this.createFromCreative(userId, input);
+
     const [listing] = await this.read.select().from(listings).where(eq(listings.id, input.listingId)).limit(1);
     if (!listing) throw new NotFoundException("That listing could not be found.");
     if (listing.ownerId !== userId) throw new ForbiddenException("You can only promote your own listings.");
-    const adsSettings = await loadAds(this.q);
-    if (input.budgetInr < adsSettings.minCampaignInr) throw new BadRequestException(`The minimum campaign budget is ₹${adsSettings.minCampaignInr.toLocaleString("en-IN")}.`);
 
     const demand = await this.demandFor(listing.city, listing.locality, listing.purpose);
     const stats = await this.search.localityStats(listing.locality, listing.city);
@@ -73,6 +79,50 @@ export class CampaignsService {
       goal: input.goal ?? "Qualified buyers", budgetInr: input.budgetInr, days: input.days ?? 15,
       plan: plan as never, creatives: creatives as never, forecast: fc as never,
     }).returning();
+    return row;
+  }
+
+  /**
+   * A campaign with no listing: an uploaded photo ("From Creative") or video
+   * ("From Video") the advertiser writes its own headline and text for, with
+   * a city to target instead of a listing's address. No AI demand/plan
+   * pipeline runs here - there's no listing to read it from.
+   */
+  private async createFromCreative(userId: string, input: { goal?: string; budgetInr: number; days?: number; notes?: string; mediaIds?: string[]; headline?: string; text?: string; city?: string; link?: string }) {
+    const mediaIds = (input.mediaIds ?? []).slice(0, 6);
+    if (!mediaIds.length) throw new BadRequestException("Add at least one photo or a video.");
+    const headline = input.headline?.trim().slice(0, 60);
+    if (!headline) throw new BadRequestException("Give the ad a headline.");
+    const city = input.city?.trim().slice(0, 80);
+    if (!city) throw new BadRequestException("Choose a city to target.");
+
+    const rows = await this.read.select({ id: media.id, ownerId: media.ownerId, status: media.status }).from(media).where(inArray(media.id, mediaIds));
+    if (rows.length !== mediaIds.length || rows.some((m) => m.ownerId !== userId)) throw new ForbiddenException("One of those files isn't yours.");
+
+    const text = input.text?.trim().slice(0, 400) || headline;
+    const creatives = {
+      headlines: [headline],
+      primaryTexts: [input.notes?.trim().slice(0, 400) || text],
+    };
+
+    const id = newId();
+    const [row] = await this.db.insert(campaigns).values({
+      id, ownerId: userId, listingId: null,
+      name: headline, goal: input.goal ?? "Qualified buyers", budgetInr: input.budgetInr, days: input.days ?? 15,
+      mediaIds, city, link: input.link?.trim().slice(0, 300) || null,
+      creatives: creatives as never,
+    }).returning();
+    return row;
+  }
+
+  /** Adds more photos/video to a listing-less campaign still in draft (before it's sent for review). */
+  async addMedia(userId: string, id: string, mediaIds: string[]) {
+    const c = await this.get(userId, id);
+    if (c.status !== "draft" && c.status !== "rejected") throw new BadRequestException("You can only add media before sending the campaign for review.");
+    const rows = await this.read.select({ id: media.id, ownerId: media.ownerId }).from(media).where(inArray(media.id, mediaIds));
+    if (rows.length !== mediaIds.length || rows.some((m) => m.ownerId !== userId)) throw new ForbiddenException("One of those files isn't yours.");
+    const next = [...new Set([...(c.mediaIds ?? []), ...mediaIds])].slice(0, 10);
+    const [row] = await this.db.update(campaigns).set({ mediaIds: next, updatedAt: new Date() }).where(eq(campaigns.id, id)).returning();
     return row;
   }
 

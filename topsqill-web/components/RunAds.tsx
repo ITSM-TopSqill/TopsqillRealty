@@ -24,7 +24,7 @@ const rs = (paise: number) => `₹${Math.round(paise / 100).toLocaleString("en-I
  * where and how much, see what's set aside from the wallet, send for review;
  * then live results with pause, resume and end.
  */
-export function RunAds({ campaignId, budgetInr, days, base, listingMediaIds = [] }: { campaignId: string; budgetInr: number; days: number; base: string; listingMediaIds?: string[] }) {
+export function RunAds({ campaignId, budgetInr, days, listingId, listingMediaIds = [] }: { campaignId: string; budgetInr: number; days: number; listingId?: string | null; listingMediaIds?: string[] }) {
   const router = useRouter();
   const [info, setInfo] = useState<Info | null>(null);
   const [error, setError] = useState("");
@@ -48,7 +48,8 @@ export function RunAds({ campaignId, budgetInr, days, base, listingMediaIds = []
   useEffect(() => { clientApi<Info>(`/v1/campaigns/${campaignId}/ads`).then(apply).catch((e) => setError((e as Error).message)); }, [campaignId]);
 
   // Each photo that finishes uploading is attached to the listing (the list
-  // replaces the old one, so the existing photos and plans go back in too),
+  // replaces the old one, so the existing photos and plans go back in too) -
+  // or, for a listing-less campaign, straight onto the campaign itself -
   // then picked for these ads automatically.
   useEffect(() => {
     const ready = uploads.filter((u) => u.status === "ready" && !attached.current.has(u.mediaId));
@@ -56,10 +57,14 @@ export function RunAds({ campaignId, budgetInr, days, base, listingMediaIds = []
     setAttaching(true);
     (async () => {
       for (const u of ready) attached.current.add(u.mediaId);
-      const next = [...listingMediaRef.current, ...ready.map((u) => u.mediaId)];
       try {
-        await clientApi(`/v1/listings/${base}`, { method: "PATCH", body: { mediaIds: next } });
-        listingMediaRef.current = next;
+        if (listingId) {
+          const next = [...listingMediaRef.current, ...ready.map((u) => u.mediaId)];
+          await clientApi(`/v1/listings/${listingId}`, { method: "PATCH", body: { mediaIds: next } });
+          listingMediaRef.current = next;
+        } else {
+          await clientApi(`/v1/campaigns/${campaignId}/media`, { method: "PATCH", body: { mediaIds: ready.map((u) => u.mediaId) } });
+        }
         const i = await clientApi<Info>(`/v1/campaigns/${campaignId}/ads`);
         apply(i);
         setPicked((p) => [...new Set([...p, ...ready.map((u) => u.mediaId)])].slice(0, 6));
@@ -178,7 +183,7 @@ export function RunAds({ campaignId, budgetInr, days, base, listingMediaIds = []
           ))}
         </div>
         {platforms.length === 2 ? <p className="small muted" style={{ margin: "6px 0 0" }}>The budget is split 70% Facebook and Instagram, 30% Google: Meta brings most property leads.</p> : null}
-        {!info.hasMapPin ? <p className="small muted" style={{ margin: "6px 0 0" }}>Tip: <Link href={`/listings/${base}/edit`}>add a map pin to the listing</Link> so the ads reach people around the property, not the whole city.</p> : null}
+        {listingId && !info.hasMapPin ? <p className="small muted" style={{ margin: "6px 0 0" }}>Tip: <Link href={`/listings/${listingId}/edit`}>add a map pin to the listing</Link> so the ads reach people around the property, not the whole city.</p> : null}
       </fieldset>
 
       <fieldset style={{ border: 0, padding: 0, margin: "0 0 12px" }}>
@@ -207,7 +212,7 @@ export function RunAds({ campaignId, budgetInr, days, base, listingMediaIds = []
               );
             })}
           </div>
-        ) : <p className="small error">The listing has no photos yet — add some below.</p>}
+        ) : <p className="small error">{listingId ? "The listing has no photos yet — add some below." : "Add a photo or video below."}</p>}
 
         {showUploader ? (
           <div style={{ marginTop: 10 }}>
@@ -235,7 +240,7 @@ export function RunAds({ campaignId, budgetInr, days, base, listingMediaIds = []
       ) : null}
       <label className="row small" style={{ gap: 8, marginBottom: 10, alignItems: "flex-start" }}>
         <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} style={{ marginTop: 3 }} />
-        <span>I confirm the listing's details are true, I may advertise this property, and {rs(holdPaise)} can be set aside from my wallet for these ads.</span>
+        <span>I confirm {listingId ? "the listing's details are true, I may advertise this property" : "this ad's details are true"}, and {rs(holdPaise)} can be set aside from my wallet for these ads.</span>
       </label>
       <button className="btn btn-ai" disabled={!!busy || !agree || short > 0 || !platforms.length || !picked.length || info.problems.length > 0}
         onClick={() => act("submit", { platforms, budgetInr: budget, days: nDays, mediaIds: picked })}>

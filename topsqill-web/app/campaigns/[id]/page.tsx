@@ -27,7 +27,10 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
   const c = await api<Campaign>(`/v1/campaigns/${id}`, { token }).catch(() => null);
   if (!c) notFound();
   const listing = c.listingId ? await api<Listing>(`/v1/listings/${c.listingId}`, { token }).catch(() => null) : null;
-  const photos = (listing?.media ?? []).filter((m) => m.kind === "image").map((m) => imageUrl(m, "large")).filter(Boolean) as string[];
+  const ads = !listing ? await api<{ photos: { thumb: string | null }[] }>(`/v1/campaigns/${id}/ads`, { token }).catch(() => null) : null;
+  const photos = listing
+    ? ((listing.media ?? []).filter((m) => m.kind === "image").map((m) => imageUrl(m, "large")).filter(Boolean) as string[])
+    : ((ads?.photos ?? []).map((p) => p.thumb).filter(Boolean) as string[]);
   const site = process.env.NEXT_PUBLIC_SITE_URL ?? "https://topsqill.ai";
   const p = c.plan, cr = c.creatives ?? {}, f = c.forecast;
 
@@ -36,7 +39,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
       <Link href="/campaigns" className="small muted">← Campaigns</Link>
       <div style={{ margin: "6px 0 16px" }}>
         <CampaignHeader id={c.id} name={c.name} status={c.status} />
-        <p className="muted small" style={{ marginTop: 4 }}>{inr(c.budgetInr)} over {c.days} days · goal: {c.goal}{c.listingId ? <> · <Link href={`/listings/${c.listingId}`}>view listing</Link></> : null}</p>
+        <p className="muted small" style={{ marginTop: 4 }}>{inr(c.budgetInr)} over {c.days} days · goal: {c.goal}{c.listingId ? <> · <Link href={`/listings/${c.listingId}`}>view listing</Link></> : c.city ? <> · targeting {c.city}</> : null}</p>
       </div>
 
       {f ? (
@@ -54,7 +57,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         </div>
       ) : null}
 
-      {c.listingId ? <RunAds campaignId={c.id} budgetInr={c.budgetInr} days={c.days} base={c.listingId} listingMediaIds={(listing?.media ?? []).map((m) => m.id)} /> : null}
+      <RunAds campaignId={c.id} budgetInr={c.budgetInr} days={c.days} listingId={c.listingId} listingMediaIds={(listing?.media ?? []).map((m) => m.id)} />
 
       {p ? (
         <div className="g2" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 16, alignItems: "start" }}>
@@ -110,7 +113,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
 
       <h2 style={{ fontSize: 20, margin: "22px 0 12px" }}>Your ads</h2>
       {cr.headlines?.length ? (
-        <AdStudio campaignId={c.id} creatives={cr} photo={photos[0] ?? null} advertiser={user.name} link={c.listingId ? `${site}/listings/${c.listingId}` : site} />
+        <AdStudio campaignId={c.id} creatives={cr} photo={photos[0] ?? null} advertiser={user.name} link={c.listingId ? `${site}/listings/${c.listingId}` : c.link || site} />
       ) : null}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 16, alignItems: "start" }}>
         {cr.carousel?.length ? (
