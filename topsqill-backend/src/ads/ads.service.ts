@@ -378,10 +378,17 @@ export class AdsService {
   }
 
   async adminWallets(search?: string) {
-    const rows = await this.q(`select u.id, u.name, u.email, u.phone, w.balance_paise as "balancePaise", w.held_paise as "heldPaise", w.updated_at as "updatedAt"
-        from wallets w join users u on u.id = w.owner_id
-       where ($1::text is null or u.name ilike '%' || $1 || '%' or u.email ilike '%' || $1 || '%' or u.phone like '%' || $1 || '%')
-       order by w.updated_at desc limit 50`, [search?.trim() || null]);
+    // A member with no wallet transaction yet has no row in `wallets` at all.
+    // With no search, only show members who already have one (the usual
+    // "who's holding money" view); but a search must still find someone by
+    // name/email/phone even before their first top-up, so admin can credit
+    // them the first time (the adjust itself creates the wallet row).
+    const q = search?.trim() || null;
+    const rows = await this.q(`select u.id, u.name, u.email, u.phone, coalesce(w.balance_paise,0) as "balancePaise", coalesce(w.held_paise,0) as "heldPaise", w.updated_at as "updatedAt"
+        from users u left join wallets w on w.owner_id = u.id
+       where ($1::text is null and w.owner_id is not null)
+          or ($1::text is not null and (u.name ilike '%' || $1 || '%' or u.email ilike '%' || $1 || '%' or u.phone like '%' || $1 || '%'))
+       order by coalesce(w.updated_at, u.created_at) desc limit 50`, [q]);
     const [tot] = await this.q(`select coalesce(sum(balance_paise),0) as b, coalesce(sum(held_paise),0) as h from wallets`);
     return { totals: { balancePaise: Number(tot.b), heldPaise: Number(tot.h) }, items: rows.map((r) => ({ ...r, balancePaise: Number(r.balancePaise), heldPaise: Number(r.heldPaise) })) };
   }
