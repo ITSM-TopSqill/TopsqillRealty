@@ -38,36 +38,36 @@ export function NewGenericCampaign({ businessId, recs }: { businessId: string; r
   return (
     <div className="card pad">
       {error ? <p className="error small" style={{ marginBottom: 8 }}>{error}</p> : null}
-      <div className="col" style={{ gap: 10 }}>
-        <div>
-          <label className="small muted">Plan name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={160} placeholder="e.g. Festive season push" />
+      <div className="col" style={{ gap: 14 }}>
+        <div className="field">
+          <label htmlFor="plan-name">Plan name</label>
+          <input id="plan-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={160} placeholder="e.g. Festive season push" />
         </div>
-        <div>
-          <label className="small muted">Objective</label>
-          <select value={objective} onChange={(e) => setObjective(e.target.value)}>
+        <div className="field">
+          <label htmlFor="plan-objective">Objective</label>
+          <select id="plan-objective" value={objective} onChange={(e) => setObjective(e.target.value)}>
             {recs.objectives.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </div>
-        <div>
-          <label className="small muted">Conversion event to track</label>
-          <select value={conversionEvent} onChange={(e) => setConversionEvent(e.target.value)}>
+        <div className="field">
+          <label htmlFor="plan-conversion">Conversion event to track</label>
+          <select id="plan-conversion" value={conversionEvent} onChange={(e) => setConversionEvent(e.target.value)}>
             {recs.conversionEvents.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
-        <div className="row" style={{ gap: 12 }}>
-          <div style={{ flex: 1 }}>
-            <label className="small muted">Budget (₹)</label>
-            <input type="number" min={1} value={budgetInr} onChange={(e) => setBudgetInr(Number(e.target.value))} />
+        <div className="row" style={{ gap: 12, flexWrap: "wrap" }}>
+          <div className="field" style={{ flex: "1 1 160px" }}>
+            <label htmlFor="plan-budget">Budget (₹)</label>
+            <input id="plan-budget" type="number" min={1} value={budgetInr} onChange={(e) => setBudgetInr(Number(e.target.value))} />
           </div>
-          <div style={{ flex: 1 }}>
-            <label className="small muted">Days</label>
-            <input type="number" min={3} max={90} value={days} onChange={(e) => setDays(Number(e.target.value))} />
+          <div className="field" style={{ flex: "1 1 120px" }}>
+            <label htmlFor="plan-days">Days</label>
+            <input id="plan-days" type="number" min={3} max={90} value={days} onChange={(e) => setDays(Number(e.target.value))} />
           </div>
         </div>
-        <div>
-          <label className="small muted">Notes (optional)</label>
-          <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={400} />
+        <div className="field">
+          <label htmlFor="plan-notes">Notes (optional)</label>
+          <textarea id="plan-notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={400} />
         </div>
       </div>
       <button type="button" className="btn btn-ai" disabled={busy} style={{ marginTop: 14 }} onClick={save}>{busy ? "Saving…" : "Save draft plan"}</button>

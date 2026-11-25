@@ -63,9 +63,11 @@ export function NewBusiness() {
   if (!reviewing) {
     return (
       <div className="card pad">
-        <label className="small muted" style={{ display: "block", marginBottom: 6 }}>Describe the business in a sentence or two</label>
-        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} maxLength={1500}
-          placeholder="e.g. We manufacture premium modular furniture and want orders from homeowners, architects and interior designers." />
+        <div className="field">
+          <label htmlFor="description">Describe the business in a sentence or two</label>
+          <textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} maxLength={1500}
+            placeholder="e.g. We manufacture premium modular furniture and want orders from homeowners, architects and interior designers." />
+        </div>
         {error ? <p className="error small" style={{ marginTop: 8 }}>{error}</p> : null}
         <div className="row" style={{ gap: 8, marginTop: 10 }}>
           <button type="button" className="btn btn-ai" disabled={drafting || !description.trim()} onClick={draft}>{drafting ? "Reading…" : "Let AI read it"}</button>
@@ -86,14 +88,14 @@ export function NewBusiness() {
       ) : null}
       {error ? <p className="error small" style={{ marginBottom: 8 }}>{error}</p> : null}
 
-      <div className="col" style={{ gap: 10 }}>
-        <div>
-          <label className="small muted">Business name</label>
-          <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} maxLength={160} />
+      <div className="col" style={{ gap: 14 }}>
+        <div className="field">
+          <label htmlFor="biz-name">Business name</label>
+          <input id="biz-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} maxLength={160} />
         </div>
-        <div>
-          <label className="small muted">Industry</label>
-          <select value={form.industryId} onChange={(e) => setForm((f) => ({ ...f, industryId: e.target.value }))}>
+        <div className="field">
+          <label htmlFor="biz-industry">Industry</label>
+          <select id="biz-industry" value={form.industryId} onChange={(e) => setForm((f) => ({ ...f, industryId: e.target.value }))}>
             <option value="">Pick one…</option>
             {groups.map((g) => (
               <optgroup key={g.sector} label={SECTOR_LABEL[g.sector] ?? g.sector}>
@@ -102,21 +104,21 @@ export function NewBusiness() {
             ))}
           </select>
         </div>
-        <div>
-          <label className="small muted">What you sell / offer</label>
-          <textarea rows={2} value={form.products ?? ""} onChange={(e) => setForm((f) => ({ ...f, products: e.target.value }))} maxLength={2000} />
+        <div className="field">
+          <label htmlFor="biz-products">What you sell / offer</label>
+          <textarea id="biz-products" rows={2} value={form.products ?? ""} onChange={(e) => setForm((f) => ({ ...f, products: e.target.value }))} maxLength={2000} />
         </div>
-        <div>
-          <label className="small muted">Who you're targeting</label>
-          <textarea rows={2} value={form.targetSegments ?? ""} onChange={(e) => setForm((f) => ({ ...f, targetSegments: e.target.value }))} maxLength={1000} />
+        <div className="field">
+          <label htmlFor="biz-segments">Who you're targeting</label>
+          <textarea id="biz-segments" rows={2} value={form.targetSegments ?? ""} onChange={(e) => setForm((f) => ({ ...f, targetSegments: e.target.value }))} maxLength={1000} />
         </div>
-        <div>
-          <label className="small muted">Where (geography)</label>
-          <input value={form.geographicMarkets ?? ""} onChange={(e) => setForm((f) => ({ ...f, geographicMarkets: e.target.value }))} maxLength={500} />
+        <div className="field">
+          <label htmlFor="biz-geo">Where (geography)</label>
+          <input id="biz-geo" value={form.geographicMarkets ?? ""} onChange={(e) => setForm((f) => ({ ...f, geographicMarkets: e.target.value }))} maxLength={500} />
         </div>
-        <div>
-          <label className="small muted">Customer acquisition goal</label>
-          <input value={form.acquisitionGoals ?? ""} onChange={(e) => setForm((f) => ({ ...f, acquisitionGoals: e.target.value }))} maxLength={1000} />
+        <div className="field">
+          <label htmlFor="biz-goal">Customer acquisition goal</label>
+          <input id="biz-goal" value={form.acquisitionGoals ?? ""} onChange={(e) => setForm((f) => ({ ...f, acquisitionGoals: e.target.value }))} maxLength={1000} />
         </div>
       </div>
 
