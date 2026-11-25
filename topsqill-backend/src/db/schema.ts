@@ -598,6 +598,9 @@ export const campaigns = pgTable("campaigns", {
   /** Set only for a listing-less campaign ("From Creative" / "From Video"): the city to target and the ad's destination link. */
   city: varchar("city", { length: 80 }),
   link: text("link"),
+  /** Extra localities to target beyond the primary pin/city, and areas to exclude. Each entry: { label, lat, lng, radiusKm }. */
+  extraPlaces: jsonb("extra_places").$type<{ label: string; lat: number; lng: number; radiusKm: number }[]>(),
+  excludePlaces: jsonb("exclude_places").$type<{ label: string; lat: number; lng: number; radiusKm: number }[]>(),
   goal: varchar("goal", { length: 40 }).notNull().default("Qualified buyers"),
   budgetInr: bigint("budget_inr", { mode: "number" }).notNull(),
   days: smallint("days").notNull().default(15),

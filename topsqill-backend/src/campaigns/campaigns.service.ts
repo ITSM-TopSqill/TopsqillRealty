@@ -16,6 +16,17 @@ import { loadAds } from "../ads/settings";
 
 export type PodcastLine = { host: "Priya" | "Arjun"; line: string };
 export type Podcast = { script: PodcastLine[]; audioUrl: string | null; seconds: number; source: "claude" | "rules"; at: string };
+type Place = { label?: string; lat: number; lng: number; radiusKm?: number };
+
+/** Keeps only well-formed points, capped and within a sane radius - never trusts client input straight into targeting. */
+function sanitizePlaces(arr: Place[] | undefined): { label: string; lat: number; lng: number; radiusKm: number }[] | undefined {
+  if (!arr?.length) return undefined;
+  const out = arr
+    .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180)
+    .slice(0, 8)
+    .map((p) => ({ label: (p.label ?? "").trim().slice(0, 80) || "Area", lat: p.lat, lng: p.lng, radiusKm: Math.min(Math.max(Number(p.radiusKm) || 5, 1), 50) }));
+  return out.length ? out : undefined;
+}
 
 @Injectable()
 export class CampaignsService {
@@ -35,6 +46,7 @@ export class CampaignsService {
   async create(userId: string, input: {
     listingId?: string; goal?: string; budgetInr: number; days?: number; notes?: string;
     mediaIds?: string[]; headline?: string; text?: string; city?: string; link?: string;
+    extraPlaces?: Place[]; excludePlaces?: Place[];
   }) {
     const adsSettings = await loadAds(this.q);
     if (input.budgetInr < adsSettings.minCampaignInr) throw new BadRequestException(`The minimum campaign budget is ₹${adsSettings.minCampaignInr.toLocaleString("en-IN")}.`);
@@ -78,6 +90,7 @@ export class CampaignsService {
       name: `${listing.title} | ${input.goal ?? "Qualified buyers"}`,
       goal: input.goal ?? "Qualified buyers", budgetInr: input.budgetInr, days: input.days ?? 15,
       plan: plan as never, creatives: creatives as never, forecast: fc as never,
+      extraPlaces: sanitizePlaces(input.extraPlaces), excludePlaces: sanitizePlaces(input.excludePlaces),
     }).returning();
     return row;
   }
@@ -88,7 +101,7 @@ export class CampaignsService {
    * a city to target instead of a listing's address. No AI demand/plan
    * pipeline runs here - there's no listing to read it from.
    */
-  private async createFromCreative(userId: string, input: { goal?: string; budgetInr: number; days?: number; notes?: string; mediaIds?: string[]; headline?: string; text?: string; city?: string; link?: string }) {
+  private async createFromCreative(userId: string, input: { goal?: string; budgetInr: number; days?: number; notes?: string; mediaIds?: string[]; headline?: string; text?: string; city?: string; link?: string; extraPlaces?: Place[]; excludePlaces?: Place[] }) {
     const mediaIds = (input.mediaIds ?? []).slice(0, 6);
     if (!mediaIds.length) throw new BadRequestException("Add at least one photo or a video.");
     const headline = input.headline?.trim().slice(0, 60);
@@ -111,6 +124,7 @@ export class CampaignsService {
       name: headline, goal: input.goal ?? "Qualified buyers", budgetInr: input.budgetInr, days: input.days ?? 15,
       mediaIds, city, link: input.link?.trim().slice(0, 300) || null,
       creatives: creatives as never,
+      extraPlaces: sanitizePlaces(input.extraPlaces), excludePlaces: sanitizePlaces(input.excludePlaces),
     }).returning();
     return row;
   }

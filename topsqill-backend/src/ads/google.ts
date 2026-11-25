@@ -50,6 +50,8 @@ export type GoogleAd = {
   name: string; finalUrl: string; dailyBudgetPaise: number;
   headlines: string[]; descriptions: string[]; keywords: string[];
   place: { lat: number | null; lng: number | null; city: string; radiusKm: number };
+  extraPlaces?: { lat: number; lng: number; radiusKm: number }[];       // additional localities targeted alongside `place`
+  excludePlaces?: { lat: number; lng: number; radiusKm: number }[];     // areas carved out of the targeted radius
 };
 
 const fit = (s: string, n: number) => s.replace(/\s+/g, " ").trim().slice(0, n).trim();
@@ -86,6 +88,12 @@ export async function googleLaunch(ctx: GoogleCtx, ad: GoogleAd) {
       containsEuPoliticalAdvertising: "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING",
     } } },
     { campaignCriterionOperation: { create: { campaign: `${c}/campaigns/-2`, ...place } } },
+    // Extra localities targeted alongside the primary point, and areas carved out of it
+    // (Google Ads takes each location as its own campaign criterion, unlike Meta's single geo_locations object).
+    ...(ad.extraPlaces ?? []).slice(0, 8).map((p) => ({ campaignCriterionOperation: { create: { campaign: `${c}/campaigns/-2`,
+      proximity: { geoPoint: { latitudeInMicroDegrees: Math.round(p.lat * 1e6), longitudeInMicroDegrees: Math.round(p.lng * 1e6) }, radius: Math.min(Math.max(p.radiusKm, 1), 50), radiusUnits: "KILOMETERS" } } } })),
+    ...(ad.excludePlaces ?? []).slice(0, 8).map((p) => ({ campaignCriterionOperation: { create: { campaign: `${c}/campaigns/-2`, negative: true,
+      proximity: { geoPoint: { latitudeInMicroDegrees: Math.round(p.lat * 1e6), longitudeInMicroDegrees: Math.round(p.lng * 1e6) }, radius: Math.min(Math.max(p.radiusKm, 1), 50), radiusUnits: "KILOMETERS" } } } })),
     { campaignCriterionOperation: { create: { campaign: `${c}/campaigns/-2`, language: { languageConstant: "languageConstants/1000" } } } },
     { adGroupOperation: { create: { resourceName: `${c}/adGroups/-3`, name: "Property", campaign: `${c}/campaigns/-2`, status: "ENABLED", type: "SEARCH_STANDARD" } } },
     ...uniq(ad.keywords.map((k) => fit(k, 80).toLowerCase())).slice(0, 20).map((text) => ({

@@ -90,6 +90,15 @@ describe("meta launch", () => {
     const creative = calls.find((c) => c.url.endsWith("act_111/adcreatives"))!;
     expect(creative.body.object_story_spec.link_data.picture).toBe("https://cdn/x.jpg");   // one photo: single image ad
   });
+
+  it("adds extra localities to the same geo_locations and areas to exclude to excluded_geo_locations", async () => {
+    await metaLaunch(ctx, { ...metaAd, extraPlaces: [{ lat: 28.5, lng: 77.3, radiusKm: 5 }], excludePlaces: [{ lat: 28.6, lng: 77.2, radiusKm: 3 }] });
+    const adset = calls.find((c) => c.url.endsWith("act_111/adsets"))!;
+    const locs = adset.body.targeting.geo_locations.custom_locations;
+    expect(locs).toHaveLength(2);
+    expect(locs[1]).toMatchObject({ latitude: 28.5, longitude: 77.3, radius: 5 });
+    expect(adset.body.targeting.excluded_geo_locations.custom_locations[0]).toMatchObject({ latitude: 28.6, longitude: 77.2, radius: 3 });
+  });
 });
 
 describe("google launch", () => {
@@ -111,5 +120,21 @@ describe("google launch", () => {
     expect(ad.responsiveSearchAd.headlines).toHaveLength(3);
     const enable = calls.filter((c) => c.url.includes("googleAds:mutate")).pop()!;
     expect(enable.body.mutateOperations[0].campaignOperation.update.status).toBe("ENABLED");
+  });
+
+  it("adds a campaign criterion per extra locality, and a negative one per excluded area", async () => {
+    await googleLaunch(
+      { version: "v24", customerId: "1", developerToken: "d", oauth: { client_id: "a", client_secret: "b", refresh_token: "c" } },
+      { name: "Test", finalUrl: "https://topsqill.ai/listings/l1", dailyBudgetPaise: 150000,
+        headlines: ["3 BHK in Sector 150", "Ready to Move", "Book a Site Visit"], descriptions: ["Park facing home.", "Verified listing."],
+        keywords: ["3 bhk sector 150"], place: { lat: 28.4, lng: 77.5, city: "Noida", radiusKm: 10 },
+        extraPlaces: [{ lat: 28.5, lng: 77.3, radiusKm: 5 }], excludePlaces: [{ lat: 28.6, lng: 77.2, radiusKm: 3 }] });
+    const mutate = calls.find((c) => c.url.includes("googleAds:mutate") && c.body.mutateOperations.length > 1)!;
+    const ops = mutate.body.mutateOperations;
+    const criteria = ops.filter((o: any) => o.campaignCriterionOperation).map((o: any) => o.campaignCriterionOperation.create);
+    const extra = criteria.find((c: any) => c.proximity?.geoPoint?.latitudeInMicroDegrees === 28500000 && !c.negative);
+    expect(extra?.proximity.radius).toBe(5);
+    const excluded = criteria.find((c: any) => c.negative === true);
+    expect(excluded?.proximity.geoPoint.latitudeInMicroDegrees).toBe(28600000);
   });
 });

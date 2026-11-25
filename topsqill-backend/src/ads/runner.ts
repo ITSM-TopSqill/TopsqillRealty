@@ -74,6 +74,9 @@ export async function launchCampaign(pool: Pool, campaignId: string) {
   const bhk = l?.bhk ? `${l.bhk} BHK` : "";
   // A listing has a pinned address to target around; a creative/video campaign only has a city.
   const place = l ? { lat: l.lat ?? null, lng: l.lng ?? null, city: l.city } : { lat: null, lng: null, city: c.city || "India" };
+  // Extra localities to target besides the primary point, and areas to exclude - set on any campaign kind.
+  const extraPlaces = (c.extra_places ?? []) as { label: string; lat: number; lng: number; radiusKm: number }[];
+  const excludePlaces = (c.exclude_places ?? []) as { label: string; lat: number; lng: number; radiusKm: number }[];
   const results: { platform: Platform; status: "live" | "failed"; error?: string }[] = [];
 
   for (const platform of platforms) {
@@ -95,7 +98,7 @@ export async function launchCampaign(pool: Pool, campaignId: string) {
           primaryText: (cr.primaryTexts?.[0] ?? (l ? l.title : c.name)).slice(0, 500),
           description: (l ? `${l.locality}, ${l.city}` : c.city || "").slice(0, 60),
           pictures, video: videoRow ? { url: url(videoRow.variants.mp4)!, thumbnail: pictures[0] ?? "" } : null,
-          place: { ...place, radiusKm: s.meta.radiusKm }, dailyBudgetPaise: daily, endsAt, ctaLabel: cr.cta,
+          place: { ...place, radiusKm: s.meta.radiusKm }, extraPlaces, excludePlaces, dailyBudgetPaise: daily, endsAt, ctaLabel: cr.cta,
         }, async (partial) => { await q("update campaign_deliveries set external = $2 where id = $1", [deliveryId, JSON.stringify(partial)]); });
         await q("update campaign_deliveries set status = 'live', external = $2, external_campaign_id = $3, synced_at = now(), error = null where id = $1", [deliveryId, JSON.stringify(ids), ids.campaignId]);
       } else {
@@ -104,7 +107,7 @@ export async function launchCampaign(pool: Pool, campaignId: string) {
         const g = cr.googleAd ?? {};
         const rent = l?.purpose === "rent";
         const ids = await googleLaunch(ctx, {
-          name: c.name, finalUrl: link, dailyBudgetPaise: daily, place: { ...place, radiusKm: s.google.radiusKm },
+          name: c.name, finalUrl: link, dailyBudgetPaise: daily, place: { ...place, radiusKm: s.google.radiusKm }, extraPlaces, excludePlaces,
           headlines: l
             ? [...(g.headlines ?? []), `${bhk} in ${l.locality}`, rent ? `${bhk} for Rent ${l.locality}` : `${bhk} Flat for Sale`, `Verified Listing, ${l.city}`, "Book a Site Visit Today", l.possession ?? ""]
             : [...(g.headlines ?? []), c.name, `See it in ${c.city || "your city"}`, "Learn More Today"],

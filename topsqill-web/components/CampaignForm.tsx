@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
 import { inr } from "@/lib/format";
 import type { MyListing } from "@/lib/types";
+import { PlacesPicker, type PickedPlace } from "./PlacesPicker";
 
 const GOALS = ["Qualified buyers", "Site visits", "Brand awareness", "Tenants"];
 const BUDGETS = [15000, 30000, 50000, 100000];
@@ -17,6 +18,8 @@ export function CampaignForm({ listings, preselect }: { listings: MyListing[]; p
   const [budget, setBudget] = useState(30000);
   const [days, setDays] = useState(15);
   const [notes, setNotes] = useState("");
+  const [extraPlaces, setExtraPlaces] = useState<PickedPlace[]>([]);
+  const [excludePlaces, setExcludePlaces] = useState<PickedPlace[]>([]);
   const [step, setStep] = useState(-1);
   const [error, setError] = useState("");
   // The real minimum is whatever the admin has configured, not a fixed number.
@@ -31,7 +34,10 @@ export function CampaignForm({ listings, preselect }: { listings: MyListing[]; p
     const timer = setInterval(() => setStep((s) => Math.min(s + 1, STEPS.length - 1)), 900);
     try {
       const c = await clientApi<{ id: string }>("/v1/campaigns", {
-        method: "POST", body: { listingId, goal, budgetInr: budget, days, notes: notes.trim() || undefined },
+        method: "POST", body: {
+          listingId, goal, budgetInr: budget, days, notes: notes.trim() || undefined,
+          extraPlaces: extraPlaces.length ? extraPlaces : undefined, excludePlaces: excludePlaces.length ? excludePlaces : undefined,
+        },
       });
       router.push(`/campaigns/${c.id}`);
     } catch (err) { setError((err as Error).message); setStep(-1); }
@@ -77,6 +83,13 @@ export function CampaignForm({ listings, preselect }: { listings: MyListing[]; p
 
       <div className="field" style={{ marginTop: 12 }}><label htmlFor="days">Run for {days} days ({inr(Math.round(budget / Math.max(days, 1)))} a day)</label>
         <input id="days" type="range" min={3} max={60} value={days} onChange={(e) => setDays(Number(e.target.value))} style={{ accentColor: "#7B3DFF" }} />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <PlacesPicker label="Also target these areas (optional)" hint="Beyond the listing's own locality." value={extraPlaces} onChange={setExtraPlaces} />
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <PlacesPicker label="Don't show ads in these areas (optional)" value={excludePlaces} onChange={setExcludePlaces} />
       </div>
 
       <div className="field" style={{ marginTop: 12 }}><label htmlFor="notes">Anything the ads should mention (optional)</label>

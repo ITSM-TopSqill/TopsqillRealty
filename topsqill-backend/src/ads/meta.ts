@@ -59,6 +59,8 @@ export type MetaAd = {
   pictures: string[];               // 1 = single image ad, 2+ = carousel
   video?: { url: string; thumbnail: string } | null;
   place: { lat: number | null; lng: number | null; city: string; radiusKm: number };
+  extraPlaces?: { lat: number; lng: number; radiusKm: number }[];       // additional localities targeted alongside `place`
+  excludePlaces?: { lat: number; lng: number; radiusKm: number }[];     // areas carved out of the targeted radius
   dailyBudgetPaise: number;
   endsAt: Date;
   purpose: "sale" | "rent";
@@ -115,6 +117,15 @@ export async function metaLaunch(ctx: MetaCtx, ad: MetaAd, onStep?: (ids: Record
     const key = await cityKey(ctx, ad.place.city);
     geo = key ? { cities: [{ key, radius: Math.min(radius, 80), distance_unit: "kilometer" }] } : { countries: ["IN"] };
   }
+  // Extra localities targeted alongside the primary point/city (India has no postal-code
+  // targeting on Meta, so each extra locality is its own point+radius, same as the primary one).
+  if (ad.extraPlaces?.length) {
+    const extra = ad.extraPlaces.map((p) => ({ latitude: p.lat, longitude: p.lng, radius: Math.min(Math.max(p.radiusKm, 1), 50), distance_unit: "kilometer" }));
+    geo = { ...geo, custom_locations: [...((geo.custom_locations as unknown[]) ?? []), ...extra] };
+  }
+  const excludedGeo = ad.excludePlaces?.length
+    ? { custom_locations: ad.excludePlaces.map((p) => ({ latitude: p.lat, longitude: p.lng, radius: Math.min(Math.max(p.radiusKm, 1), 50), distance_unit: "kilometer" })) }
+    : undefined;
   const adset = await graph<{ id: string }>(ctx, `${act}/adsets`, { body: {
     name: `${ad.name} · audience`.slice(0, 100), campaign_id: campaign.id, status: "PAUSED",
     daily_budget: Math.max(ad.dailyBudgetPaise, 10000), billing_event: "IMPRESSIONS", optimization_goal: "LEAD_GENERATION",
@@ -122,6 +133,7 @@ export async function metaLaunch(ctx: MetaCtx, ad: MetaAd, onStep?: (ids: Record
     start_time: new Date().toISOString(), end_time: ad.endsAt.toISOString(),
     targeting: {
       geo_locations: geo,
+      ...(excludedGeo ? { excluded_geo_locations: excludedGeo } : {}),
       ...(ctx.housing ? {} : { age_min: 25 }),
       publisher_platforms: ["facebook", "instagram"],
       targeting_automation: { advantage_audience: 1 },

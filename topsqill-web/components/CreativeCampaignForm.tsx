@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { clientApi } from "@/lib/api";
 import { inr } from "@/lib/format";
 import { MediaUploader, type UploadedItem } from "./MediaUploader";
+import { PlacesPicker, type PickedPlace } from "./PlacesPicker";
 
 const GOALS = ["Qualified buyers", "Site visits", "Brand awareness", "Tenants"];
 const BUDGETS = [15000, 30000, 50000, 100000];
@@ -22,6 +23,8 @@ export function CreativeCampaignForm({ kind }: { kind: "creative" | "video" }) {
   const [text, setText] = useState("");
   const [city, setCity] = useState("");
   const [link, setLink] = useState("");
+  const [extraPlaces, setExtraPlaces] = useState<PickedPlace[]>([]);
+  const [excludePlaces, setExcludePlaces] = useState<PickedPlace[]>([]);
   const [goal, setGoal] = useState(GOALS[0]);
   const [budget, setBudget] = useState(30000);
   const [days, setDays] = useState(15);
@@ -45,6 +48,7 @@ export function CreativeCampaignForm({ kind }: { kind: "creative" | "video" }) {
         body: {
           budgetInr: budget, days, goal, mediaIds: ready.map((u) => u.mediaId),
           headline: headline.trim(), text: text.trim() || undefined, city: city.trim(), link: link.trim() || undefined,
+          extraPlaces: extraPlaces.length ? extraPlaces : undefined, excludePlaces: excludePlaces.length ? excludePlaces : undefined,
         },
       });
       router.push(`/campaigns/${c.id}`);
@@ -74,6 +78,13 @@ export function CreativeCampaignForm({ kind }: { kind: "creative" | "video" }) {
 
       <div className="field" style={{ marginTop: 12 }}><label htmlFor="city">City to target</label>
         <input id="city" maxLength={80} value={city} onChange={(e) => setCity(e.target.value)} placeholder="Bengaluru" />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <PlacesPicker label="Also target these areas (optional)" hint="Add specific localities beyond the city above." value={extraPlaces} onChange={setExtraPlaces} />
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <PlacesPicker label="Don't show ads in these areas (optional)" value={excludePlaces} onChange={setExcludePlaces} />
       </div>
 
       <div className="field" style={{ marginTop: 12 }}><label htmlFor="link">Where the ad should send people (optional)</label>

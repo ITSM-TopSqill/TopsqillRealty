@@ -20,6 +20,10 @@ class CreateCampaignDto {
   @IsOptional() @IsString() @MaxLength(400) text?: string;
   @IsOptional() @IsString() @MaxLength(80) city?: string;
   @IsOptional() @IsString() @MaxLength(300) link?: string;
+  // Extra localities to target besides the primary one, and areas to exclude;
+  // each { label, lat, lng, radiusKm }. Sanitised (bounds, counts) in the service.
+  @IsOptional() @IsArray() @ArrayMaxSize(8) extraPlaces?: { label: string; lat: number; lng: number; radiusKm: number }[];
+  @IsOptional() @IsArray() @ArrayMaxSize(8) excludePlaces?: { label: string; lat: number; lng: number; radiusKm: number }[];
 }
 
 class MediaDto {
