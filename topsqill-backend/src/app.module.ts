@@ -27,6 +27,7 @@ import { IntegrationsModule } from "./integrations/integrations.module";
 import { AccountModule } from "./account/account.module";
 import { BusinessModule } from "./business/business.module";
 import { CustomerIntelligenceModule } from "./customer-intelligence/customer-intelligence.module";
+import { CompetitiveIntelligenceModule } from "./competitive-intelligence/competitive-intelligence.module";
 import { HealthController } from "./health/health.controller";
 import { TimingInterceptor, ErrorFilter } from "./common/http";
 import { isProd, getEnv } from "./common/env";
@@ -56,7 +57,7 @@ import { isProd, getEnv } from "./common/env";
     AuthModule, ProfilesModule, ListingsModule, MediaModule, FeedModule,
     RequirementsModule, SearchModule, SavedModule, AdminModule, GeoModule,
     NotificationsModule, MessagingModule, LeadsModule,
-    AiModule, JobsModule, CampaignsModule, AdsModule, IntegrationsModule, AccountModule, BusinessModule, CustomerIntelligenceModule,
+    AiModule, JobsModule, CampaignsModule, AdsModule, IntegrationsModule, AccountModule, BusinessModule, CustomerIntelligenceModule, CompetitiveIntelligenceModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -10,6 +10,7 @@ import { GenericCampaignsService } from "../business/generic-campaigns.service";
 import { ProviderRegistryService, type ProviderStatus } from "../integrations/provider-registry.service";
 import { CustomerIntelligenceService } from "../customer-intelligence/customer-intelligence.service";
 import { CampaignEvolutionService } from "./evolution.service";
+import { CompetitiveIntelligenceService } from "../competitive-intelligence/competitive-intelligence.service";
 
 const VERIFIED_STATUSES = new Set(["connected", "read_verified", "write_verified", "webhook_verified", "production_verified"]);
 
@@ -34,6 +35,7 @@ How to answer:
 - Every recommendation has an observation, evidence (which records and period), a likely cause (diagnosis), an expected impact, a confidence level, a risk if acted on, and what approval it needs - use all of these when explaining why AI generated it, not just the headline. The recommendations tool already returns them sorted highest-priority first, so the top of the list IS the answer to "highest priority" or "biggest impact".
 - A "stale" recommendation means the situation that raised it no longer holds (it was recalculated and the condition stopped firing) - call the recommendations tool with status "stale" for those.
 - Forecasts for a running campaign always come with a data-coverage note (how much live data backs them) - mention it. Forecast accuracy for completed campaigns (forecast vs. what actually happened) is a separate thing - use the forecast_accuracy tool, and never recompute it yourself from raw numbers the tools return.
+- Competitor ad searches only cover Meta's public Ad Library (India). Google/TikTok/LinkedIn ad research isn't available - say so if asked. Never state or imply a competitor's CTR, ROAS, spend, sales or conversion rate - that data doesn't exist in what you can see; the only real signals are an ad's observed duration and whether it's still running, and a long-running ad is not proof it performs well.
 - Customer segments are built only from real CRM fields (stage, score, source, locality, budget, recency) - never from financial status, health, or any attribute Topsqill doesn't actually store. If asked to target something Topsqill has no data for, say so and suggest the closest real field instead.
 - You cannot launch a campaign, change a budget, pause a campaign, modify targeting or send any message yourself. If asked to do one of these, say the member needs to do it from the Campaigns page, and explain what you found that's relevant.
 - Money in Indian style: ₹2.4 Cr, ₹85 L, ₹45,000. Keep answers under 120 words unless the member asks for a longer breakdown. Plain text, no markdown tables or headings.`;
@@ -100,6 +102,11 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
     description: "Whether AI Campaign Evolution has analysed a given campaign, what redesign versions and changes it proposed (reason/evidence/confidence/risk per change), and whether any were approved or applied as a new draft. Use for 'has AI reviewed campaign X' or 'what changes did it suggest'. You cannot run a new analysis or apply changes yourself - tell the member to use the campaign's 'Improve with AI' page.",
     input_schema: { type: "object", properties: { campaign_name: { type: "string", description: "The campaign's name, or part of it" } }, required: ["campaign_name"] },
   },
+  {
+    name: "competitor_ads",
+    description: "Real, currently/recently running ads from Meta's public Ad Library matching a search term (advertiser name, product or keyword) - with real first-seen/last-seen dates and whether each is still running. These are the only real signals available (duration, continued presence) - never a performance number (no CTR/ROAS/budget is available from this source). An optional AI pattern summary may follow, clearly labelled as patterns to consider testing, not proof anything performs well.",
+    input_schema: { type: "object", properties: { search_terms: { type: "string", description: "Advertiser name, product or keyword to search for" } }, required: ["search_terms"] },
+  },
 ];
 
 /**
@@ -124,6 +131,7 @@ export class MarketingAssistantService {
     private readonly providers: ProviderRegistryService,
     private readonly segments: CustomerIntelligenceService,
     private readonly evolution: CampaignEvolutionService,
+    private readonly competitive: CompetitiveIntelligenceService,
   ) {}
 
   async ask(userId: string, message: string, history: Turn[] = []): Promise<MarketingAssistantReply> {
@@ -203,6 +211,11 @@ export class MarketingAssistantService {
         const c = await this.findCampaignByName(userId, name);
         if (!c) return `No campaign matches "${name}".`;
         return this.campaignEvolutionText(userId, c.id);
+      }
+      case "competitor_ads": {
+        const terms = str("search_terms");
+        if (!terms) return "A search term is needed.";
+        return this.competitorAdsText(userId, terms);
       }
       default: return "Unknown tool.";
     }
@@ -368,6 +381,18 @@ export class MarketingAssistantService {
       lines.push(`- ${v.label}: ${v.summary} (${v.changes.length} change${v.changes.length === 1 ? "" : "s"}${v.changes.length ? `, ${approved} approved` : ""})`);
     }
     return lines.join("\n");
+  }
+
+  private async competitorAdsText(userId: string, searchTerms: string) {
+    try {
+      const { results, patterns } = await this.competitive.searchAds(userId, searchTerms, 10);
+      if (!results.length) return `No currently/recently running ads found for "${searchTerms}" in Meta's Ad Library.`;
+      const lines = results.map((r) => `- ${r.pageName}: "${r.headline ?? "(no headline)"}" - ${r.body ? r.body.slice(0, 140) : "(no body text)"} [${r.stillRunning ? "still running" : "stopped"}${r.daysObserved ? `, observed ${r.daysObserved} day(s)` : ""}]`);
+      lines.push(patterns.available ? `Patterns observed (not proof of performance): ${patterns.text}` : `No pattern summary: ${patterns.reason}`);
+      return lines.join("\n");
+    } catch (e) {
+      return `Couldn't search Meta's Ad Library: ${(e as Error).message}`;
+    }
   }
 
   private async leadsToFollowUpText(userId: string) {

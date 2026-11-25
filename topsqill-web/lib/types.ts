@@ -128,6 +128,13 @@ export type Differentiator = {
   enumValues?: string[];
 };
 
+export type AdLibraryResult = {
+  pageName: string; headline: string | null; body: string | null; linkCaption: string | null;
+  platforms: string[]; firstSeenAt: string | null; lastSeenAt: string | null;
+  stillRunning: boolean; daysObserved: number | null; snapshotUrl: string | null;
+};
+export type PatternSummary = { available: true; text: string } | { available: false; reason: string };
+
 export type Project = {
   id: string; ownerId: string; sourceUrl?: string | null; name: string; builder?: string | null;
   city: string; locality: string; reraNumber?: string | null; status: string; possession?: string | null;

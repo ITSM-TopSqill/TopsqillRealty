@@ -25,6 +25,7 @@ export default async function CampaignsPage() {
         </div>
         <div className="row" style={{ gap: 8 }}>
           <Link href="/campaigns/insights" className="btn btn-o">✨ Insights</Link>
+          <Link href="/competitive-intelligence" className="btn btn-o" title="Search Meta's public Ad Library">🔍 Competitors</Link>
           <Link href="/business" className="btn btn-o" title="Marketing for something other than real estate">🏢 Business</Link>
           <Link href="/campaigns/new" className="btn btn-ai">+ New campaign</Link>
         </div>

@@ -31,6 +31,7 @@ function makeService(opts: {
   segmentsList?: { items: Record<string, unknown>[] };
   segmentsPreview?: Record<string, unknown>;
   evolutionList?: { items: Record<string, unknown>[] };
+  competitorSearch?: Record<string, unknown>;
 }) {
   const read = { select: () => chainable(opts.selectRows ?? []) };
   const claude = { available: opts.claudeAvailable, chat: vi.fn() };
@@ -49,9 +50,10 @@ function makeService(opts: {
     preview: vi.fn().mockResolvedValue(opts.segmentsPreview ?? { totalLeadsConsidered: 0, matchedCount: 0, sample: [], truncated: false }),
   };
   const evolution = { list: vi.fn().mockResolvedValue(opts.evolutionList ?? { items: [] }) };
+  const competitive = { searchAds: vi.fn().mockResolvedValue(opts.competitorSearch ?? { results: [], patterns: { available: false, reason: "No ads found to summarise." } }) };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const svc = new MarketingAssistantService(read as any, claude as any, campaigns as any, business as any, genericCampaigns as any, providers as any, segments as any, evolution as any);
-  return { svc, claude, campaigns, business, genericCampaigns, providers, segments, evolution };
+  const svc = new MarketingAssistantService(read as any, claude as any, campaigns as any, business as any, genericCampaigns as any, providers as any, segments as any, evolution as any, competitive as any);
+  return { svc, claude, campaigns, business, genericCampaigns, providers, segments, evolution, competitive };
 }
 
 const emptyDashboard = {
@@ -176,6 +178,30 @@ describe("MarketingAssistantService", () => {
     const text: string = await (svc as any).businessPlansText("u1", "Dental");
     expect(text).toContain("New year push");
     expect(text).toContain("draft only - not launched to any channel");
+  });
+
+  it("competitor_ads tool reports real ads with duration/still-running signals, never a fabricated performance number", async () => {
+    const { svc } = makeService({
+      claudeAvailable: false,
+      competitorSearch: {
+        results: [{ pageName: "Rival Realty", headline: "3 BHK ready to move", body: "Book a site visit", stillRunning: true, daysObserved: 12 }],
+        patterns: { available: true, text: "Several ads lead with site-visit CTAs." },
+      },
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const text: string = await (svc as any).competitorAdsText("u1", "realty gurgaon");
+    expect(text).toContain("Rival Realty");
+    expect(text).toContain("still running");
+    expect(text).toContain("Patterns observed (not proof of performance)");
+    expect(text).not.toMatch(/ctr|roas|conversion rate|%/i);
+  });
+
+  it("competitor_ads tool surfaces a real configuration/search error instead of pretending nothing was found", async () => {
+    const { svc, competitive } = makeService({ claudeAvailable: false });
+    competitive.searchAds.mockRejectedValue(new Error("Meta Ad Library isn't configured (no META_APP_ID/META_APP_SECRET) - this search can't run."));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const text: string = await (svc as any).competitorAdsText("u1", "realty");
+    expect(text).toMatch(/isn't configured/i);
   });
 
   it("provider_capabilities tool marks an unverified platform as not usable, without fabricating a performance claim", async () => {
