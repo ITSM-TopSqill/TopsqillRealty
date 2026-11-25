@@ -31,6 +31,9 @@ export async function metaCheck(ctx: MetaCtx) {
   const me = await graph<{ id: string; name?: string }>(ctx, "me", { query: { fields: "id,name" } });
   const acct = ctx.adAccountId ? await graph<{ name?: string; account_status?: number; currency?: string }>(ctx, `act_${ctx.adAccountId}`, { query: { fields: "name,account_status,currency" } }) : null;
   const page = ctx.pageId ? await graph<{ name?: string }>(ctx, ctx.pageId, { query: { fields: "name" } }) : null;
+  // Re-confirms the Page keeps sending us leadgen webhooks - cheap, idempotent, and the one place this
+  // runs for a Page whose lead form was created before the subscribe call existed.
+  if (ctx.pageId) await pageToken(ctx).then((t) => graph({ token: t, version: ctx.version }, `${ctx.pageId}/subscribed_apps`, { body: { subscribed_fields: "leadgen" } })).catch(() => {});
   return { user: me.name ?? me.id, adAccount: acct?.name ?? null, currency: acct?.currency ?? null, active: acct?.account_status === 1, page: page?.name ?? null };
 }
 
