@@ -1,7 +1,7 @@
 import { Body, Controller, ForbiddenException, Get, Header, Param, Post, Query, Req, UseGuards, type RawBodyRequest } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import { Type } from "class-transformer";
-import { IsArray, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, MaxLength, Min, ArrayMaxSize, ValidateNested } from "class-validator";
+import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, MaxLength, Min, ArrayMaxSize, ValidateNested } from "class-validator";
 import { AdsService } from "./ads.service";
 import { CurrentUser, AuthUser, Public } from "../auth/public.decorator";
 import { AdminGuard } from "../auth/jwt.guard";
@@ -36,6 +36,9 @@ class DecideDto {
 class AdjustDto {
   @IsNumber() @Min(-1_000_000) @Max(1_000_000) amountInr: number;
   @IsString() @MaxLength(300) note: string;
+}
+class AutoOptimizeDto {
+  @IsBoolean() on: boolean;
 }
 
 /** The member's ad wallet: balance, history, adding money, invoices. */
@@ -86,6 +89,9 @@ export class CampaignAdsController {
 
   @Post(":id/refresh") @ApiOperation({ summary: "Fetch the latest results from the ad platforms now" })
   refresh(@CurrentUser() u: AuthUser, @Param("id") id: string) { return this.ads.refresh(u.id, id); }
+
+  @Post(":id/auto-optimize") @ApiOperation({ summary: "Let the AI shift budget between Meta and Google on its own, within what's already approved" })
+  autoOptimize(@CurrentUser() u: AuthUser, @Param("id") id: string, @Body() dto: AutoOptimizeDto) { return this.ads.setAutoOptimize(u.id, id, dto.on); }
 }
 
 /** Webhooks from Razorpay (payments) and Meta (leads from our ad forms). */

@@ -172,6 +172,11 @@ export async function metaSetStatus(ctx: Pick<MetaCtx, "token" | "version">, cam
   await graph(ctx, campaignId, { body: { status: on ? "ACTIVE" : "PAUSED" } });
 }
 
+/** Changes the ad set's daily budget - used by the opt-in budget reallocator, never below Meta's own floor. */
+export async function metaSetBudget(ctx: Pick<MetaCtx, "token" | "version">, adsetId: string, dailyBudgetPaise: number) {
+  await graph(ctx, adsetId, { body: { daily_budget: Math.max(Math.round(dailyBudgetPaise), 10000) } });
+}
+
 /** Results so far, all time. Spend comes back in rupees as text. */
 export async function metaStats(ctx: Pick<MetaCtx, "token" | "version">, campaignId: string) {
   const r = await graph<{ data?: { spend?: string; impressions?: string; clicks?: string; actions?: { action_type: string; value: string }[] }[] }>(ctx, `${campaignId}/insights`, {

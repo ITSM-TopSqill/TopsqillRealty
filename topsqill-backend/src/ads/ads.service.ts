@@ -182,6 +182,7 @@ export class AdsService {
       feePct: Number(c.status === "draft" ? ready.settings.feePct : c.fee_pct), minBudgetInr: ready.settings.minCampaignInr,
       wallet: w, holdPaise: Number(c.hold_paise), chargedPaise: Number(c.charged_paise),
       reviewNote: c.review_note, submittedAt: c.submitted_at, launchedAt: c.launched_at, endsAt: c.ends_at, endReason: c.end_reason,
+      autoOptimize: !!c.auto_optimize, optimizedAt: c.optimized_at, optimizeNote: c.optimize_note,
       results: {
         spendInr: Number(c.spend_inr), clicks: Number(c.clicks_count), impressions: Number(c.impressions_count),
         leads: Number(c.leads_count), qualifiedLeads: Number(c.qualified_count),
@@ -256,6 +257,12 @@ export class AdsService {
     const r = await setLive(this.pool, id, true);
     await this.q("update campaigns set status = 'active', updated_at = now() where id = $1", [id]);
     return { ...(await this.adsInfo(userId, id)), errors: r.errors };
+  }
+  /** Phase 4, opt-in: lets the AI shift budget between Meta and Google on its own, within what's already approved. */
+  async setAutoOptimize(userId: string, id: string, on: boolean) {
+    await this.campaign(userId, id);
+    await this.q("update campaigns set auto_optimize = $2, updated_at = now() where id = $1", [id, on]);
+    return this.adsInfo(userId, id);
   }
   async end(userId: string, id: string) {
     const c = await this.campaign(userId, id);

@@ -612,6 +612,10 @@ export const campaigns = pgTable("campaigns", {
   leadsCount: integer("leads_count").notNull().default(0),
   qualifiedCount: integer("qualified_count").notNull().default(0),
   launchedAt: timestamp("launched_at", { withTimezone: true }),
+  /** Opt-in: shifts next-day budget between Meta and Google toward whichever has the lower cost per qualified lead. */
+  autoOptimize: boolean("auto_optimize").notNull().default(false),
+  optimizedAt: timestamp("optimized_at", { withTimezone: true }),
+  optimizeNote: text("optimize_note"),
   /** Managed ads (run on Topsqill's ad accounts, paid from the wallet). */
   platforms: jsonb("platforms").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   mediaIds: jsonb("media_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
@@ -671,6 +675,8 @@ export const campaignDeliveries = pgTable("campaign_deliveries", {
   /** The platform's own ids for everything made (ad set, ad, lead form, budget...). */
   external: jsonb("external").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
   spendPaise: bigint("spend_paise", { mode: "number" }).notNull().default(0),
+  /** The daily budget actually set on the platform right now - distinct from budgetInr (this platform's total share). */
+  dailyBudgetPaise: bigint("daily_budget_paise", { mode: "number" }),
   syncedAt: timestamp("synced_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ campaignIdx: index("campaign_deliveries_idx").on(t.campaignId) }));

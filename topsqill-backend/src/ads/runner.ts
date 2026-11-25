@@ -4,8 +4,8 @@ import { inTx, queryOn, type Q } from "./db";
 import { ledger, rupees } from "./ledger";
 import { loadAds, type AdsSettings } from "./settings";
 import { adsSecret } from "./secrets";
-import { metaLaunch, metaSetStatus, metaStats, type MetaCtx } from "./meta";
-import { googleLaunch, googleSetStatus, googleStats, type GoogleCtx } from "./google";
+import { metaLaunch, metaSetStatus, metaSetBudget, metaStats, type MetaCtx } from "./meta";
+import { googleLaunch, googleSetStatus, googleSetBudget, googleStats, type GoogleCtx } from "./google";
 
 /**
  * Runs managed campaigns on Topsqill's ad accounts: launch, pause, resume,
@@ -100,7 +100,7 @@ export async function launchCampaign(pool: Pool, campaignId: string) {
           pictures, video: videoRow ? { url: url(videoRow.variants.mp4)!, thumbnail: pictures[0] ?? "" } : null,
           place: { ...place, radiusKm: s.meta.radiusKm }, extraPlaces, excludePlaces, dailyBudgetPaise: daily, endsAt, ctaLabel: cr.cta,
         }, async (partial) => { await q("update campaign_deliveries set external = $2 where id = $1", [deliveryId, JSON.stringify(partial)]); });
-        await q("update campaign_deliveries set status = 'live', external = $2, external_campaign_id = $3, synced_at = now(), error = null where id = $1", [deliveryId, JSON.stringify(ids), ids.campaignId]);
+        await q("update campaign_deliveries set status = 'live', external = $2, external_campaign_id = $3, daily_budget_paise = $4, synced_at = now(), error = null where id = $1", [deliveryId, JSON.stringify(ids), ids.campaignId, daily]);
       } else {
         const ctx = await googleCtx(s);
         if (!ctx) throw new Error("Google Ads isn't set up (Admin → Ads).");
@@ -116,7 +116,7 @@ export async function launchCampaign(pool: Pool, campaignId: string) {
             : [...(g.descriptions ?? []), cr.primaryTexts?.[0] ?? c.name, "Get in touch today."],
           keywords: l ? keywordsFor(l) : keywordsForCreative(c),
         });
-        await q("update campaign_deliveries set status = 'live', external = $2, external_campaign_id = $3, synced_at = now(), error = null where id = $1", [deliveryId, JSON.stringify(ids), ids.campaignId]);
+        await q("update campaign_deliveries set status = 'live', external = $2, external_campaign_id = $3, daily_budget_paise = $4, synced_at = now(), error = null where id = $1", [deliveryId, JSON.stringify(ids), ids.campaignId, daily]);
       }
       results.push({ platform, status: "live" });
     } catch (e) {
@@ -217,8 +217,67 @@ export async function syncCampaign(pool: Pool, campaignId: string, notify?: Noti
     const timeUp = after.ends_at && new Date(after.ends_at).getTime() <= Date.now();
     const moneyUp = Number(after.charged_paise) >= Number(after.hold_paise) * 0.98;
     if (timeUp || moneyUp) await endCampaign(pool, campaignId, timeUp ? "Ended on schedule" : "Budget used", notify);
+    else if (after.status === "active" && after.auto_optimize) await maybeOptimizeBudget(pool, campaignId, s, notify);
   }
   return { spendPaise: spend, clicks, impressions, leads };
+}
+
+const PLATFORM_NAME: Record<Platform, string> = { meta: "Facebook and Instagram", google: "Google Search" };
+
+/**
+ * Phase 4, opt-in only: once a day at most, and only once both platforms have
+ * enough qualified leads to compare, shifts a capped slice of tomorrow's
+ * budget from the costlier platform to the cheaper one - never past the
+ * campaign's own total, never below a sane daily floor, and always explained
+ * back to the member. Silently gives up on any error; the budgets it last set
+ * keep running untouched, and it tries again at the next sync.
+ */
+async function maybeOptimizeBudget(pool: Pool, campaignId: string, s: AdsSettings, notify?: Notify) {
+  const q = queryOn(pool);
+  const [c] = await q<CampaignRow>("select * from campaigns where id = $1", [campaignId]);
+  if (!c?.auto_optimize || c.status !== "active") return;
+  if (c.optimized_at && Date.now() - new Date(c.optimized_at).getTime() < 20 * 3600_000) return;
+
+  const deliveries = await q<CampaignRow>("select * from campaign_deliveries where campaign_id = $1 and status = 'live'", [campaignId]);
+  const meta = deliveries.find((d) => d.platform === "meta");
+  const google = deliveries.find((d) => d.platform === "google");
+  if (!meta || !google || !meta.daily_budget_paise || !google.daily_budget_paise) return;   // only meaningful running on both
+
+  const leadRows = await q<{ source: string; qualified: number }>(
+    "select source, count(*) filter (where qualified)::int as qualified from leads where campaign_id = $1 and source in ('meta','google') group by source", [campaignId]);
+  const qualifiedOf = (src: Platform) => leadRows.find((r) => r.source === src)?.qualified ?? 0;
+  const metaQualified = qualifiedOf("meta"), googleQualified = qualifiedOf("google");
+  if (metaQualified + googleQualified < 4) return;   // too little signal to act on yet
+
+  const cplOf = (d: CampaignRow, qualified: number) => (qualified ? Number(d.spend_paise) / qualified : Infinity);
+  const metaCpl = cplOf(meta, metaQualified), googleCpl = cplOf(google, googleQualified);
+  if (!Number.isFinite(metaCpl) && !Number.isFinite(googleCpl)) return;
+  if (Math.abs(metaCpl - googleCpl) < Math.min(metaCpl, googleCpl) * 0.15) return;   // too close to be worth shifting over
+
+  const better: Platform = metaCpl < googleCpl ? "meta" : "google";
+  const betterD = better === "meta" ? meta : google;
+  const worseD = better === "meta" ? google : meta;
+  const worse: Platform = better === "meta" ? "google" : "meta";
+
+  const FLOOR = 30000;   // ₹300/day, the same per-day minimum enforced when a campaign is first submitted
+  const worseDaily = Number(worseD.daily_budget_paise);
+  const shift = Math.min(Math.round(worseDaily * 0.2), worseDaily - FLOOR);
+  if (shift <= 0) return;
+  const newWorseDaily = worseDaily - shift;
+  const newBetterDaily = Number(betterD.daily_budget_paise) + shift;
+
+  try {
+    if (worse === "meta") { const ctx = await metaCtx(s); if (!ctx) return; await metaSetBudget(ctx, worseD.external?.adsetId, newWorseDaily); }
+    else { const ctx = await googleCtx(s); if (!ctx) return; await googleSetBudget(ctx, worseD.external?.budgetId, newWorseDaily); }
+    if (better === "meta") { const ctx = await metaCtx(s); if (!ctx) return; await metaSetBudget(ctx, betterD.external?.adsetId, newBetterDaily); }
+    else { const ctx = await googleCtx(s); if (!ctx) return; await googleSetBudget(ctx, betterD.external?.budgetId, newBetterDaily); }
+  } catch { return; }   // leave both budgets as they were; try again at the next sync
+
+  await q("update campaign_deliveries set daily_budget_paise = $2 where id = $1", [worseD.id, newWorseDaily]);
+  await q("update campaign_deliveries set daily_budget_paise = $2 where id = $1", [betterD.id, newBetterDaily]);
+  const note = `Shifted ${rupees(shift)}/day from ${PLATFORM_NAME[worse]} to ${PLATFORM_NAME[better]}: ${PLATFORM_NAME[better]}'s cost per qualified lead (${rupees(Math.round(better === "meta" ? metaCpl : googleCpl))}) is lower than ${PLATFORM_NAME[worse]}'s (${rupees(Math.round(worse === "meta" ? metaCpl : googleCpl))}).`;
+  await q("update campaigns set optimized_at = now(), optimize_note = $2, updated_at = now() where id = $1", [campaignId, note]);
+  if (notify) await notify({ userId: c.owner_id, title: "AI shifted your ad budget", body: note, targetType: "campaign", targetId: campaignId }).catch(() => null);
 }
 
 /** Stops the campaign everywhere, marks it finished, and returns unspent money to the wallet. */

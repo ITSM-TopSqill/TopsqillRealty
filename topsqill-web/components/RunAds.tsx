@@ -11,6 +11,7 @@ type Info = {
   status: string; enabled: boolean; platforms: { meta: boolean; google: boolean }; chosen: string[]; mediaIds: string[];
   feePct: number; minBudgetInr: number; wallet: { balancePaise: number; heldPaise: number }; holdPaise: number; chargedPaise: number;
   reviewNote?: string | null; submittedAt?: string | null; launchedAt?: string | null; endsAt?: string | null; endReason?: string | null;
+  autoOptimize: boolean; optimizedAt?: string | null; optimizeNote?: string | null;
   results: { spendInr: number; clicks: number; impressions: number; leads: number; qualifiedLeads: number; costPerQualifiedLeadInr: number | null };
   deliveries: { platform: string; status: string; error?: string | null; stats?: Record<string, number>; spendPaise: number; budgetInr: number; syncedAt?: string | null }[];
   photos: { id: string; kind: string; thumb: string | null }[]; hasMapPin: boolean; problems: string[]; errors?: string[];
@@ -134,6 +135,16 @@ export function RunAds({ campaignId, budgetInr, days, listingId, listingMediaIds
             </div>
           ))}
         </div>
+        {s !== "completed" && info.deliveries.filter((d) => d.status === "live").length > 1 ? (
+          <div className="row" style={{ gap: 8, alignItems: "flex-start", marginTop: 12, padding: "10px 12px", background: "var(--soft)", borderRadius: 12 }}>
+            <input id="auto-optimize" type="checkbox" checked={info.autoOptimize} disabled={!!busy}
+              onChange={(e) => act("auto-optimize", { on: e.target.checked })} style={{ marginTop: 3 }} />
+            <label htmlFor="auto-optimize" className="small">
+              <b>Let AI shift budget between Facebook/Instagram and Google</b> toward whichever is bringing cheaper qualified leads, within the total you already approved (at most once a day, and only once there's enough data).
+              {info.autoOptimize && info.optimizeNote ? <div className="muted" style={{ marginTop: 4 }}>Last move{info.optimizedAt ? ` (${timeAgo(info.optimizedAt)})` : ""}: {info.optimizeNote}</div> : null}
+            </label>
+          </div>
+        ) : null}
         <p className="small muted" style={{ margin: "10px 0 0" }}>
           Leads from these ads arrive in <Link href="/leads">Leads</Link> straight away. Spend is charged from your wallet as it happens{info.feePct ? `, plus a ${info.feePct}% service fee` : ""}; results update every 15 minutes.
         </p>

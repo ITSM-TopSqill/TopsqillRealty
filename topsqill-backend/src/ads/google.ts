@@ -116,6 +116,13 @@ export async function googleSetStatus(ctx: GoogleCtx, campaignResource: string, 
   await call(ctx, "googleAds:mutate", { mutateOperations: [{ campaignOperation: { update: { resourceName: campaignResource, status: on ? "ENABLED" : "PAUSED" }, updateMask: "status" } }] });
 }
 
+/** Changes the campaign budget's daily amount - used by the opt-in budget reallocator. */
+export async function googleSetBudget(ctx: GoogleCtx, budgetResource: string, dailyBudgetPaise: number) {
+  await call(ctx, "googleAds:mutate", { mutateOperations: [{ campaignBudgetOperation: {
+    update: { resourceName: budgetResource, amountMicros: String(Math.max(Math.round(dailyBudgetPaise), 10000) * 10_000) }, updateMask: "amountMicros",
+  } }] });
+}
+
 export async function googleStats(ctx: GoogleCtx, campaignResource: string) {
   const r = await call<{ results?: { metrics?: { costMicros?: string; clicks?: string; impressions?: string; conversions?: number } }[] }>(ctx, "googleAds:search", {
     query: `SELECT metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions FROM campaign WHERE campaign.resource_name = '${campaignResource.replace(/'/g, "")}'`,
