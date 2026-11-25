@@ -85,3 +85,49 @@ export function validateVersions(versions: EvolutionVersion[]) {
     }
   }
 }
+
+/**
+ * Performance-Based Campaign Evolution + the Experiment/Validation Engine
+ * (Sections 9 & 13), scoped honestly: a direct comparison between the
+ * original campaign and the "variant" draft an evolution's approved
+ * changes became, once BOTH have run enough to say anything - never a
+ * declared winner on thin data, and never a claim this isolates the
+ * change from everything else that can differ between two campaigns
+ * (budget, dates, audience size).
+ */
+export type OutcomeInput = {
+  originalSpendInr: number; originalQualifiedCount: number; originalLeadsCount: number; originalStatus: string;
+  variantSpendInr: number; variantQualifiedCount: number; variantLeadsCount: number; variantStatus: string;
+};
+export type OutcomeVerdict = "variant_better" | "original_better" | "inconclusive";
+export type EvolutionOutcome =
+  | {
+      available: true; verdict: OutcomeVerdict;
+      originalCostPerQualifiedLeadInr: number; variantCostPerQualifiedLeadInr: number;
+      percentDifference: number; confidence: Confidence;
+      caveat: string;
+    }
+  | { available: false; reason: string };
+
+const MIN_QUALIFIED_FOR_COMPARISON = 3;
+
+export function compareOutcome(input: OutcomeInput): EvolutionOutcome {
+  if (input.variantStatus === "draft" || input.variantStatus === "review") {
+    return { available: false, reason: "The variant campaign hasn't launched yet, so there's nothing to compare." };
+  }
+  if (input.originalQualifiedCount < MIN_QUALIFIED_FOR_COMPARISON || input.variantQualifiedCount < MIN_QUALIFIED_FOR_COMPARISON) {
+    return { available: false, reason: `Needs at least ${MIN_QUALIFIED_FOR_COMPARISON} qualified leads on both the original and the variant to compare honestly - not there yet.` };
+  }
+  const originalCost = input.originalSpendInr / input.originalQualifiedCount;
+  const variantCost = input.variantSpendInr / input.variantQualifiedCount;
+  const percentDifference = Math.round(((variantCost - originalCost) / originalCost) * 100);
+  const bothHaveDecentVolume = input.originalQualifiedCount >= 8 && input.variantQualifiedCount >= 8;
+  const confidence: Confidence = bothHaveDecentVolume ? "medium" : "low";   // never "high" - two campaigns differ in more than the changes made
+  const verdict: OutcomeVerdict = Math.abs(percentDifference) < 15 ? "inconclusive" : percentDifference < 0 ? "variant_better" : "original_better";
+  return {
+    available: true, verdict,
+    originalCostPerQualifiedLeadInr: Math.round(originalCost), variantCostPerQualifiedLeadInr: Math.round(variantCost),
+    percentDifference, confidence,
+    caveat: "This compares two different campaigns, not a controlled A/B test on the same audience at the same time - budget, dates and market conditions can differ too. Treat this as a signal, not proof the specific changes caused the difference.",
+  };
+}

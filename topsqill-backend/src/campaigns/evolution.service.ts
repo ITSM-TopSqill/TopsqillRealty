@@ -5,7 +5,7 @@ import { campaignEvolutions, campaignRecommendations } from "../db/schema";
 import { ClaudeService } from "../ai/claude.service";
 import { CampaignsService } from "./campaigns.service";
 import { newId } from "../common/ids";
-import { buildFallbackVersion, validateVersions, type CampaignSnapshot, type EvolutionVersion, type Confidence } from "./evolution";
+import { buildFallbackVersion, validateVersions, compareOutcome, type CampaignSnapshot, type EvolutionVersion, type Confidence } from "./evolution";
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 
@@ -149,6 +149,30 @@ export class CampaignEvolutionService {
 
     await this.db.update(campaignEvolutions).set({ status: "applied", appliedCampaignId: draft.id }).where(eq(campaignEvolutions.id, id));
     return { draftCampaignId: draft.id };
+  }
+
+  /**
+   * Performance-Based Campaign Evolution (Section 9) + the Experiment
+   * Engine's honesty rules (Section 13): compares the original campaign
+   * against the variant draft this evolution produced, once both have
+   * run enough to say anything real. Reuses CampaignsService.get() for
+   * both - no separate metrics pipeline.
+   */
+  async outcome(userId: string, id: string) {
+    const row = await this.get(userId, id);
+    if (row.status !== "applied" || !row.appliedCampaignId) {
+      return { available: false as const, reason: "No version has been applied yet - there's no variant campaign to compare against." };
+    }
+    const [original, variant] = await Promise.all([
+      this.campaigns.get(userId, row.campaignId),
+      this.campaigns.get(userId, row.appliedCampaignId),
+    ]);
+    return compareOutcome({
+      originalSpendInr: Number(original.spendInr), originalQualifiedCount: Number(original.qualifiedCount),
+      originalLeadsCount: Number(original.leadsCount), originalStatus: original.status,
+      variantSpendInr: Number(variant.spendInr), variantQualifiedCount: Number(variant.qualifiedCount),
+      variantLeadsCount: Number(variant.leadsCount), variantStatus: variant.status,
+    });
   }
 }
 

@@ -49,7 +49,10 @@ function makeService(opts: {
     list: vi.fn().mockResolvedValue(opts.segmentsList ?? { items: [] }),
     preview: vi.fn().mockResolvedValue(opts.segmentsPreview ?? { totalLeadsConsidered: 0, matchedCount: 0, sample: [], truncated: false }),
   };
-  const evolution = { list: vi.fn().mockResolvedValue(opts.evolutionList ?? { items: [] }) };
+  const evolution = {
+    list: vi.fn().mockResolvedValue(opts.evolutionList ?? { items: [] }),
+    outcome: vi.fn().mockResolvedValue({ available: false, reason: "Needs at least 3 qualified leads on both the original and the variant to compare honestly - not there yet." }),
+  };
   const competitive = { searchAds: vi.fn().mockResolvedValue(opts.competitorSearch ?? { results: [], patterns: { available: false, reason: "No ads found to summarise." } }) };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const svc = new MarketingAssistantService(read as any, claude as any, campaigns as any, business as any, genericCampaigns as any, providers as any, segments as any, evolution as any, competitive as any);
@@ -234,6 +237,28 @@ describe("MarketingAssistantService", () => {
     expect(text).toContain("AI");
     expect(text).toContain("Creative refresh");
     expect(text).toContain("2 changes, 1 approved");
+  });
+
+  it("campaign_evolution_status tool reports the real outcome comparison once a version has been applied", async () => {
+    const { svc, evolution } = makeService({
+      claudeAvailable: false,
+      list: { items: [{ id: "c1", name: "Sunrise Towers" }] },
+      evolutionList: {
+        items: [{
+          id: "evo1", source: "claude", status: "applied", appliedCampaignId: "draft1", decisions: {},
+          versions: [{ id: "v1", label: "Creative refresh", summary: "New headline", changes: [{ id: "v1-c1" }] }],
+        }],
+      },
+    });
+    evolution.outcome.mockResolvedValue({
+      available: true, verdict: "variant_better", originalCostPerQualifiedLeadInr: 1000, variantCostPerQualifiedLeadInr: 700,
+      percentDifference: -30, confidence: "medium", caveat: "This compares two different campaigns, not a controlled A/B test.",
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const text: string = await (svc as any).campaignEvolutionText("u1", "c1");
+    expect(text).toContain("variant better");
+    expect(text).toContain("₹700");
+    expect(text).toContain("not a controlled A/B test");
   });
 
   it("campaign_evolution_status tool says plainly when nothing has been analysed yet", async () => {

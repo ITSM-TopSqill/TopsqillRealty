@@ -135,4 +135,7 @@ export class CampaignsController {
   applyEvolutionVersion(@CurrentUser() user: AuthUser, @Param("evoId") evoId: string, @Param("versionId") versionId: string) {
     return this.evolution.applyVersion(user.id, evoId, versionId);
   }
+
+  @Get(":id/evolution/:evoId/outcome") @ApiOperation({ summary: "Compares the original campaign against the applied variant, once both have run enough to say anything honestly" })
+  evolutionOutcome(@CurrentUser() user: AuthUser, @Param("evoId") evoId: string) { return this.evolution.outcome(user.id, evoId); }
 }

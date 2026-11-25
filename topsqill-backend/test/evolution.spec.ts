@@ -5,7 +5,7 @@ vi.hoisted(() => {
   process.env.JWT_SECRET ??= "x".repeat(40);
 });
 
-import { buildFallbackVersion, validateVersions, type CampaignSnapshot, type EvolutionVersion } from "../src/campaigns/evolution";
+import { buildFallbackVersion, validateVersions, compareOutcome, type CampaignSnapshot, type EvolutionVersion, type OutcomeInput } from "../src/campaigns/evolution";
 import { CampaignEvolutionService } from "../src/campaigns/evolution.service";
 
 const baseSnapshot: CampaignSnapshot = {
@@ -59,6 +59,49 @@ describe("validateVersions", () => {
 
   it("accepts a version with an empty changes array (an honest 'not enough evidence' answer)", () => {
     expect(() => validateVersions([{ id: "v1", label: "x", summary: "not enough data", changes: [] }])).not.toThrow();
+  });
+});
+
+const baseOutcome: OutcomeInput = {
+  originalSpendInr: 10000, originalQualifiedCount: 10, originalLeadsCount: 20, originalStatus: "completed",
+  variantSpendInr: 10000, variantQualifiedCount: 10, variantLeadsCount: 20, variantStatus: "completed",
+};
+
+describe("compareOutcome", () => {
+  it("refuses to compare when the variant hasn't launched yet", () => {
+    const o = compareOutcome({ ...baseOutcome, variantStatus: "draft" });
+    expect(o.available).toBe(false);
+  });
+
+  it("refuses to compare with too few qualified leads on either side", () => {
+    expect(compareOutcome({ ...baseOutcome, originalQualifiedCount: 1 }).available).toBe(false);
+    expect(compareOutcome({ ...baseOutcome, variantQualifiedCount: 1 }).available).toBe(false);
+  });
+
+  it("calls it inconclusive when the cost difference is small, never forcing a winner", () => {
+    const o = compareOutcome({ ...baseOutcome, variantSpendInr: 10500 });   // ~5% worse
+    if (!o.available) throw new Error("expected a result");
+    expect(o.verdict).toBe("inconclusive");
+  });
+
+  it("declares the variant better only with a real, meaningful cost improvement", () => {
+    const o = compareOutcome({ ...baseOutcome, variantSpendInr: 7000 });   // 1000/qualified -> 700/qualified, 30% better
+    if (!o.available) throw new Error("expected a result");
+    expect(o.verdict).toBe("variant_better");
+    expect(o.percentDifference).toBeLessThan(0);
+  });
+
+  it("declares the original better when the variant costs meaningfully more per qualified lead", () => {
+    const o = compareOutcome({ ...baseOutcome, variantSpendInr: 14000 });
+    if (!o.available) throw new Error("expected a result");
+    expect(o.verdict).toBe("original_better");
+  });
+
+  it("never reports high confidence - two different campaigns are never a clean controlled test", () => {
+    const o = compareOutcome({ ...baseOutcome, originalQualifiedCount: 50, variantQualifiedCount: 50, variantSpendInr: 7000 });
+    if (!o.available) throw new Error("expected a result");
+    expect(o.confidence).not.toBe("high");
+    expect(o.caveat).toMatch(/not a controlled a\/b test/i);
   });
 });
 
@@ -142,5 +185,27 @@ describe("CampaignEvolutionService.applyVersion", () => {
     expect(result.draftCampaignId).toBe("draft1");
     expect(campaigns.create).toHaveBeenCalledWith("u1", expect.objectContaining({ listingId: "l1" }));
     expect(campaigns.updateCreatives).toHaveBeenCalledWith("u1", "draft1", expect.objectContaining({ headlines: ["New headline"] }));
+  });
+});
+
+describe("CampaignEvolutionService.outcome", () => {
+  it("says plainly there's nothing to compare until a version has been applied", async () => {
+    const { svc } = makeService({ claudeEnabled: false });
+    vi.spyOn(svc, "get").mockResolvedValue({ id: "evo1", campaignId: "c1", ownerId: "u1", status: "proposed", appliedCampaignId: null } as never);
+    const o = await svc.outcome("u1", "evo1");
+    expect(o.available).toBe(false);
+  });
+
+  it("compares the real original and variant campaigns once applied, reusing CampaignsService.get for both", async () => {
+    const { svc, campaigns } = makeService({ claudeEnabled: false });
+    vi.spyOn(svc, "get").mockResolvedValue({ id: "evo1", campaignId: "c1", ownerId: "u1", status: "applied", appliedCampaignId: "draft1" } as never);
+    campaigns.get
+      .mockResolvedValueOnce({ spendInr: 10000, qualifiedCount: 10, leadsCount: 20, status: "completed" })
+      .mockResolvedValueOnce({ spendInr: 7000, qualifiedCount: 10, leadsCount: 15, status: "completed" });
+    const o = await svc.outcome("u1", "evo1");
+    expect(campaigns.get).toHaveBeenCalledWith("u1", "c1");
+    expect(campaigns.get).toHaveBeenCalledWith("u1", "draft1");
+    if (!o.available) throw new Error("expected a result");
+    expect(o.verdict).toBe("variant_better");
   });
 });

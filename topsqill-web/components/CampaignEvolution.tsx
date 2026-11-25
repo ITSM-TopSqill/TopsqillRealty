@@ -13,6 +13,9 @@ type Evolution = {
   id: string; source: "claude" | "rules"; status: "proposed" | "applied";
   versions: Version[]; decisions: Record<string, "approved" | "rejected">; appliedCampaignId: string | null;
 };
+type Outcome =
+  | { available: true; verdict: "variant_better" | "original_better" | "inconclusive"; originalCostPerQualifiedLeadInr: number; variantCostPerQualifiedLeadInr: number; percentDifference: number; confidence: "low" | "medium" | "high"; caveat: string }
+  | { available: false; reason: string };
 
 const CONFIDENCE_COLOR = { high: "#12B76A", medium: "#E08A00", low: "#8D8AA3" } as const;
 
@@ -29,6 +32,7 @@ export function CampaignEvolution({ campaignId }: { campaignId: string }) {
   const [analysing, setAnalysing] = useState(false);
   const [applying, setApplying] = useState<string | null>(null);
   const [appliedLink, setAppliedLink] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -37,6 +41,14 @@ export function CampaignEvolution({ campaignId }: { campaignId: string }) {
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);
+
+  useEffect(() => {
+    setOutcome(null);
+    if (current?.status === "applied") {
+      clientApi<Outcome>(`/v1/campaigns/${campaignId}/evolution/${current.id}/outcome`).then(setOutcome).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.id, current?.status]);
 
   async function analyse() {
     setAnalysing(true); setError(""); setAppliedLink(null);
@@ -89,6 +101,27 @@ export function CampaignEvolution({ campaignId }: { campaignId: string }) {
       ) : (
         <>
           <p className="small muted">{current.source === "claude" ? "AI-generated" : "Rules-based (AI was off, or its proposal didn't pass validation)"}{current.status === "applied" ? " · already applied" : ""}</p>
+
+          {current.status === "applied" ? (
+            <div className="card pad">
+              <b>Outcome: original vs. variant</b>
+              {outcome ? (
+                outcome.available ? (
+                  <>
+                    <p className="small" style={{ marginTop: 6 }}>
+                      Original: {outcome.originalCostPerQualifiedLeadInr.toLocaleString("en-IN")}/qualified lead · Variant: {outcome.variantCostPerQualifiedLeadInr.toLocaleString("en-IN")}/qualified lead
+                      ({outcome.percentDifference >= 0 ? "+" : ""}{outcome.percentDifference}% on cost)
+                    </p>
+                    <p className="small" style={{ marginTop: 4, fontWeight: 700 }}>
+                      {outcome.verdict === "variant_better" ? "✅ The variant is doing better" : outcome.verdict === "original_better" ? "⚠️ The original is doing better" : "➖ Inconclusive - not a meaningful difference"}
+                      {" "}({outcome.confidence} confidence)
+                    </p>
+                    <p className="small muted" style={{ marginTop: 4 }}>{outcome.caveat}</p>
+                  </>
+                ) : <p className="small muted" style={{ marginTop: 6 }}>{outcome.reason}</p>
+              ) : <p className="small muted" style={{ marginTop: 6 }}>Loading…</p>}
+            </div>
+          ) : null}
           {current.versions.map((v) => (
             <div key={v.id} className="card pad">
               <div className="spread" style={{ flexWrap: "wrap", gap: 8 }}>

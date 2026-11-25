@@ -380,6 +380,12 @@ export class MarketingAssistantService {
       const approved = v.changes.filter((c) => decisions[c.id] === "approved").length;
       lines.push(`- ${v.label}: ${v.summary} (${v.changes.length} change${v.changes.length === 1 ? "" : "s"}${v.changes.length ? `, ${approved} approved` : ""})`);
     }
+    if (latest.status === "applied") {
+      const outcome = await this.evolution.outcome(userId, latest.id);
+      lines.push(outcome.available
+        ? `Outcome so far: original ${inr(outcome.originalCostPerQualifiedLeadInr)}/qualified lead vs. variant ${inr(outcome.variantCostPerQualifiedLeadInr)}/qualified lead (${outcome.verdict.replace("_", " ")}, ${outcome.confidence} confidence). ${outcome.caveat}`
+        : `Outcome: ${outcome.reason}`);
+    }
     return lines.join("\n");
   }
 
