@@ -63,6 +63,7 @@ export function CreativeCampaignForm({ kind }: { kind: "creative" | "video" }) {
         setGoal((g) => GOALS.includes(v.goal) ? v.goal : g);
         setBudget(v.budgetInr);
         setExtraPlaces((prev) => [...prev, ...v.areas].slice(0, 8));
+        setCity((c) => c.trim() || v.city);
       }} />
       <form className="card pad" onSubmit={build}>
       <div className="field">

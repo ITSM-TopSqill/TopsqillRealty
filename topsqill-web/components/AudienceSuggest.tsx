@@ -7,7 +7,7 @@ import type { PickedPlace } from "./PlacesPicker";
 type Suggestion = {
   goal: string; budgetInr: number;
   areas: { label: string; lat: number; lng: number; radiusKm: number; reason: string }[];
-  rationale: string; source: "claude" | "rules";
+  rationale: string; city: string; source: "claude" | "rules";
 };
 
 /**
@@ -18,7 +18,7 @@ type Suggestion = {
  */
 export function AudienceSuggest({ listingId, city, onApply }: {
   listingId?: string; city?: string;
-  onApply: (v: { goal: string; budgetInr: number; areas: PickedPlace[] }) => void;
+  onApply: (v: { goal: string; budgetInr: number; areas: PickedPlace[]; city: string }) => void;
 }) {
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,7 +46,7 @@ export function AudienceSuggest({ listingId, city, onApply }: {
   function apply() {
     if (!result) return;
     onApply({
-      goal: result.goal, budgetInr: result.budgetInr,
+      goal: result.goal, budgetInr: result.budgetInr, city: result.city,
       areas: result.areas.filter((_, i) => picked.has(i)).map((a) => ({ label: a.label, lat: a.lat, lng: a.lng, radiusKm: a.radiusKm })),
     });
     setResult(null); setDescription("");

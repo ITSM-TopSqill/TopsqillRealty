@@ -164,16 +164,18 @@ Buyer description: ${description}`;
       prompt, fallback, { userId, feature: "campaign.audience", maxTokens: 900 },
     );
     const areas = await this.geocodeAreas(userId, (data.areas ?? []).slice(0, 5), city);
-    return { goal: data.goal || "Qualified buyers", budgetInr: Math.max(Number(data.budgetInr) || 0, 5000), areas, rationale: data.rationale ?? "", source };
+    // So a listing-less campaign's "City to target" field isn't left empty when the advertiser typed none.
+    const resolvedCity = city || areas.find((a) => a.city)?.city || "";
+    return { goal: data.goal || "Qualified buyers", budgetInr: Math.max(Number(data.budgetInr) || 0, 5000), areas, rationale: data.rationale ?? "", city: resolvedCity, source };
   }
 
   /** Turns the AI's named localities into real points: only places Nominatim can actually find make it back to the user. */
   private async geocodeAreas(userId: string, areas: { locality: string; reason: string }[], city: string) {
-    const out: { label: string; lat: number; lng: number; radiusKm: number; reason: string }[] = [];
+    const out: { label: string; lat: number; lng: number; radiusKm: number; reason: string; city: string | null }[] = [];
     for (const a of areas) {
       if (!a?.locality) continue;
       const { items } = await this.geo.search(userId, a.locality, city || undefined).catch(() => ({ items: [] }));
-      if (items[0]) out.push({ label: items[0].label, lat: items[0].lat, lng: items[0].lng, radiusKm: 5, reason: a.reason?.slice(0, 100) ?? "" });
+      if (items[0]) out.push({ label: items[0].label, lat: items[0].lat, lng: items[0].lng, radiusKm: 5, reason: a.reason?.slice(0, 100) ?? "", city: items[0].city });
     }
     return out;
   }
