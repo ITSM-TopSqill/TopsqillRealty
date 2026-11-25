@@ -72,6 +72,9 @@ export class CampaignsController {
   @Get("dashboard") @ApiOperation({ summary: "Cross-campaign health, best platform/locality/campaign, and anything pending approval" })
   dashboard(@CurrentUser() user: AuthUser) { return this.svc.dashboard(user.id); }
 
+  @Get("forecast-accuracy") @ApiOperation({ summary: "How accurate past campaigns' pre-launch forecasts turned out to be, once completed" })
+  forecastAccuracy(@CurrentUser() user: AuthUser) { return this.svc.forecastAccuracy(user.id); }
+
   @Post("assistant") @ApiOperation({ summary: "Ask the AI Marketing Orchestrator about your real spend, leads and campaign performance" })
   ask(@CurrentUser() user: AuthUser, @Body() dto: AssistantAskDto) { return this.assistant.ask(user.id, dto.message, dto.history ?? []); }
 

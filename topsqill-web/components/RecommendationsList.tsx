@@ -8,6 +8,8 @@ export type Recommendation = {
   id: string; campaignId: string; kind: "alert" | "suggestion"; category: string;
   title: string; why: string; impact: string; confidence: "low" | "medium" | "high";
   action: string | null; status: string; createdAt: string;
+  // Phase 5 additional requirements, Section 15's full structure:
+  diagnosis?: string | null; evidence?: string | null; risk?: string | null; approval?: string | null; priority?: number;
 };
 
 const CONFIDENCE_COLOR = { high: "#12B76A", medium: "#E08A00", low: "#8D8AA3" } as const;
@@ -44,8 +46,11 @@ export function RecommendationsList({ items, showCampaignLink = true }: { items:
             </span>
           </div>
           <p className="small" style={{ marginTop: 6 }}>{r.why}</p>
+          {r.diagnosis ? <p className="small muted" style={{ marginTop: 2 }}>Likely cause: {r.diagnosis}</p> : null}
           <p className="small muted" style={{ marginTop: 2 }}>{r.impact}</p>
           {r.action ? <p className="small" style={{ marginTop: 6, fontWeight: 700 }}>Recommended: {r.action}</p> : null}
+          {r.risk ? <p className="small muted" style={{ marginTop: 2 }}>Risk: {r.risk}</p> : null}
+          {r.approval ? <p className="small muted" style={{ marginTop: 2 }}>Approval: {r.approval}</p> : null}
           <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
             <button type="button" className="btn btn-ai sm" disabled={!!busy} onClick={() => resolve(r.id, "approved")}>{busy === r.id ? "…" : "Approve"}</button>
             <button type="button" className="btn btn-o sm" disabled={!!busy} onClick={() => resolve(r.id, "rejected")}>Reject</button>

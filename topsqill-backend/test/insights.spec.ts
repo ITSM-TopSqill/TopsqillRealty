@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildRecommendations, forecastRemaining, type CampaignInsightInput } from "../src/campaigns/insights";
+import { buildRecommendations, forecastRemaining, evaluateForecastAccuracy, type CampaignInsightInput } from "../src/campaigns/insights";
 
 const base: CampaignInsightInput = {
   status: "active", budgetInr: 30000, days: 15, elapsedDays: 5,
@@ -97,6 +97,41 @@ describe("buildRecommendations", () => {
     expect(buildRecommendations({ ...base, status: "draft", spendInr: 20000 })).toHaveLength(0);
     expect(buildRecommendations({ ...base, status: "completed", spendInr: 20000 })).toHaveLength(0);
   });
+
+  it("gives every recommendation the full observation/evidence/diagnosis/impact/confidence/risk/approval/priority structure", () => {
+    const out = buildRecommendations({ ...base, spendInr: 7000 });
+    for (const r of out) {
+      expect(r.observation).toBeTruthy();
+      expect(r.evidence).toBeTruthy();
+      expect(r.diagnosis).toBeTruthy();
+      expect(r.impact).toBeTruthy();
+      expect(r.risk).toBeTruthy();
+      expect(r.approval).toBeTruthy();
+      expect(typeof r.priority).toBe("number");
+      expect(r.priority).toBeGreaterThan(0);
+    }
+  });
+
+  it("sorts recommendations by priority, highest first, with a high-confidence alert outranking a low-confidence suggestion", () => {
+    const out = buildRecommendations({
+      ...base, leadsCount: 10, qualifiedCount: 4,
+      localities: [
+        { label: "Area A", leads: 4, qualified: 0 },   // low-confidence suggestion (leads < 5)
+        { label: "Area B", leads: 4, qualified: 4 },
+      ],
+      earlyQualifiedRate: 0.8, recentQualifiedRate: 0.2,   // medium-confidence alert: qualified_dropping
+    });
+    for (let i = 1; i < out.length; i++) expect(out[i - 1].priority).toBeGreaterThanOrEqual(out[i].priority);
+    expect(out[0].category).toBe("qualified_dropping");   // the alert should outrank the low-confidence locality suggestions
+  });
+
+  it("marks an informational-only finding's approval as none needed, and an actionable one as needing review", () => {
+    const costAbove = buildRecommendations({ ...base, spendInr: 15000, qualifiedCount: 3, forecastCostPerQualifiedLeadInr: 2000 })
+      .find((r) => r.category === "cost_above_forecast")!;
+    expect(costAbove.approval).toMatch(/none needed/i);
+    const spendNoLeads = buildRecommendations({ ...base, spendInr: 7000 }).find((r) => r.category === "spend_no_leads")!;
+    expect(spendNoLeads.approval).toMatch(/review/i);
+  });
 });
 
 describe("forecastRemaining", () => {
@@ -112,5 +147,34 @@ describe("forecastRemaining", () => {
     expect(f.optimistic.leads).toBeGreaterThanOrEqual(f.realistic.leads);
     expect(f.realistic.leads).toBeGreaterThanOrEqual(f.conservative.leads);
     expect(f.realistic.leads).toBeGreaterThan(5);   // some growth projected over the remaining 10 days
+  });
+
+  it("reports data coverage alongside the forecast, lower with less data", () => {
+    const thin = forecastRemaining({ ...base, days: 15, elapsedDays: 2, budgetInr: 30000, qualifiedCount: 1 });
+    const thick = forecastRemaining({ ...base, days: 15, elapsedDays: 12, budgetInr: 30000, qualifiedCount: 10 });
+    if (!thin.available || !thick.available) throw new Error("expected both to forecast");
+    expect(thin.dataCoverage).toMatch(/low/i);
+    expect(thick.dataCoverage).toMatch(/high/i);
+  });
+});
+
+describe("evaluateForecastAccuracy", () => {
+  it("is unavailable with fewer than 2 evaluable completed campaigns", () => {
+    expect(evaluateForecastAccuracy([]).available).toBe(false);
+    expect(evaluateForecastAccuracy([
+      { campaignId: "c1", name: "A", forecastQualified: 5, forecastCostPerQualifiedLeadInr: 2000, actualQualified: 4, actualSpendInr: 9000 },
+    ]).available).toBe(false);
+  });
+
+  it("computes a per-campaign cost error and an average, never fabricating a number it can't compute", () => {
+    const r = evaluateForecastAccuracy([
+      { campaignId: "c1", name: "A", forecastQualified: 5, forecastCostPerQualifiedLeadInr: 2000, actualQualified: 4, actualSpendInr: 10000 },  // actual 2500/qualified, +25%
+      { campaignId: "c2", name: "B", forecastQualified: 4, forecastCostPerQualifiedLeadInr: 2000, actualQualified: 0, actualSpendInr: 3000 },     // no qualified leads - no actual cost per lead
+    ]);
+    if (!r.available) throw new Error("expected an evaluation");
+    expect(r.records.find((x) => x.campaignId === "c1")!.costErrorPct).toBe(25);
+    expect(r.records.find((x) => x.campaignId === "c2")!.costErrorPct).toBeNull();
+    expect(r.evaluableCount).toBe(1);
+    expect(r.averageCostErrorPct).toBe(25);
   });
 });

@@ -19,12 +19,23 @@ type Dashboard = {
   pending: Recommendation[];
 };
 
+type ForecastAccuracyRecord = {
+  campaignId: string; name: string; forecastQualified: number; forecastCostPerQualifiedLeadInr: number;
+  actualQualified: number; actualCostPerQualifiedLeadInr: number | null; qualifiedErrorPct: number; costErrorPct: number | null;
+};
+type ForecastAccuracy =
+  | { available: true; records: ForecastAccuracyRecord[]; averageCostErrorPct: number | null; evaluableCount: number }
+  | { available: false; reason: string };
+
 const PLATFORM_NAME: Record<string, string> = { meta: "Facebook and Instagram", google: "Google Search" };
 
 export default async function CampaignInsightsPage() {
   const [user, token] = await Promise.all([getUser(), getToken()]);
   if (!user) redirect("/signin?next=/campaigns/insights");
-  const d = await api<Dashboard>("/v1/campaigns/dashboard", { token }).catch(() => null);
+  const [d, accuracy] = await Promise.all([
+    api<Dashboard>("/v1/campaigns/dashboard", { token }).catch(() => null),
+    api<ForecastAccuracy>("/v1/campaigns/forecast-accuracy", { token }).catch(() => null),
+  ]);
   if (!d) return <Shell user={user} current="/leads"><p className="error">Couldn&apos;t load your campaign insights right now.</p></Shell>;
 
   const costPerQualified = d.totals.qualified ? Math.round(d.totals.spendInr / d.totals.qualified) : null;
@@ -80,6 +91,28 @@ export default async function CampaignInsightsPage() {
 
       <h2 style={{ fontSize: 20, marginBottom: 10 }}>AI alerts and suggestions</h2>
       <RecommendationsList items={d.pending} />
+
+      <h2 style={{ fontSize: 20, margin: "24px 0 10px" }}>Forecast accuracy</h2>
+      <div className="card pad" style={{ marginBottom: 8 }}>
+        {accuracy?.available ? (
+          <>
+            <p className="small">
+              Across {accuracy.evaluableCount} completed campaign{accuracy.evaluableCount === 1 ? "" : "s"} with a usable forecast,
+              average cost-per-qualified-lead error is {accuracy.averageCostErrorPct != null ? `${accuracy.averageCostErrorPct}%` : "not computable yet"} (how far off the pre-launch forecast was, either direction).
+            </p>
+            <div className="col" style={{ gap: 6, marginTop: 8 }}>
+              {accuracy.records.map((r) => (
+                <div key={r.campaignId} className="small muted">
+                  {r.name}: forecast {r.forecastQualified} qualified at {inr(r.forecastCostPerQualifiedLeadInr)}/lead → actual {r.actualQualified} qualified
+                  {r.actualCostPerQualifiedLeadInr != null ? ` at ${inr(r.actualCostPerQualifiedLeadInr)}/lead` : ""} ({r.qualifiedErrorPct >= 0 ? "+" : ""}{r.qualifiedErrorPct}% on qualified count)
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p className="small muted">{accuracy?.reason ?? "Not enough completed campaigns yet to evaluate forecast accuracy."}</p>
+        )}
+      </div>
 
       <MarketingAssistant />
     </Shell>

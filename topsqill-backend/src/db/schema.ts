@@ -694,17 +694,22 @@ export const campaignRecommendations = pgTable("campaign_recommendations", {
   kind: varchar("kind", { length: 16 }).notNull(),             // 'alert' | 'suggestion'
   category: varchar("category", { length: 40 }).notNull(),
   title: varchar("title", { length: 160 }).notNull(),
-  why: text("why").notNull(),
-  impact: text("impact").notNull(),
-  confidence: varchar("confidence", { length: 10 }).notNull(), // 'low' | 'medium' | 'high'
-  action: text("action"),
+  why: text("why").notNull(),                                  // Section 15 step 1: observation
+  evidence: text("evidence"),                                  // Section 15 step 2
+  diagnosis: text("diagnosis"),                                // Section 15 step 3
+  impact: text("impact").notNull(),                            // Section 15 step 5: expected impact
+  confidence: varchar("confidence", { length: 10 }).notNull(), // 'low' | 'medium' | 'high' - step 6
+  action: text("action"),                                      // Section 15 step 4: recommendation
+  risk: text("risk"),                                          // Section 15 step 7
+  approval: text("approval"),                                  // Section 15 step 8
+  priority: integer("priority").notNull().default(0),          // deterministic ranking score, highest first
   payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
-  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  status: varchar("status", { length: 16 }).notNull().default("pending"), // + 'stale' once the situation no longer supports it
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
 }, (t) => ({
   campaignIdx: index("campaign_recommendations_campaign_idx").on(t.campaignId, t.createdAt.desc()),
-  ownerIdx: index("campaign_recommendations_owner_idx").on(t.ownerId, t.status, t.createdAt.desc()),
+  ownerIdx: index("campaign_recommendations_owner_idx").on(t.ownerId, t.status, t.priority.desc()),
 }));
 
 /** A member's own Instagram (business or creator) account, for picking their posts and reels. */

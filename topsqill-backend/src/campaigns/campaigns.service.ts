@@ -1,12 +1,12 @@
 import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException } from "@nestjs/common";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
 import { campaigns, listings, media, requirements, users, campaignRecommendations } from "../db/schema";
 import { ClaudeService } from "../ai/claude.service";
 import { SearchService } from "../search/search.service";
 import { GeoService } from "../geo/geo.service";
 import { buildPlan, forecast, segmentOf, type Plan } from "./planner";
-import { buildRecommendations, forecastRemaining, type CampaignInsightInput, type RecommendationCandidate } from "./insights";
+import { buildRecommendations, forecastRemaining, evaluateForecastAccuracy, type CampaignInsightInput, type RecommendationCandidate } from "./insights";
 import { pincodesFor, HNI_FEEDERS } from "./pincodes";
 import { newId } from "../common/ids";
 import { speakMp3 } from "../common/tts";
@@ -390,21 +390,66 @@ Reply with JSON only: {"script":[{"host":"Priya","line":"..."},{"host":"Arjun","
     return { metrics: input, forecast: forecastRemaining(input), recommendations };
   }
 
-  /** Inserts only the recommendations that aren't already pending for this campaign, so refreshing the page never duplicates them. */
+  /**
+   * Inserts only the recommendations that aren't already pending for this
+   * campaign, so refreshing the page never duplicates them. Also marks any
+   * previously-pending recommendation "stale" once its own category no
+   * longer appears among the fresh candidates - the situation that raised
+   * it has changed, so it's resolved automatically rather than left stuck
+   * (Phase 5 additional requirements, Section 15).
+   */
   private async saveRecommendations(userId: string, campaignId: string, candidates: RecommendationCandidate[]) {
     const existing = await this.db.select().from(campaignRecommendations)
-      .where(and(eq(campaignRecommendations.campaignId, campaignId), eq(campaignRecommendations.status, "pending")))
-      .orderBy(desc(campaignRecommendations.createdAt));
+      .where(and(eq(campaignRecommendations.campaignId, campaignId), eq(campaignRecommendations.status, "pending")));
+    const freshCategories = new Set(candidates.map((c) => c.category));
     const existingCategories = new Set(existing.map((r) => r.category));
+
+    const toStale = existing.filter((r) => !freshCategories.has(r.category));
+    if (toStale.length) {
+      await this.db.update(campaignRecommendations).set({ status: "stale", resolvedAt: new Date() })
+        .where(inArray(campaignRecommendations.id, toStale.map((r) => r.id)));
+    }
+    const stillPending = existing.filter((r) => freshCategories.has(r.category));
+
     const toInsert = candidates.filter((cand) => !existingCategories.has(cand.category));
     const inserted = toInsert.length
       ? await this.db.insert(campaignRecommendations).values(toInsert.map((cand) => ({
           id: newId(), campaignId, ownerId: userId, kind: cand.kind, category: cand.category,
-          title: cand.title, why: cand.why, impact: cand.impact, confidence: cand.confidence,
-          action: cand.action ?? null, payload: (cand.payload ?? {}) as never,
+          title: cand.title, why: cand.observation, evidence: cand.evidence, diagnosis: cand.diagnosis,
+          impact: cand.impact, confidence: cand.confidence, action: cand.recommendation ?? null,
+          risk: cand.risk, approval: cand.approval, priority: cand.priority,
+          payload: (cand.payload ?? {}) as never,
         }))).returning()
       : [];
-    return [...existing, ...inserted].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return [...stillPending, ...inserted].sort((a, b) => b.priority - a.priority || b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  /**
+   * Phase 5 additional requirements, Sections 11 & 16 (lite): compares each
+   * completed campaign's pre-launch forecast against its real outcome.
+   * Never a trained model - every campaign already stores both numbers, so
+   * this is a direct, explainable comparison, honest about not being
+   * available until there's enough completed history to compare.
+   */
+  async forecastAccuracy(userId: string) {
+    const rows = await this.read.select({
+      id: campaigns.id, name: campaigns.name, forecast: campaigns.forecast,
+      spendInr: campaigns.spendInr, qualifiedCount: campaigns.qualifiedCount,
+    }).from(campaigns).where(and(eq(campaigns.ownerId, userId), eq(campaigns.status, "completed")));
+
+    const inputs = rows
+      .map((r) => {
+        const f = r.forecast as { qualified?: number; costPerQualifiedLead?: number } | null;
+        if (!f?.costPerQualifiedLead) return null;
+        return {
+          campaignId: r.id, name: r.name,
+          forecastQualified: Number(f.qualified ?? 0), forecastCostPerQualifiedLeadInr: Number(f.costPerQualifiedLead),
+          actualQualified: Number(r.qualifiedCount), actualSpendInr: Number(r.spendInr),
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x != null);
+
+    return evaluateForecastAccuracy(inputs);
   }
 
   /** Approve, reject or dismiss a recommendation. None of these apply a change on their own - they just record the owner's decision. */
@@ -462,7 +507,7 @@ Reply with JSON only: {"script":[{"host":"Priya","line":"..."},{"host":"Arjun","
 
     const pending = await this.db.select().from(campaignRecommendations)
       .where(and(eq(campaignRecommendations.ownerId, userId), eq(campaignRecommendations.status, "pending")))
-      .orderBy(desc(campaignRecommendations.createdAt)).limit(50);
+      .orderBy(desc(campaignRecommendations.priority), desc(campaignRecommendations.createdAt)).limit(50);
 
     return {
       campaigns: rows.map((c) => ({ id: c.id, name: c.name, status: c.status, spendInr: Number(c.spendInr), leadsCount: Number(c.leadsCount), qualifiedCount: Number(c.qualifiedCount) })),

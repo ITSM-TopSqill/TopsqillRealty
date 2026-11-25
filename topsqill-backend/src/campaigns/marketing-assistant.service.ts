@@ -20,6 +20,8 @@ How to answer:
 - Distinguish actual results from forecasts explicitly. A forecast or estimate must be labelled as one ("projected", "forecast", "estimate") - never stated as a fact.
 - If a tool returns "not enough data yet" for something, say that plainly instead of guessing a number.
 - You can explain what a pending AI recommendation means and what approving it would do, but you cannot approve, reject or apply it yourself - tell the member to use the Approve/Reject buttons on the Insights page.
+- Every recommendation has an observation, a likely cause (diagnosis), an expected impact, a confidence level, a risk if acted on, and what approval it needs - use all of these when explaining one, not just the headline.
+- Forecasts for a running campaign always come with a data-coverage note (how much live data backs them) - mention it. Forecast accuracy for past campaigns is a separate thing you can look up with the forecast_accuracy tool.
 - You cannot launch a campaign, change a budget, pause a campaign or send any message yourself. If asked to do one of these, say the member needs to do it from the Campaigns page, and explain what you found that's relevant.
 - Money in Indian style: ₹2.4 Cr, ₹85 L, ₹45,000. Keep answers under 120 words unless the member asks for a longer breakdown. Plain text, no markdown tables or headings.`;
 
@@ -47,6 +49,11 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: "leads_to_follow_up",
     description: "The member's open (not booked/lost) leads that came from an ad campaign, ranked by lead score, with how long it's been since each was last touched. Use for 'which leads should I follow up with today'.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "forecast_accuracy",
+    description: "How accurate this member's past pre-launch campaign forecasts turned out to be, comparing the forecast made when each completed campaign was built against what actually happened. Use for 'how reliable are your forecasts' or 'how accurate was the plan for campaign X'.",
     input_schema: { type: "object", properties: {} },
   },
 ];
@@ -131,6 +138,7 @@ export class MarketingAssistantService {
         return this.recommendationsText(userId, id);
       }
       case "leads_to_follow_up": return this.leadsToFollowUpText(userId);
+      case "forecast_accuracy": return this.forecastAccuracyText(userId);
       default: return "Unknown tool.";
     }
   }
@@ -189,7 +197,7 @@ export class MarketingAssistantService {
       lines.push(`Qualified rate has ${dir}: ${Math.round(metrics.earlyQualifiedRate * 100)}% early vs ${Math.round(metrics.recentQualifiedRate * 100)}% recently.`);
     }
     lines.push(forecast.available
-      ? `Forecast for the rest of the campaign (estimate, not a guarantee): realistic case ${forecast.realistic.leads} more qualified leads.`
+      ? `Forecast for the rest of the campaign (estimate, not a guarantee; ${forecast.dataCoverage}): optimistic ${forecast.optimistic.leads}, realistic ${forecast.realistic.leads}, conservative ${forecast.conservative.leads} total qualified leads.`
       : "Not enough live data yet for a forecast.");
     if (recommendations.length) lines.push(`${recommendations.filter((r) => r.status === "pending").length} AI recommendation(s) pending for this campaign - ask about them specifically if you want detail.`);
     return lines.join("\n");
@@ -199,9 +207,27 @@ export class MarketingAssistantService {
     const where = campaignId
       ? and(eq(campaignRecommendations.ownerId, userId), eq(campaignRecommendations.campaignId, campaignId), eq(campaignRecommendations.status, "pending"))
       : and(eq(campaignRecommendations.ownerId, userId), eq(campaignRecommendations.status, "pending"));
-    const rows = await this.read.select().from(campaignRecommendations).where(where).orderBy(desc(campaignRecommendations.createdAt)).limit(20);
+    const rows = await this.read.select().from(campaignRecommendations).where(where).orderBy(desc(campaignRecommendations.priority), desc(campaignRecommendations.createdAt)).limit(20);
     if (!rows.length) return "No pending AI recommendations right now.";
-    return rows.map((r) => `- [${r.kind}] ${r.title}: ${r.why} Impact: ${r.impact} (${r.confidence} confidence).${r.action ? ` Recommended: ${r.action}.` : ""}`).join("\n");
+    return rows.map((r) => [
+      `- [${r.kind}] ${r.title}`,
+      `  Observation: ${r.why}`,
+      r.diagnosis ? `  Likely cause: ${r.diagnosis}` : null,
+      `  Expected impact: ${r.impact} (${r.confidence} confidence)`,
+      r.action ? `  Recommended: ${r.action}` : null,
+      r.risk ? `  Risk: ${r.risk}` : null,
+      r.approval ? `  Approval needed: ${r.approval}` : null,
+    ].filter(Boolean).join("\n")).join("\n");
+  }
+
+  private async forecastAccuracyText(userId: string) {
+    const r = await this.campaigns.forecastAccuracy(userId);
+    if (!r.available) return r.reason;
+    const lines = [
+      `Across ${r.evaluableCount} completed campaign(s) with a usable forecast, average cost-per-qualified-lead error is ${r.averageCostErrorPct != null ? `${r.averageCostErrorPct}%` : "not computable yet"} (how far actual cost per qualified lead was from the forecast, ignoring direction).`,
+      ...r.records.map((rec) => `- ${rec.name}: forecast ${rec.forecastQualified} qualified at ${inr(rec.forecastCostPerQualifiedLeadInr)}/lead, actual ${rec.actualQualified} qualified${rec.actualCostPerQualifiedLeadInr != null ? ` at ${inr(rec.actualCostPerQualifiedLeadInr)}/lead` : ""} (${rec.qualifiedErrorPct >= 0 ? "+" : ""}${rec.qualifiedErrorPct}% on qualified count).`),
+    ];
+    return lines.join("\n");
   }
 
   private async leadsToFollowUpText(userId: string) {
