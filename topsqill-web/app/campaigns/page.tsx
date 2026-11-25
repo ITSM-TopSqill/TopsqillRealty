@@ -24,6 +24,7 @@ export default async function CampaignsPage() {
           <p className="muted small">Ads for your listings, with targeting, creatives and a lead forecast built for you.</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
+          <Link href="/command-centre" className="btn btn-o" title="One view across campaigns, AI activity, approvals and integrations">📊 Command Centre</Link>
           <Link href="/campaigns/insights" className="btn btn-o">✨ Insights</Link>
           <Link href="/competitive-intelligence" className="btn btn-o" title="Search Meta's public Ad Library">🔍 Competitors</Link>
           <Link href="/business" className="btn btn-o" title="Marketing for something other than real estate">🏢 Business</Link>
