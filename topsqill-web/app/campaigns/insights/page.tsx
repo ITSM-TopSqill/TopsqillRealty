@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { getUser, getToken } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { RecommendationsList, type Recommendation } from "@/components/RecommendationsList";
+import { MarketingAssistant } from "@/components/MarketingAssistant";
 import { inr } from "@/lib/format";
 
 export const metadata = { title: "Campaign insights" };
@@ -79,6 +80,8 @@ export default async function CampaignInsightsPage() {
 
       <h2 style={{ fontSize: 20, marginBottom: 10 }}>AI alerts and suggestions</h2>
       <RecommendationsList items={d.pending} />
+
+      <MarketingAssistant />
     </Shell>
   );
 }

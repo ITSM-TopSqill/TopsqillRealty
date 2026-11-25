@@ -1,7 +1,9 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
-import { IsIn, IsInt, IsOptional, IsString, Min, MaxLength, IsArray, ArrayMaxSize } from "class-validator";
+import { IsIn, IsInt, IsOptional, IsString, Min, MaxLength, IsArray, ArrayMaxSize, ValidateNested } from "class-validator";
+import { Type } from "class-transformer";
 import { CampaignsService } from "./campaigns.service";
+import { MarketingAssistantService, type Turn } from "./marketing-assistant.service";
 import { CurrentUser, AuthUser } from "../auth/public.decorator";
 
 class CreateCampaignDto {
@@ -42,6 +44,15 @@ class MediaDto {
 
 class RenameDto { @IsString() @MaxLength(160) name: string; }
 
+class AssistantTurnDto {
+  @IsIn(["user", "assistant"]) role: "user" | "assistant";
+  @IsString() @MaxLength(6000) text: string;
+}
+class AssistantAskDto {
+  @IsString() @MaxLength(1000) message: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({ each: true }) @Type(() => AssistantTurnDto) history?: Turn[];
+}
+
 class CreativesDto {
   @IsOptional() @IsArray() @ArrayMaxSize(3) @IsString({ each: true }) @MaxLength(60, { each: true }) headlines?: string[];
   @IsOptional() @IsArray() @ArrayMaxSize(2) @IsString({ each: true }) @MaxLength(400, { each: true }) primaryTexts?: string[];
@@ -53,13 +64,16 @@ class CreativesDto {
 @ApiTags("campaigns")
 @Controller("v1/campaigns")
 export class CampaignsController {
-  constructor(private readonly svc: CampaignsService) {}
+  constructor(private readonly svc: CampaignsService, private readonly assistant: MarketingAssistantService) {}
 
   @Get()
   list(@CurrentUser() user: AuthUser) { return this.svc.list(user.id); }
 
   @Get("dashboard") @ApiOperation({ summary: "Cross-campaign health, best platform/locality/campaign, and anything pending approval" })
   dashboard(@CurrentUser() user: AuthUser) { return this.svc.dashboard(user.id); }
+
+  @Post("assistant") @ApiOperation({ summary: "Ask the AI Marketing Orchestrator about your real spend, leads and campaign performance" })
+  ask(@CurrentUser() user: AuthUser, @Body() dto: AssistantAskDto) { return this.assistant.ask(user.id, dto.message, dto.history ?? []); }
 
   @Post("recommendations/:recId/resolve") @ApiOperation({ summary: "Approve, reject or dismiss an AI recommendation (never applies a change on its own)" })
   resolveRecommendation(@CurrentUser() user: AuthUser, @Param("recId") recId: string, @Body() dto: ResolveRecommendationDto) {
