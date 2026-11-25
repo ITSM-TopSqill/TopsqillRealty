@@ -62,7 +62,8 @@ describe("meta launch", () => {
   it("builds form, campaign, ad set, creative and ad paused, then switches them on", async () => {
     const ids = await metaLaunch(ctx, metaAd);
     const posts = calls.filter((c) => c.method === "POST");
-    expect(posts[0].url).toContain("/222/leadgen_forms");
+    expect(posts.some((c) => c.url.endsWith("/222/subscribed_apps") && c.body?.subscribed_fields === "leadgen")).toBe(true);
+    expect(posts.some((c) => c.url.endsWith("/222/leadgen_forms"))).toBe(true);
     const campaign = posts.find((c) => c.url.endsWith("act_111/campaigns"))!;
     expect(campaign.body.objective).toBe("OUTCOME_LEADS");
     expect(campaign.body.status).toBe("PAUSED");
