@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { CampaignsService } from "./campaigns.service";
 import { MarketingAssistantService } from "./marketing-assistant.service";
+import { CampaignEvolutionService } from "./evolution.service";
 import { CampaignsController } from "./campaigns.controller";
 import { SearchModule } from "../search/search.module";
 import { GeoModule } from "../geo/geo.module";
@@ -10,7 +11,7 @@ import { CustomerIntelligenceModule } from "../customer-intelligence/customer-in
 
 @Module({
   imports: [SearchModule, GeoModule, BusinessModule, IntegrationsModule, CustomerIntelligenceModule],
-  providers: [CampaignsService, MarketingAssistantService],
+  providers: [CampaignsService, MarketingAssistantService, CampaignEvolutionService],
   controllers: [CampaignsController],
   exports: [CampaignsService],
 })

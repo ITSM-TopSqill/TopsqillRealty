@@ -9,6 +9,7 @@ import { BusinessService } from "../business/business.service";
 import { GenericCampaignsService } from "../business/generic-campaigns.service";
 import { ProviderRegistryService, type ProviderStatus } from "../integrations/provider-registry.service";
 import { CustomerIntelligenceService } from "../customer-intelligence/customer-intelligence.service";
+import { CampaignEvolutionService } from "./evolution.service";
 
 const VERIFIED_STATUSES = new Set(["connected", "read_verified", "write_verified", "webhook_verified", "production_verified"]);
 
@@ -94,6 +95,11 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
     description: "The member's saved CRM customer segments (AND/OR/NOT conditions over real lead data - stage, score, source, locality, budget, recency), each with a live match count and a few sample leads. These are CRM-only - never pushed to any ad platform. Use for 'which customers should I target', 'how many qualified leads do we have in X', or to check an existing saved segment.",
     input_schema: { type: "object", properties: {} },
   },
+  {
+    name: "campaign_evolution_status",
+    description: "Whether AI Campaign Evolution has analysed a given campaign, what redesign versions and changes it proposed (reason/evidence/confidence/risk per change), and whether any were approved or applied as a new draft. Use for 'has AI reviewed campaign X' or 'what changes did it suggest'. You cannot run a new analysis or apply changes yourself - tell the member to use the campaign's 'Improve with AI' page.",
+    input_schema: { type: "object", properties: { campaign_name: { type: "string", description: "The campaign's name, or part of it" } }, required: ["campaign_name"] },
+  },
 ];
 
 /**
@@ -117,6 +123,7 @@ export class MarketingAssistantService {
     private readonly genericCampaigns: GenericCampaignsService,
     private readonly providers: ProviderRegistryService,
     private readonly segments: CustomerIntelligenceService,
+    private readonly evolution: CampaignEvolutionService,
   ) {}
 
   async ask(userId: string, message: string, history: Turn[] = []): Promise<MarketingAssistantReply> {
@@ -190,6 +197,13 @@ export class MarketingAssistantService {
       }
       case "provider_capabilities": return this.providerCapabilitiesText();
       case "customer_segments": return this.customerSegmentsText(userId);
+      case "campaign_evolution_status": {
+        const name = str("campaign_name");
+        if (!name) return "A campaign name is needed.";
+        const c = await this.findCampaignByName(userId, name);
+        if (!c) return `No campaign matches "${name}".`;
+        return this.campaignEvolutionText(userId, c.id);
+      }
       default: return "Unknown tool.";
     }
   }
@@ -340,6 +354,20 @@ export class MarketingAssistantService {
       return `- ${s.name}: ${preview.matchedCount} of ${preview.totalLeadsConsidered} leads match${preview.sample.length ? ` (e.g. ${preview.sample.slice(0, 3).map((l) => l.name).join(", ")})` : ""}.`;
     }));
     return withPreview.join("\n");
+  }
+
+  private async campaignEvolutionText(userId: string, campaignId: string) {
+    const { items } = await this.evolution.list(userId, campaignId);
+    if (!items.length) return "AI Campaign Evolution hasn't analysed this campaign yet. Use the 'Improve with AI' button on the campaign page to run one.";
+    const latest = items[0];
+    const versions = latest.versions as unknown as { id: string; label: string; summary: string; changes: { id: string }[] }[];
+    const decisions = latest.decisions as Record<string, string>;
+    const lines = [`Last analysed via ${latest.source === "claude" ? "AI" : "rules (AI was off)"}${latest.status === "applied" ? ", and a version has already been applied as a new draft" : ""}.`];
+    for (const v of versions) {
+      const approved = v.changes.filter((c) => decisions[c.id] === "approved").length;
+      lines.push(`- ${v.label}: ${v.summary} (${v.changes.length} change${v.changes.length === 1 ? "" : "s"}${v.changes.length ? `, ${approved} approved` : ""})`);
+    }
+    return lines.join("\n");
   }
 
   private async leadsToFollowUpText(userId: string) {

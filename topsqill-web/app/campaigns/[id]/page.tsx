@@ -38,7 +38,10 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
     <Shell user={user} current="/leads">
       <Link href="/campaigns" className="small muted">← Campaigns</Link>
       <div style={{ margin: "6px 0 16px" }}>
-        <CampaignHeader id={c.id} name={c.name} status={c.status} />
+        <div className="spread" style={{ flexWrap: "wrap", gap: 8 }}>
+          <CampaignHeader id={c.id} name={c.name} status={c.status} />
+          <Link href={`/campaigns/${c.id}/evolve`} className="btn btn-o">✨ Improve with AI</Link>
+        </div>
         <p className="muted small" style={{ marginTop: 4 }}>{inr(c.budgetInr)} over {c.days} days · goal: {c.goal}{c.listingId ? <> · <Link href={`/listings/${c.listingId}`}>view listing</Link></> : c.city ? <> · targeting {c.city}</> : null}</p>
       </div>
 

@@ -4,6 +4,7 @@ import { IsIn, IsInt, IsOptional, IsString, Min, MaxLength, IsArray, ArrayMaxSiz
 import { Type } from "class-transformer";
 import { CampaignsService } from "./campaigns.service";
 import { MarketingAssistantService, type Turn } from "./marketing-assistant.service";
+import { CampaignEvolutionService } from "./evolution.service";
 import { CurrentUser, AuthUser } from "../auth/public.decorator";
 
 class CreateCampaignDto {
@@ -44,6 +45,8 @@ class MediaDto {
 
 class RenameDto { @IsString() @MaxLength(160) name: string; }
 
+class ResolveEvolutionChangeDto { @IsIn(["approved", "rejected"]) status: "approved" | "rejected"; }
+
 class AssistantTurnDto {
   @IsIn(["user", "assistant"]) role: "user" | "assistant";
   @IsString() @MaxLength(6000) text: string;
@@ -64,7 +67,11 @@ class CreativesDto {
 @ApiTags("campaigns")
 @Controller("v1/campaigns")
 export class CampaignsController {
-  constructor(private readonly svc: CampaignsService, private readonly assistant: MarketingAssistantService) {}
+  constructor(
+    private readonly svc: CampaignsService,
+    private readonly assistant: MarketingAssistantService,
+    private readonly evolution: CampaignEvolutionService,
+  ) {}
 
   @Get()
   list(@CurrentUser() user: AuthUser) { return this.svc.list(user.id); }
@@ -109,4 +116,23 @@ export class CampaignsController {
 
   @Post(":id/podcast") @ApiOperation({ summary: "Make (or remake) the campaign's audio podcast ad" })
   podcast(@CurrentUser() user: AuthUser, @Param("id") id: string, @Query("regenerate") regenerate?: string) { return this.svc.podcast(user.id, id, regenerate === "1"); }
+
+  @Post(":id/evolution") @ApiOperation({ summary: "AI Campaign Evolution: analyse this campaign's own real data and propose redesign versions" })
+  analyseEvolution(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.evolution.analyse(user.id, id); }
+
+  @Get(":id/evolution") @ApiOperation({ summary: "Past AI Campaign Evolution analyses for this campaign" })
+  listEvolutions(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.evolution.list(user.id, id); }
+
+  @Get(":id/evolution/:evoId")
+  getEvolution(@CurrentUser() user: AuthUser, @Param("evoId") evoId: string) { return this.evolution.get(user.id, evoId); }
+
+  @Post(":id/evolution/:evoId/changes/:changeId/resolve") @ApiOperation({ summary: "Approve or reject one proposed change (doesn't touch the live campaign)" })
+  resolveEvolutionChange(@CurrentUser() user: AuthUser, @Param("evoId") evoId: string, @Param("changeId") changeId: string, @Body() dto: ResolveEvolutionChangeDto) {
+    return this.evolution.resolveChange(user.id, evoId, changeId, dto.status);
+  }
+
+  @Post(":id/evolution/:evoId/versions/:versionId/apply") @ApiOperation({ summary: "Turn the approved changes in one version into a new draft campaign (never overwrites the live one)" })
+  applyEvolutionVersion(@CurrentUser() user: AuthUser, @Param("evoId") evoId: string, @Param("versionId") versionId: string) {
+    return this.evolution.applyVersion(user.id, evoId, versionId);
+  }
 }

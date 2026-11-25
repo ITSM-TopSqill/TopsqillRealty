@@ -887,6 +887,26 @@ export const genericCampaigns = pgTable("generic_campaigns", {
  * cached, so it's never stale. Never pushed to any ad platform - no
  * Custom Audience integration exists yet.
  */
+/**
+ * AI Campaign Evolution (first-party slice): a set of proposed redesign
+ * versions for one existing campaign, each a list of concrete changes
+ * (reason/evidence/expected impact/confidence/risk per change, the same
+ * discipline as Phase 5's recommendation framework). Never applied to the
+ * live campaign directly - approved changes become a new draft campaign
+ * instead, via the normal review/launch flow.
+ */
+export const campaignEvolutions = pgTable("campaign_evolutions", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  campaignId: varchar("campaign_id", { length: 36 }).notNull(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  source: varchar("source", { length: 16 }).notNull().default("rules"),  // 'claude' | 'rules'
+  versions: jsonb("versions").$type<Record<string, unknown>[]>().notNull(),
+  decisions: jsonb("decisions").$type<Record<string, "approved" | "rejected">>().notNull().default(sql`'{}'::jsonb`),
+  status: varchar("status", { length: 16 }).notNull().default("proposed"),  // 'proposed' | 'applied'
+  appliedCampaignId: varchar("applied_campaign_id", { length: 36 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ campaignIdx: index("campaign_evolutions_campaign_idx").on(t.campaignId, t.createdAt.desc()) }));
+
 export const customerSegments = pgTable("customer_segments", {
   id: varchar("id", { length: 36 }).primaryKey(),
   ownerId: varchar("owner_id", { length: 36 }).notNull(),

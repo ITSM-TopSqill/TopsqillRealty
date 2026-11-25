@@ -30,6 +30,7 @@ function makeService(opts: {
   providerRegistry?: Record<string, unknown>[];
   segmentsList?: { items: Record<string, unknown>[] };
   segmentsPreview?: Record<string, unknown>;
+  evolutionList?: { items: Record<string, unknown>[] };
 }) {
   const read = { select: () => chainable(opts.selectRows ?? []) };
   const claude = { available: opts.claudeAvailable, chat: vi.fn() };
@@ -47,9 +48,10 @@ function makeService(opts: {
     list: vi.fn().mockResolvedValue(opts.segmentsList ?? { items: [] }),
     preview: vi.fn().mockResolvedValue(opts.segmentsPreview ?? { totalLeadsConsidered: 0, matchedCount: 0, sample: [], truncated: false }),
   };
+  const evolution = { list: vi.fn().mockResolvedValue(opts.evolutionList ?? { items: [] }) };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const svc = new MarketingAssistantService(read as any, claude as any, campaigns as any, business as any, genericCampaigns as any, providers as any, segments as any);
-  return { svc, claude, campaigns, business, genericCampaigns, providers, segments };
+  const svc = new MarketingAssistantService(read as any, claude as any, campaigns as any, business as any, genericCampaigns as any, providers as any, segments as any, evolution as any);
+  return { svc, claude, campaigns, business, genericCampaigns, providers, segments, evolution };
 }
 
 const emptyDashboard = {
@@ -188,6 +190,31 @@ describe("MarketingAssistantService", () => {
     expect(text).toContain("LinkedIn Ads");
     expect(text).toContain("NOT usable yet");
     expect(text).toContain("No integration code exists.");
+  });
+
+  it("campaign_evolution_status tool reports the latest analysis's real versions and approval counts", async () => {
+    const { svc } = makeService({
+      claudeAvailable: false,
+      list: { items: [{ id: "c1", name: "Sunrise Towers" }] },
+      evolutionList: {
+        items: [{
+          id: "evo1", source: "claude", status: "proposed", decisions: { "v1-c1": "approved" },
+          versions: [{ id: "v1", label: "Creative refresh", summary: "New headline", changes: [{ id: "v1-c1" }, { id: "v1-c2" }] }],
+        }],
+      },
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const text: string = await (svc as any).campaignEvolutionText("u1", "c1");
+    expect(text).toContain("AI");
+    expect(text).toContain("Creative refresh");
+    expect(text).toContain("2 changes, 1 approved");
+  });
+
+  it("campaign_evolution_status tool says plainly when nothing has been analysed yet", async () => {
+    const { svc } = makeService({ claudeAvailable: false, evolutionList: { items: [] } });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const text: string = await (svc as any).campaignEvolutionText("u1", "c1");
+    expect(text).toMatch(/hasn't analysed this campaign yet/i);
   });
 
   it("provider_capabilities tool reports real capability details for a verified platform", async () => {
