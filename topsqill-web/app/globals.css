@@ -81,6 +81,19 @@ img{max-width:100%}
   background:var(--card);outline:none;width:100%}
 .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--vio)}
 .error{color:var(--red);font-size:13px;font-weight:600}
+/* A single AND/OR/NOT condition row (differentiator + operator + value), grouped so it reads as one unit instead of loose floating inputs. */
+.condition-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;margin-bottom:8px;
+  border:1.5px solid var(--line);border-radius:12px;background:var(--soft)}
+.condition-row select,.condition-row input{border:1.5px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--card);outline:none}
+.condition-row select:focus,.condition-row input:focus{border-color:var(--vio)}
+.condition-field{flex:1 1 180px;min-width:0}
+.condition-op-value{display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex:2 1 220px}
+.condition-op-value select{flex:1 1 100px;min-width:0}
+.condition-op-value input{flex:1 1 100px;min-width:0}
+@media (max-width:520px){
+  .condition-field{flex-basis:100%}
+  .condition-op-value{flex-basis:100%}
+}
 /* a button that reads as an inline link */
 .linklike{background:none;border:0;padding:0;font:inherit;font-weight:800;color:var(--vio);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .empty{text-align:center;padding:40px 20px;color:var(--ink2)}

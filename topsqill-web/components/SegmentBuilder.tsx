@@ -81,28 +81,30 @@ export function SegmentBuilder({ differentiators }: { differentiators: Different
   function ConditionRow({ row, onChange, onRemove }: { row: Row; onChange: (p: Partial<Row>) => void; onRemove: () => void }) {
     const d = byId(row.differentiatorId);
     return (
-      <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-        <select value={row.differentiatorId} onChange={(e) => { const nd = byId(e.target.value); onChange({ differentiatorId: e.target.value, operator: nd?.operators[0] ?? "eq" }); }}>
+      <div className="condition-row">
+        <select className="condition-field" value={row.differentiatorId} onChange={(e) => { const nd = byId(e.target.value); onChange({ differentiatorId: e.target.value, operator: nd?.operators[0] ?? "eq" }); }}>
           {differentiators.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
-        <select value={row.operator} onChange={(e) => onChange({ operator: e.target.value })}>
-          {(d?.operators ?? []).map((op) => <option key={op} value={op}>{OP_LABEL[op] ?? op}</option>)}
-        </select>
-        {d?.valueType === "boolean" ? (
-          <select value={row.value} onChange={(e) => onChange({ value: e.target.value })}>
-            <option value="">Pick…</option>
-            <option value="true">Yes</option>
-            <option value="false">No</option>
+        <div className="condition-op-value">
+          <select value={row.operator} onChange={(e) => onChange({ operator: e.target.value })}>
+            {(d?.operators ?? []).map((op) => <option key={op} value={op}>{OP_LABEL[op] ?? op}</option>)}
           </select>
-        ) : d?.enumValues ? (
-          <select value={row.value} onChange={(e) => onChange({ value: e.target.value })}>
-            <option value="">Pick…</option>
-            {d.enumValues.map((v) => <option key={v} value={v}>{v}</option>)}
-          </select>
-        ) : (
-          <input value={row.value} onChange={(e) => onChange({ value: e.target.value })} placeholder={d?.valueType === "number" ? "e.g. 70" : "value"} style={{ width: 140 }} />
-        )}
-        <button type="button" className="linklike small" onClick={onRemove}>Remove</button>
+          {d?.valueType === "boolean" ? (
+            <select value={row.value} onChange={(e) => onChange({ value: e.target.value })}>
+              <option value="">Pick…</option>
+              <option value="true">Yes</option>
+              <option value="false">No</option>
+            </select>
+          ) : d?.enumValues ? (
+            <select value={row.value} onChange={(e) => onChange({ value: e.target.value })}>
+              <option value="">Pick…</option>
+              {d.enumValues.map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+          ) : (
+            <input value={row.value} onChange={(e) => onChange({ value: e.target.value })} placeholder={d?.valueType === "number" ? "e.g. 70" : "value"} />
+          )}
+          <button type="button" className="linklike small" onClick={onRemove}>Remove</button>
+        </div>
       </div>
     );
   }
