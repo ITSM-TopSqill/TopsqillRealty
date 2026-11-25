@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { mapAd, searchAdLibrary, AdLibraryNotConfiguredError, AdLibraryError } from "../src/competitive-intelligence/ad-library";
+import { fingerprintAd } from "../src/competitive-intelligence/watch";
 
 describe("mapAd", () => {
   it("marks an ad with no stop time as still running, and computes real observed days", () => {
@@ -59,5 +60,24 @@ describe("searchAdLibrary", () => {
     }));
     await expect(searchAdLibrary({ appId: "a", appSecret: "b", apiVersion: "v21.0", searchTerms: "realty", countries: ["IN"], limit: 10 }))
       .rejects.toThrow(/ad_reached_countries is required/);
+  });
+});
+
+describe("fingerprintAd", () => {
+  it("gives the same fingerprint for the same real ad content", () => {
+    const ad = { pageName: "Rival Realty", headline: "3 BHK ready to move", body: "Book a site visit today" };
+    expect(fingerprintAd(ad)).toBe(fingerprintAd({ ...ad }));
+  });
+
+  it("gives a different fingerprint when the advertiser or text actually differs", () => {
+    const a = fingerprintAd({ pageName: "Rival Realty", headline: "3 BHK ready to move", body: "Book a site visit" });
+    const b = fingerprintAd({ pageName: "Rival Realty", headline: "4 BHK ready to move", body: "Book a site visit" });
+    const c = fingerprintAd({ pageName: "Other Realty", headline: "3 BHK ready to move", body: "Book a site visit" });
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(c);
+  });
+
+  it("handles missing headline/body without throwing", () => {
+    expect(() => fingerprintAd({ pageName: "Rival Realty", headline: null, body: null })).not.toThrow();
   });
 });

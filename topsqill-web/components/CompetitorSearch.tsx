@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { clientApi } from "@/lib/api";
 import type { AdLibraryResult, PatternSummary } from "@/lib/types";
+
+type Watch = { id: string; searchTerms: string; lastCheckedAt: string | null };
 
 /**
  * Competitive Intelligence: a real, on-demand search of Meta's public Ad
@@ -10,6 +12,10 @@ import type { AdLibraryResult, PatternSummary } from "@/lib/types";
  * actually provides (headline/body text, platforms, first/last seen,
  * still-running status) plus an optional, clearly-labelled AI pattern
  * summary. Google/TikTok/LinkedIn aren't covered - no public API for them.
+ *
+ * Continuous Market Learning: a search can be saved as a "watch" - the
+ * background worker re-checks it every few hours and notifies of
+ * genuinely new ads only (never on the first check, which just baselines).
  */
 export function CompetitorSearch() {
   const [q, setQ] = useState("");
@@ -17,6 +23,14 @@ export function CompetitorSearch() {
   const [error, setError] = useState("");
   const [results, setResults] = useState<AdLibraryResult[] | null>(null);
   const [patterns, setPatterns] = useState<PatternSummary | null>(null);
+  const [watches, setWatches] = useState<Watch[]>([]);
+  const [watching, setWatching] = useState(false);
+
+  useEffect(() => { refreshWatches(); }, []);
+
+  async function refreshWatches() {
+    clientApi<{ items: Watch[] }>("/v1/competitive-intelligence/watches").then((r) => setWatches(r.items)).catch(() => {});
+  }
 
   async function search() {
     if (!q.trim()) return;
@@ -29,6 +43,23 @@ export function CompetitorSearch() {
     finally { setBusy(false); }
   }
 
+  async function watch() {
+    if (!q.trim()) return;
+    setWatching(true); setError("");
+    try {
+      await clientApi("/v1/competitive-intelligence/watches", { method: "POST", body: { searchTerms: q } });
+      await refreshWatches();
+    } catch (e) { setError((e as Error).message || "Something went wrong."); }
+    finally { setWatching(false); }
+  }
+
+  async function removeWatch(id: string) {
+    try { await clientApi(`/v1/competitive-intelligence/watches/${id}`, { method: "DELETE" }); await refreshWatches(); }
+    catch (e) { setError((e as Error).message || "Something went wrong."); }
+  }
+
+  const alreadyWatching = watches.some((w) => w.searchTerms.toLowerCase() === q.trim().toLowerCase());
+
   return (
     <div className="col" style={{ gap: 16 }}>
       <div className="card pad">
@@ -36,9 +67,29 @@ export function CompetitorSearch() {
           <label htmlFor="comp-search">Advertiser, product or keyword</label>
           <input id="comp-search" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && search()} placeholder="e.g. 3 BHK Gurgaon, or a builder's name" />
         </div>
-        <button type="button" className="btn btn-ai" disabled={busy || !q.trim()} style={{ marginTop: 10 }} onClick={search}>{busy ? "Searching…" : "Search Meta Ad Library"}</button>
+        <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+          <button type="button" className="btn btn-ai" disabled={busy || !q.trim()} onClick={search}>{busy ? "Searching…" : "Search Meta Ad Library"}</button>
+          <button type="button" className="btn btn-o" disabled={watching || !q.trim() || alreadyWatching} onClick={watch} title="Re-checked every few hours; you're notified only of genuinely new ads">
+            {alreadyWatching ? "Already watching" : watching ? "Saving…" : "👁 Watch this search"}
+          </button>
+        </div>
         {error ? <p className="error small" style={{ marginTop: 8 }}>{error}</p> : null}
       </div>
+
+      {watches.length ? (
+        <div className="card pad">
+          <b>Watched searches</b>
+          <p className="small muted" style={{ marginTop: 2 }}>Re-checked every few hours. You&apos;ll get a notification only when a genuinely new ad shows up - never on the first check.</p>
+          <div className="col" style={{ gap: 6, marginTop: 8 }}>
+            {watches.map((w) => (
+              <div key={w.id} className="spread" style={{ gap: 8 }}>
+                <span className="small">{w.searchTerms}{w.lastCheckedAt ? <span className="muted"> · last checked {new Date(w.lastCheckedAt).toLocaleString("en-IN")}</span> : <span className="muted"> · not checked yet</span>}</span>
+                <button type="button" className="linklike small" onClick={() => removeWatch(w.id)}>Remove</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {results ? (
         results.length ? (

@@ -367,7 +367,7 @@ export const verifications = pgTable("verifications", {
 
 export const leadStage = pgEnum("lead_stage", ["new", "contacted", "site_visit", "negotiation", "booked", "lost"]);
 export const leadSource = pgEnum("lead_source", ["website", "meta", "google", "linkedin", "whatsapp", "portal_99acres", "portal_magicbricks", "portal_housing", "call", "topsqill", "manual", "other", "channel_partner"]);
-export const notifKind = pgEnum("notif_kind", ["connection", "message", "lead", "match", "post", "comment", "system", "job", "listing", "campaign"]);
+export const notifKind = pgEnum("notif_kind", ["connection", "message", "lead", "match", "post", "comment", "system", "job", "listing", "campaign", "competitor"]);
 
 export const conversations = pgTable("conversations", {
   id: varchar("id", { length: 36 }).primaryKey(),
@@ -916,3 +916,31 @@ export const customerSegments = pgTable("customer_segments", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ ownerIdx: index("customer_segments_owner_idx").on(t.ownerId, t.createdAt.desc()) }));
+
+/**
+ * Continuous Market Learning (Campaign Evolution spec, Section 11): a saved
+ * Meta Ad Library search the worker re-runs on a schedule, so new ads from
+ * the same search surface on their own instead of needing a manual re-check.
+ * Respects Meta's rate limits - see worker/competitor-monitor.ts for the
+ * actual interval and batch size.
+ */
+export const competitorWatches = pgTable("competitor_watches", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  searchTerms: varchar("search_terms", { length: 200 }).notNull(),
+  lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ ownerIdx: index("competitor_watches_owner_idx").on(t.ownerId, t.createdAt.desc()) }));
+
+/** One real ad already seen for a watch, so the next check can tell what's genuinely new. */
+export const competitorWatchAds = pgTable("competitor_watch_ads", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  watchId: varchar("watch_id", { length: 36 }).notNull(),
+  fingerprint: varchar("fingerprint", { length: 64 }).notNull(),   // hash of page name + headline + body (Ad Library gives no stable ad id)
+  pageName: varchar("page_name", { length: 160 }),
+  headline: varchar("headline", { length: 200 }),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uq: uniqueIndex("competitor_watch_ads_uq").on(t.watchId, t.fingerprint),
+  watchIdx: index("competitor_watch_ads_watch_idx").on(t.watchId),
+}));

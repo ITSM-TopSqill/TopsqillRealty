@@ -11,6 +11,7 @@ import { fanoutPost } from "./fanout.processor";
 import { flushCounters } from "./counters";
 import { syncLiveCampaigns } from "./campaign-sync";
 import { remindStaleLeads } from "./stale-leads";
+import { monitorCompetitors } from "./competitor-monitor";
 import { runMatch } from "./match.processor";
 import { deliverNotification } from "./notify.processor";
 
@@ -50,6 +51,10 @@ const statsTimer = setInterval(() => syncLiveCampaigns(pool, notifyQueue).catch(
 const videoTimer = setInterval(() => checkTranscodes(pool, connection).catch((e) => console.error("transcode check", e.message)), 60_000);
 // Leads gone quiet for a couple of days get an AI-drafted nudge and a notification, every hour.
 const followupTimer = setInterval(() => remindStaleLeads(pool, notifyQueue).catch((e) => console.error("stale lead reminder", e.message)), 60 * 60_000);
+// Saved competitor searches (Continuous Market Learning): checked every 30 minutes, but each
+// individual watch is re-queried at most once every 6 hours (see competitor-monitor.ts) - a
+// conservative pace since Meta's Ad Library has no published commercial rate limit.
+const competitorTimer = setInterval(() => monitorCompetitors(pool, notifyQueue).catch((e) => console.error("competitor monitor", e.message)), 30 * 60_000);
 
 const health = createServer((req, res) => {
   const redisUp = connection.status === "ready";
@@ -64,6 +69,7 @@ async function shutdown() {
   clearInterval(statsTimer);
   clearInterval(videoTimer);
   clearInterval(followupTimer);
+  clearInterval(competitorTimer);
   health.close();
   await Promise.all(workers.map((w) => w.close()));
   await pool.end().catch(() => { });

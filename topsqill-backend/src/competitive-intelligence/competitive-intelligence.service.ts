@@ -1,9 +1,15 @@
-import { Injectable, BadRequestException } from "@nestjs/common";
+import { Injectable, Inject, BadRequestException, NotFoundException } from "@nestjs/common";
+import { and, desc, eq } from "drizzle-orm";
+import { DB, DB_READ, type Database } from "../db/db.module";
+import { competitorWatches } from "../db/schema";
 import { env } from "../common/env";
+import { newId } from "../common/ids";
 import { ClaudeService } from "../ai/claude.service";
 import { searchAdLibrary, AdLibraryError, type AdLibraryResult } from "./ad-library";
 
 export type PatternSummary = { available: true; text: string } | { available: false; reason: string };
+
+const MAX_WATCHES_PER_OWNER = 10;
 
 /**
  * Competitive Intelligence (Section 2-3 of the Campaign Evolution spec),
@@ -13,12 +19,18 @@ export type PatternSummary = { available: true; text: string } | { available: fa
  * Center, TikTok Creative Center and LinkedIn's ad library have no public
  * API - scraping them isn't attempted here.
  *
- * No persisted competitor monitoring (Section 11) is built - every search
- * is a live, on-demand call, never a scheduled background job.
+ * Continuous Market Learning (Section 11): a member can save a search as a
+ * "watch"; worker/competitor-monitor.ts re-runs it on a schedule and
+ * notifies only of genuinely new ads. This service owns the watch CRUD;
+ * the actual periodic check runs in the worker (see that file for why).
  */
 @Injectable()
 export class CompetitiveIntelligenceService {
-  constructor(private readonly claude: ClaudeService) {}
+  constructor(
+    @Inject(DB) private readonly db: Database,
+    @Inject(DB_READ) private readonly read: Database,
+    private readonly claude: ClaudeService,
+  ) {}
 
   async searchAds(userId: string, searchTerms: string, limit = 20) {
     let results: AdLibraryResult[];
@@ -50,5 +62,29 @@ export class CompetitiveIntelligenceService {
     const fallback = () => "AI is off right now - no pattern summary available.";
     const text = await this.claude.ask(prompt, { userId, feature: "competitive-intelligence", effort: "low", maxTokens: 400 }).catch(() => null);
     return text ? { available: true, text } : { available: false, reason: fallback() };
+  }
+
+  /* --------------------------- continuous monitoring --------------------------- */
+
+  async createWatch(userId: string, searchTerms: string) {
+    const term = searchTerms.trim();
+    if (!term) throw new BadRequestException("A search term is needed.");
+    const existing = await this.read.select().from(competitorWatches).where(eq(competitorWatches.ownerId, userId));
+    if (existing.length >= MAX_WATCHES_PER_OWNER) throw new BadRequestException(`You can watch up to ${MAX_WATCHES_PER_OWNER} searches - remove one before adding another.`);
+    if (existing.some((w) => w.searchTerms.toLowerCase() === term.toLowerCase())) throw new BadRequestException("You're already watching that search.");
+    const [row] = await this.db.insert(competitorWatches).values({ id: newId(), ownerId: userId, searchTerms: term.slice(0, 200) }).returning();
+    return row;
+  }
+
+  async listWatches(userId: string) {
+    const rows = await this.read.select().from(competitorWatches).where(eq(competitorWatches.ownerId, userId)).orderBy(desc(competitorWatches.createdAt));
+    return { items: rows };
+  }
+
+  async removeWatch(userId: string, id: string) {
+    const [row] = await this.db.select().from(competitorWatches).where(and(eq(competitorWatches.id, id), eq(competitorWatches.ownerId, userId))).limit(1);
+    if (!row) throw new NotFoundException("That watch could not be found.");
+    await this.db.delete(competitorWatches).where(eq(competitorWatches.id, id));
+    return { ok: true };
   }
 }
