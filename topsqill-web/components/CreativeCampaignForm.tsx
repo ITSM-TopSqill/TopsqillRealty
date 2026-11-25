@@ -38,11 +38,12 @@ export function CreativeCampaignForm({ kind }: { kind: "creative" | "video" }) {
 
   async function build(e: React.FormEvent) {
     e.preventDefault();
+    setError("");
     if (!ready.length) { setError(kind === "video" ? "Add a video." : "Add a photo."); return; }
     if (!headline.trim()) { setError("Give the ad a headline."); return; }
     if (!city.trim()) { setError("Choose a city to target."); return; }
     if (budget < minBudget) { setError(`The minimum budget is ${inr(minBudget)}.`); return; }
-    setError(""); setBusy(true);
+    setBusy(true);
     try {
       const c = await clientApi<{ id: string }>("/v1/campaigns", {
         method: "POST",

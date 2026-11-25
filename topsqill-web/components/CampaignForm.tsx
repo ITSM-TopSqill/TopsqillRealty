@@ -29,8 +29,9 @@ export function CampaignForm({ listings, preselect }: { listings: MyListing[]; p
 
   async function build(e: React.FormEvent) {
     e.preventDefault();
+    setError("");
     if (budget < minBudget) { setError(`The minimum budget is ${inr(minBudget)}.`); return; }
-    setError(""); setStep(0);
+    setStep(0);
     // The steps tick along while the server works, so the wait reads as progress.
     const timer = setInterval(() => setStep((s) => Math.min(s + 1, STEPS.length - 1)), 900);
     try {
