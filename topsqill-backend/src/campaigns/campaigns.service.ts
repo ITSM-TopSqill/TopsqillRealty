@@ -4,6 +4,7 @@ import { DB, DB_READ, type Database } from "../db/db.module";
 import { campaigns, listings, media, requirements, users } from "../db/schema";
 import { ClaudeService } from "../ai/claude.service";
 import { SearchService } from "../search/search.service";
+import { GeoService } from "../geo/geo.service";
 import { buildPlan, forecast, segmentOf, type Plan } from "./planner";
 import { pincodesFor, HNI_FEEDERS } from "./pincodes";
 import { newId } from "../common/ids";
@@ -38,6 +39,7 @@ export class CampaignsService {
     @Inject("PG_POOLS") pools: { writePool: Pool },
     private readonly claude: ClaudeService,
     private readonly search: SearchService,
+    private readonly geo: GeoService,
   ) {
     this.q = queryOn(pools.writePool);
   }
@@ -127,6 +129,53 @@ export class CampaignsService {
       extraPlaces: sanitizePlaces(input.extraPlaces), excludePlaces: sanitizePlaces(input.excludePlaces),
     }).returning();
     return row;
+  }
+
+  /**
+   * Phase 2 of the AI campaign manager: describe the buyer in plain words and
+   * get back a reviewable starting point - a goal, a budget tier, and a
+   * handful of real, geocoded localities with the reasoning behind each one.
+   * Nothing is created here; the advertiser accepts, edits or drops each area
+   * before it ever reaches `create()`.
+   */
+  async suggestAudience(userId: string, input: { description: string; listingId?: string; city?: string }) {
+    const description = input.description?.trim().slice(0, 400);
+    if (!description) throw new BadRequestException("Describe who you're trying to reach.");
+
+    let city = input.city?.trim().slice(0, 80) || "";
+    let listingCtx = "";
+    if (input.listingId) {
+      const [listing] = await this.read.select().from(listings).where(eq(listings.id, input.listingId)).limit(1);
+      if (listing && listing.ownerId === userId) {
+        city = city || listing.city;
+        listingCtx = `Listing: ${JSON.stringify({ title: listing.title, purpose: listing.purpose, bhk: listing.bhk, price: listing.priceInr, city: listing.city, locality: listing.locality })}`;
+      }
+    }
+
+    const fallback = () => ({
+      goal: "Qualified buyers", budgetInr: 30000,
+      areas: city ? [{ locality: city, reason: "The campaign's own city." }] : [],
+      rationale: "AI suggestions aren't available right now, so this just targets the campaign's own city.",
+    });
+    const prompt = `A real estate advertiser in India describes their ideal buyer. Suggest a starting campaign: a goal, a daily-spend-appropriate total budget in INR, and up to 5 real localities (by name, in or near ${city || "the advertiser's city"}) worth targeting, each with a one-line reason grounded in the description (never invent income or financial status from a locality - treat it only as a market signal). Return ONLY JSON: {"goal":"one of Qualified buyers, Site visits, Brand awareness, Tenants","budgetInr":number,"areas":[{"locality":"name, city","reason":"max 100 chars"}],"rationale":"max 200 chars, explains the overall strategy"}.
+${listingCtx}
+Buyer description: ${description}`;
+    const { data, source } = await this.claude.json<{ goal: string; budgetInr: number; areas: { locality: string; reason: string }[]; rationale: string }>(
+      prompt, fallback, { userId, feature: "campaign.audience", maxTokens: 900 },
+    );
+    const areas = await this.geocodeAreas(userId, (data.areas ?? []).slice(0, 5), city);
+    return { goal: data.goal || "Qualified buyers", budgetInr: Math.max(Number(data.budgetInr) || 0, 5000), areas, rationale: data.rationale ?? "", source };
+  }
+
+  /** Turns the AI's named localities into real points: only places Nominatim can actually find make it back to the user. */
+  private async geocodeAreas(userId: string, areas: { locality: string; reason: string }[], city: string) {
+    const out: { label: string; lat: number; lng: number; radiusKm: number; reason: string }[] = [];
+    for (const a of areas) {
+      if (!a?.locality) continue;
+      const { items } = await this.geo.search(userId, a.locality, city || undefined).catch(() => ({ items: [] }));
+      if (items[0]) out.push({ label: items[0].label, lat: items[0].lat, lng: items[0].lng, radiusKm: 5, reason: a.reason?.slice(0, 100) ?? "" });
+    }
+    return out;
   }
 
   /** Adds more photos/video to a listing-less campaign still in draft (before it's sent for review). */

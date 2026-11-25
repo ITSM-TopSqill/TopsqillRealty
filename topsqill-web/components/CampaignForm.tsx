@@ -6,6 +6,7 @@ import { clientApi } from "@/lib/api";
 import { inr } from "@/lib/format";
 import type { MyListing } from "@/lib/types";
 import { PlacesPicker, type PickedPlace } from "./PlacesPicker";
+import { AudienceSuggest } from "./AudienceSuggest";
 
 const GOALS = ["Qualified buyers", "Site visits", "Brand awareness", "Tenants"];
 const BUDGETS = [15000, 30000, 50000, 100000];
@@ -60,7 +61,13 @@ export function CampaignForm({ listings, preselect }: { listings: MyListing[]; p
   }
 
   return (
-    <form className="card pad" onSubmit={build}>
+    <>
+      <AudienceSuggest listingId={listingId} onApply={(v) => {
+        setGoal((g) => GOALS.includes(v.goal) ? v.goal : g);
+        setBudget(v.budgetInr);
+        setExtraPlaces((prev) => [...prev, ...v.areas].slice(0, 8));
+      }} />
+      <form className="card pad" onSubmit={build}>
       <div className="field"><label htmlFor="listing">Listing to promote</label>
         <select id="listing" value={listingId} onChange={(e) => setListingId(e.target.value)}>
           {listings.map((l) => <option key={l.id} value={l.id}>{l.title} · {l.locality} · {inr(l.priceInr, l.purpose === "rent")}</option>)}
@@ -99,6 +106,7 @@ export function CampaignForm({ listings, preselect }: { listings: MyListing[]; p
 
       {error ? <p className="error" style={{ marginTop: 10 }}>{error}</p> : null}
       <button className="btn btn-ai" style={{ width: "100%", height: 48, marginTop: 16, fontSize: 16 }}>✨ Build my campaign</button>
-    </form>
+      </form>
+    </>
   );
 }

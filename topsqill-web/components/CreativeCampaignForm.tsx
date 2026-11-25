@@ -6,6 +6,7 @@ import { clientApi } from "@/lib/api";
 import { inr } from "@/lib/format";
 import { MediaUploader, type UploadedItem } from "./MediaUploader";
 import { PlacesPicker, type PickedPlace } from "./PlacesPicker";
+import { AudienceSuggest } from "./AudienceSuggest";
 
 const GOALS = ["Qualified buyers", "Site visits", "Brand awareness", "Tenants"];
 const BUDGETS = [15000, 30000, 50000, 100000];
@@ -57,7 +58,13 @@ export function CreativeCampaignForm({ kind }: { kind: "creative" | "video" }) {
   }
 
   return (
-    <form className="card pad" onSubmit={build}>
+    <>
+      <AudienceSuggest city={city || undefined} onApply={(v) => {
+        setGoal((g) => GOALS.includes(v.goal) ? v.goal : g);
+        setBudget(v.budgetInr);
+        setExtraPlaces((prev) => [...prev, ...v.areas].slice(0, 8));
+      }} />
+      <form className="card pad" onSubmit={build}>
       <div className="field">
         <label>{kind === "video" ? "Video for the ad" : "Photo for the ad"}</label>
         <MediaUploader items={uploads} onChange={setUploads} max={kind === "video" ? 1 : 6}
@@ -114,6 +121,7 @@ export function CreativeCampaignForm({ kind }: { kind: "creative" | "video" }) {
       <button className="btn btn-ai" style={{ width: "100%", height: 48, marginTop: 16, fontSize: 16 }} disabled={busy}>
         {busy ? "Building…" : "✨ Build my campaign"}
       </button>
-    </form>
+      </form>
+    </>
   );
 }

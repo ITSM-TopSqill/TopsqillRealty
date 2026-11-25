@@ -26,6 +26,12 @@ class CreateCampaignDto {
   @IsOptional() @IsArray() @ArrayMaxSize(8) excludePlaces?: { label: string; lat: number; lng: number; radiusKm: number }[];
 }
 
+class SuggestAudienceDto {
+  @IsString() @MaxLength(400) description: string;
+  @IsOptional() @IsString() listingId?: string;
+  @IsOptional() @IsString() @MaxLength(80) city?: string;
+}
+
 class MediaDto {
   @IsArray() @ArrayMaxSize(10) @IsString({ each: true }) mediaIds: string[];
 }
@@ -50,6 +56,9 @@ export class CampaignsController {
 
   @Post() @ApiOperation({ summary: "Build a campaign: targeting, creatives and a forecast" })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateCampaignDto) { return this.svc.create(user.id, dto); }
+
+  @Post("suggest-audience") @ApiOperation({ summary: "Describe the buyer in plain words; get back a reviewable goal, budget and a few real localities" })
+  suggestAudience(@CurrentUser() user: AuthUser, @Body() dto: SuggestAudienceDto) { return this.svc.suggestAudience(user.id, dto); }
 
   @Get(":id")
   get(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.get(user.id, id); }
