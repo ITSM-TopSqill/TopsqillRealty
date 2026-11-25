@@ -681,6 +681,32 @@ export const campaignDeliveries = pgTable("campaign_deliveries", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ campaignIdx: index("campaign_deliveries_idx").on(t.campaignId) }));
 
+/**
+ * Phase 5: an AI-found alert or suggestion about a campaign's real performance -
+ * never applied on its own (Phase 4's opt-in budget shifting is the one
+ * exception), always shown with why it matters and what's recommended, and
+ * resolved only by the owner approving, rejecting or dismissing it.
+ */
+export const campaignRecommendations = pgTable("campaign_recommendations", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  campaignId: varchar("campaign_id", { length: 36 }).notNull(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  kind: varchar("kind", { length: 16 }).notNull(),             // 'alert' | 'suggestion'
+  category: varchar("category", { length: 40 }).notNull(),
+  title: varchar("title", { length: 160 }).notNull(),
+  why: text("why").notNull(),
+  impact: text("impact").notNull(),
+  confidence: varchar("confidence", { length: 10 }).notNull(), // 'low' | 'medium' | 'high'
+  action: text("action"),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+}, (t) => ({
+  campaignIdx: index("campaign_recommendations_campaign_idx").on(t.campaignId, t.createdAt.desc()),
+  ownerIdx: index("campaign_recommendations_owner_idx").on(t.ownerId, t.status, t.createdAt.desc()),
+}));
+
 /** A member's own Instagram (business or creator) account, for picking their posts and reels. */
 export const instagramAccounts = pgTable("instagram_accounts", {
   ownerId: varchar("owner_id", { length: 36 }).primaryKey(),

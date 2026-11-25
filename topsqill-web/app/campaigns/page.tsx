@@ -23,7 +23,10 @@ export default async function CampaignsPage() {
           <h1 style={{ fontSize: 26, marginTop: 6 }}>Campaigns</h1>
           <p className="muted small">Ads for your listings, with targeting, creatives and a lead forecast built for you.</p>
         </div>
-        <Link href="/campaigns/new" className="btn btn-ai">+ New campaign</Link>
+        <div className="row" style={{ gap: 8 }}>
+          <Link href="/campaigns/insights" className="btn btn-o">✨ Insights</Link>
+          <Link href="/campaigns/new" className="btn btn-ai">+ New campaign</Link>
+        </div>
       </div>
       {items.length ? (
         <div className="col">

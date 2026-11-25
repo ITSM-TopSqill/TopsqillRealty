@@ -32,6 +32,10 @@ class SuggestAudienceDto {
   @IsOptional() @IsString() @MaxLength(80) city?: string;
 }
 
+class ResolveRecommendationDto {
+  @IsIn(["approved", "rejected", "dismissed"]) status: "approved" | "rejected" | "dismissed";
+}
+
 class MediaDto {
   @IsArray() @ArrayMaxSize(10) @IsString({ each: true }) mediaIds: string[];
 }
@@ -54,6 +58,14 @@ export class CampaignsController {
   @Get()
   list(@CurrentUser() user: AuthUser) { return this.svc.list(user.id); }
 
+  @Get("dashboard") @ApiOperation({ summary: "Cross-campaign health, best platform/locality/campaign, and anything pending approval" })
+  dashboard(@CurrentUser() user: AuthUser) { return this.svc.dashboard(user.id); }
+
+  @Post("recommendations/:recId/resolve") @ApiOperation({ summary: "Approve, reject or dismiss an AI recommendation (never applies a change on its own)" })
+  resolveRecommendation(@CurrentUser() user: AuthUser, @Param("recId") recId: string, @Body() dto: ResolveRecommendationDto) {
+    return this.svc.resolveRecommendation(user.id, recId, dto.status);
+  }
+
   @Post() @ApiOperation({ summary: "Build a campaign: targeting, creatives and a forecast" })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateCampaignDto) { return this.svc.create(user.id, dto); }
 
@@ -62,6 +74,9 @@ export class CampaignsController {
 
   @Get(":id")
   get(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.get(user.id, id); }
+
+  @Get(":id/insights") @ApiOperation({ summary: "AI alerts, suggestions and a forecast built from this campaign's real numbers" })
+  insights(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.svc.insights(user.id, id); }
 
   @Patch(":id/media") @ApiOperation({ summary: "Add photos/video to a listing-less campaign still in draft" })
   media(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: MediaDto) { return this.svc.addMedia(user.id, id, dto.mediaIds); }

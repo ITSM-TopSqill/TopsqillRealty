@@ -1,11 +1,12 @@
 import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException } from "@nestjs/common";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
-import { campaigns, listings, media, requirements, users } from "../db/schema";
+import { campaigns, listings, media, requirements, users, campaignRecommendations } from "../db/schema";
 import { ClaudeService } from "../ai/claude.service";
 import { SearchService } from "../search/search.service";
 import { GeoService } from "../geo/geo.service";
 import { buildPlan, forecast, segmentOf, type Plan } from "./planner";
+import { buildRecommendations, forecastRemaining, type CampaignInsightInput, type RecommendationCandidate } from "./insights";
 import { pincodesFor, HNI_FEEDERS } from "./pincodes";
 import { newId } from "../common/ids";
 import { speakMp3 } from "../common/tts";
@@ -331,6 +332,148 @@ Reply with JSON only: {"script":[{"host":"Priya","line":"..."},{"host":"Arjun","
     const [row] = await this.read.select().from(campaigns).where(eq(campaigns.id, id)).limit(1);
     if (!row || row.ownerId !== userId) throw new NotFoundException("That campaign could not be found.");
     return row;
+  }
+
+  /* --------------------------- Phase 5: AI insights -------------------------- */
+
+  /** Alerts, suggestions and a forecast built from this campaign's real numbers. */
+  async insights(userId: string, id: string) {
+    const c = await this.get(userId, id);
+
+    const leadRows = await this.rows<{ city: string | null; locality: string | null; qualified: boolean; source: string; createdAt: string }>(sql`
+      select city, locality, qualified, source, created_at as "createdAt" from leads where campaign_id = ${id} order by created_at asc`);
+    const deliveryRows = await this.rows<{ platform: string; spendPaise: number }>(sql`
+      select platform, spend_paise as "spendPaise" from campaign_deliveries where campaign_id = ${id} and status in ('live','paused')`);
+
+    const platforms = deliveryRows.map((d) => {
+      const own = leadRows.filter((r) => r.source === d.platform);
+      return { platform: d.platform as "meta" | "google", spendPaise: Number(d.spendPaise), qualified: own.filter((r) => r.qualified).length, leads: own.length };
+    });
+
+    const localityMap = new Map<string, { leads: number; qualified: number }>();
+    for (const r of leadRows) {
+      const label = r.locality || r.city;
+      if (!label) continue;
+      const cur = localityMap.get(label) ?? { leads: 0, qualified: 0 };
+      cur.leads++; if (r.qualified) cur.qualified++;
+      localityMap.set(label, cur);
+    }
+    const localities = [...localityMap.entries()].map(([label, v]) => ({ label, ...v }));
+
+    let earlyQualifiedRate: number | null = null, recentQualifiedRate: number | null = null;
+    if (leadRows.length >= 6) {
+      const mid = Math.floor(leadRows.length / 2);
+      const early = leadRows.slice(0, mid), recent = leadRows.slice(mid);
+      earlyQualifiedRate = early.filter((r) => r.qualified).length / early.length;
+      recentQualifiedRate = recent.filter((r) => r.qualified).length / recent.length;
+    }
+
+    const elapsedDays = c.launchedAt ? Math.floor(Math.max(Date.now() - new Date(c.launchedAt).getTime(), 0) / 86_400_000) : null;
+
+    const otherRows = await this.rows<{ spendInr: number; qualifiedCount: number }>(sql`
+      select spend_inr as "spendInr", qualified_count as "qualifiedCount" from campaigns
+      where owner_id = ${userId} and id <> ${id} and qualified_count > 0`);
+    const ownerAvgCostPerQualifiedLeadInr = otherRows.length >= 2
+      ? Math.round(otherRows.reduce((s, r) => s + Number(r.spendInr) / Number(r.qualifiedCount), 0) / otherRows.length)
+      : null;
+
+    const input: CampaignInsightInput = {
+      status: c.status, budgetInr: Number(c.budgetInr), days: Number(c.days), elapsedDays,
+      spendInr: Number(c.spendInr), leadsCount: Number(c.leadsCount), qualifiedCount: Number(c.qualifiedCount),
+      forecastCostPerQualifiedLeadInr: (c.forecast as Record<string, number> | null)?.costPerQualifiedLead ?? null,
+      platforms, localities, earlyQualifiedRate, recentQualifiedRate,
+      clicks: Number(c.clicksCount), impressions: Number(c.impressionsCount),
+      ownerAvgCostPerQualifiedLeadInr,
+    };
+
+    const recommendations = await this.saveRecommendations(userId, id, buildRecommendations(input));
+    return { metrics: input, forecast: forecastRemaining(input), recommendations };
+  }
+
+  /** Inserts only the recommendations that aren't already pending for this campaign, so refreshing the page never duplicates them. */
+  private async saveRecommendations(userId: string, campaignId: string, candidates: RecommendationCandidate[]) {
+    const existing = await this.db.select().from(campaignRecommendations)
+      .where(and(eq(campaignRecommendations.campaignId, campaignId), eq(campaignRecommendations.status, "pending")))
+      .orderBy(desc(campaignRecommendations.createdAt));
+    const existingCategories = new Set(existing.map((r) => r.category));
+    const toInsert = candidates.filter((cand) => !existingCategories.has(cand.category));
+    const inserted = toInsert.length
+      ? await this.db.insert(campaignRecommendations).values(toInsert.map((cand) => ({
+          id: newId(), campaignId, ownerId: userId, kind: cand.kind, category: cand.category,
+          title: cand.title, why: cand.why, impact: cand.impact, confidence: cand.confidence,
+          action: cand.action ?? null, payload: (cand.payload ?? {}) as never,
+        }))).returning()
+      : [];
+    return [...existing, ...inserted].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  /** Approve, reject or dismiss a recommendation. None of these apply a change on their own - they just record the owner's decision. */
+  async resolveRecommendation(userId: string, recId: string, status: "approved" | "rejected" | "dismissed") {
+    const [row] = await this.db.select().from(campaignRecommendations).where(eq(campaignRecommendations.id, recId)).limit(1);
+    if (!row || row.ownerId !== userId) throw new NotFoundException("That recommendation could not be found.");
+    const [updated] = await this.db.update(campaignRecommendations).set({ status, resolvedAt: new Date() })
+      .where(eq(campaignRecommendations.id, recId)).returning();
+    return updated;
+  }
+
+  /** The cross-campaign health view: totals, the best-performing platform and locality, and anything pending approval. */
+  async dashboard(userId: string) {
+    const rows = await this.read.select().from(campaigns).where(eq(campaigns.ownerId, userId)).orderBy(desc(campaigns.createdAt));
+    // Refreshes alerts/suggestions for every running campaign before showing them here -
+    // this is the one place that computes them, so visiting this page is what keeps them current.
+    for (const c of rows) if (c.status === "active" || c.status === "paused") await this.insights(userId, c.id).catch(() => null);
+
+    const totals = rows.reduce((acc, c) => ({
+      spendInr: acc.spendInr + Number(c.spendInr), leads: acc.leads + Number(c.leadsCount), qualified: acc.qualified + Number(c.qualifiedCount),
+    }), { spendInr: 0, leads: 0, qualified: 0 });
+
+    const deliveryRows = await this.rows<{ platform: string; spendPaise: number }>(sql`
+      select d.platform, d.spend_paise as "spendPaise" from campaign_deliveries d join campaigns c on c.id = d.campaign_id where c.owner_id = ${userId}`);
+    const leadRows = await this.rows<{ source: string; qualified: boolean; city: string | null; locality: string | null }>(sql`
+      select l.source, l.qualified, l.city, l.locality from leads l join campaigns c on c.id = l.campaign_id where c.owner_id = ${userId}`);
+
+    const platformSpend = new Map<string, number>(), platformQualified = new Map<string, number>();
+    for (const d of deliveryRows) platformSpend.set(d.platform, (platformSpend.get(d.platform) ?? 0) + Number(d.spendPaise));
+    for (const l of leadRows) if (l.qualified && (l.source === "meta" || l.source === "google")) platformQualified.set(l.source, (platformQualified.get(l.source) ?? 0) + 1);
+    let bestPlatform: { platform: string; costPerQualifiedLeadInr: number } | null = null;
+    for (const [platform, qualified] of platformQualified) {
+      const spendInr = (platformSpend.get(platform) ?? 0) / 100;
+      const cpl = qualified ? spendInr / qualified : Infinity;
+      if (Number.isFinite(cpl) && (!bestPlatform || cpl < bestPlatform.costPerQualifiedLeadInr)) bestPlatform = { platform, costPerQualifiedLeadInr: Math.round(cpl) };
+    }
+
+    const localityMap = new Map<string, { leads: number; qualified: number }>();
+    for (const l of leadRows) {
+      const label = l.locality || l.city;
+      if (!label) continue;
+      const cur = localityMap.get(label) ?? { leads: 0, qualified: 0 };
+      cur.leads++; if (l.qualified) cur.qualified++;
+      localityMap.set(label, cur);
+    }
+    let bestLocality: { label: string; qualified: number; leads: number } | null = null;
+    for (const [label, v] of localityMap) {
+      if (v.leads >= 3 && (!bestLocality || v.qualified / v.leads > bestLocality.qualified / bestLocality.leads)) bestLocality = { label, ...v };
+    }
+
+    const scored = rows.filter((c) => Number(c.qualifiedCount) > 0)
+      .map((c) => ({ id: c.id, name: c.name, costPerQualifiedLeadInr: Math.round(Number(c.spendInr) / Number(c.qualifiedCount)) }))
+      .sort((a, b) => a.costPerQualifiedLeadInr - b.costPerQualifiedLeadInr);
+    const bestCampaign = scored[0] ?? null;
+
+    const pending = await this.db.select().from(campaignRecommendations)
+      .where(and(eq(campaignRecommendations.ownerId, userId), eq(campaignRecommendations.status, "pending")))
+      .orderBy(desc(campaignRecommendations.createdAt)).limit(50);
+
+    return {
+      campaigns: rows.map((c) => ({ id: c.id, name: c.name, status: c.status, spendInr: Number(c.spendInr), leadsCount: Number(c.leadsCount), qualifiedCount: Number(c.qualifiedCount) })),
+      totals, bestPlatform, bestLocality, bestCampaign, pending,
+    };
+  }
+
+  /** Runs a read query and returns its rows, whichever shape the driver gave back. */
+  private async rows<T>(q: ReturnType<typeof sql>): Promise<T[]> {
+    const r = await this.read.execute(q);
+    return (Array.isArray(r) ? r : (r as unknown as { rows: T[] }).rows) as T[];
   }
 
   /** Renames a draft or rejected campaign; it isn't running yet, so nothing else changes. */
