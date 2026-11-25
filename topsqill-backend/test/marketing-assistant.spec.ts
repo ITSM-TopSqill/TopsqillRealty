@@ -27,6 +27,7 @@ function makeService(opts: {
   businessList?: { items: Record<string, unknown>[] };
   forecastAccuracy?: Record<string, unknown>;
   genericCampaignsList?: { items: Record<string, unknown>[] };
+  providerRegistry?: Record<string, unknown>[];
 }) {
   const read = { select: () => chainable(opts.selectRows ?? []) };
   const claude = { available: opts.claudeAvailable, chat: vi.fn() };
@@ -39,9 +40,10 @@ function makeService(opts: {
   };
   const business = { list: vi.fn().mockResolvedValue(opts.businessList ?? { items: [] }) };
   const genericCampaigns = { list: vi.fn().mockResolvedValue(opts.genericCampaignsList ?? { items: [] }) };
+  const providers = { registry: vi.fn().mockResolvedValue(opts.providerRegistry ?? []) };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const svc = new MarketingAssistantService(read as any, claude as any, campaigns as any, business as any, genericCampaigns as any);
-  return { svc, claude, campaigns, business, genericCampaigns };
+  const svc = new MarketingAssistantService(read as any, claude as any, campaigns as any, business as any, genericCampaigns as any, providers as any);
+  return { svc, claude, campaigns, business, genericCampaigns, providers };
 }
 
 const emptyDashboard = {
@@ -166,5 +168,39 @@ describe("MarketingAssistantService", () => {
     const text: string = await (svc as any).businessPlansText("u1", "Dental");
     expect(text).toContain("New year push");
     expect(text).toContain("draft only - not launched to any channel");
+  });
+
+  it("provider_capabilities tool marks an unverified platform as not usable, without fabricating a performance claim", async () => {
+    const { svc } = makeService({
+      claudeAvailable: false,
+      providerRegistry: [
+        { id: "linkedin", name: "LinkedIn Ads", kind: "advertising", status: "unsupported", objectives: [], placements: [], biddingMethods: [], creativeFormats: [], conversionTracking: false, restrictions: "No integration code exists.", lastSuccessfulSyncAt: null, lastError: null },
+      ],
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const text: string = await (svc as any).providerCapabilitiesText();
+    expect(text).toContain("LinkedIn Ads");
+    expect(text).toContain("NOT usable yet");
+    expect(text).toContain("No integration code exists.");
+  });
+
+  it("provider_capabilities tool reports real capability details for a verified platform", async () => {
+    const { svc } = makeService({
+      claudeAvailable: false,
+      providerRegistry: [
+        {
+          id: "meta", name: "Meta (Facebook/Instagram)", kind: "advertising", status: "production_verified",
+          objectives: ["Lead generation"], placements: ["Feed", "Stories"], biddingMethods: ["Lowest cost"], creativeFormats: ["Single image"],
+          conversionTracking: true, restrictions: "Housing/Special Ad Category rules apply.",
+          lastSuccessfulSyncAt: "2026-01-01T00:00:00.000Z", lastError: null,
+        },
+      ],
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const text: string = await (svc as any).providerCapabilitiesText();
+    expect(text).toContain("production_verified");
+    expect(text).toContain("objectives: Lead generation");
+    expect(text).toContain("last successful sync: 2026-01-01");
+    expect(text).not.toContain("NOT usable yet");
   });
 });

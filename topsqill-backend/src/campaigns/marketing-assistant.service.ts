@@ -7,9 +7,9 @@ import { ClaudeService, textOf } from "../ai/claude.service";
 import { CampaignsService } from "./campaigns.service";
 import { BusinessService } from "../business/business.service";
 import { GenericCampaignsService } from "../business/generic-campaigns.service";
+import { ProviderRegistryService, type ProviderStatus } from "../integrations/provider-registry.service";
 
-const CONNECTED_CHANNELS = ["Meta (Facebook/Instagram)", "Google Search"] as const;
-const UNCONNECTED_CHANNELS = ["WhatsApp Business ads", "YouTube", "LinkedIn", "X", "TikTok", "Pinterest", "Snapchat", "Microsoft Advertising"];
+const VERIFIED_STATUSES = new Set(["connected", "read_verified", "write_verified", "webhook_verified", "production_verified"]);
 
 export type Turn = { role: "user" | "assistant"; text: string };
 export type MarketingAssistantReply = { reply: string; source: "claude" | "rules" };
@@ -22,7 +22,7 @@ const SYSTEM = `You are the AI Marketing Orchestrator inside Topsqill, talking t
 
 Topsqill serves more than real estate. Most of your tools cover the real-estate campaign flow (listings, localities, BHK), but a member may also have one or more non-real-estate business profiles with their own industry, recommended objectives and conversion events - use the business tools for those, and never assume a member is a real-estate advertiser just because that flow exists.
 
-Connected advertising channels today: ${CONNECTED_CHANNELS.join(" and ")}. These other platforms are NOT connected or integrated yet: ${UNCONNECTED_CHANNELS.join(", ")}. If asked about performance on an unconnected platform, say plainly that Topsqill has no data for it - never estimate or compare a platform you have no integration for.
+Before discussing any advertising, messaging, CRM, analytics or payment platform's capability or performance, call the provider_capabilities tool - never assume or recall from memory which platforms are connected. If a platform's real status there isn't verified/connected, say plainly that Topsqill has no data for it - never estimate or compare a platform you have no integration for.
 
 How to answer:
 - Use the tools for any fact about spend, leads, campaigns, platforms, localities, businesses or AI recommendations. Never invent a number, a campaign name, a business name or a lead.
@@ -82,6 +82,11 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
     description: "The draft marketing plans (objective, conversion event, budget) saved for one of the member's non-real-estate businesses. These are drafts only - Topsqill does not yet launch them to any ad channel.",
     input_schema: { type: "object", properties: { business_name: { type: "string", description: "The business's name, or part of it" } }, required: ["business_name"] },
   },
+  {
+    name: "provider_capabilities",
+    description: "The real, current status of every advertising, messaging, CRM, analytics and payment platform Topsqill can integrate with - what each one actually supports (objectives, placements, bidding, read/write/webhook support) and its verified connection status (not just 'the admin filled in a form'). Always call this before saying whether a platform is connected or comparing platforms.",
+    input_schema: { type: "object", properties: {} },
+  },
 ];
 
 /**
@@ -103,6 +108,7 @@ export class MarketingAssistantService {
     private readonly campaigns: CampaignsService,
     private readonly business: BusinessService,
     private readonly genericCampaigns: GenericCampaignsService,
+    private readonly providers: ProviderRegistryService,
   ) {}
 
   async ask(userId: string, message: string, history: Turn[] = []): Promise<MarketingAssistantReply> {
@@ -174,6 +180,7 @@ export class MarketingAssistantService {
         if (!name) return "A business name is needed.";
         return this.businessPlansText(userId, name);
       }
+      case "provider_capabilities": return this.providerCapabilitiesText();
       default: return "Unknown tool.";
     }
   }
@@ -293,6 +300,27 @@ export class MarketingAssistantService {
     const { items } = await this.genericCampaigns.list(userId, match.id);
     if (!items.length) return `${match.name} has no draft marketing plans yet.`;
     return items.map((c) => `- ${c.name} (${match.name}): ${c.objective}, tracking ${c.conversionEvent}, ₹${Number(c.budgetInr).toLocaleString("en-IN")} over ${c.days} days, status ${c.status} (draft only - not launched to any channel).`).join("\n");
+  }
+
+  private async providerCapabilitiesText() {
+    const rows = await this.providers.registry();
+    return rows.map((p) => this.describeProvider(p)).join("\n");
+  }
+
+  private describeProvider(p: ProviderStatus) {
+    const verified = VERIFIED_STATUSES.has(p.status);
+    const head = `- ${p.name} (${p.kind}): status "${p.status}"${verified ? "" : " - NOT usable yet"}.`;
+    if (!verified) return `${head} ${p.restrictions}`;
+    const bits = [
+      p.objectives.length ? `objectives: ${p.objectives.join(", ")}` : null,
+      p.placements.length ? `placements: ${p.placements.join(", ")}` : null,
+      p.biddingMethods.length ? `bidding: ${p.biddingMethods.join(", ")}` : null,
+      p.creativeFormats.length ? `creative formats: ${p.creativeFormats.join(", ")}` : null,
+      `conversion tracking: ${p.conversionTracking ? "yes" : "no"}`,
+      p.lastSuccessfulSyncAt ? `last successful sync: ${p.lastSuccessfulSyncAt.slice(0, 10)}` : null,
+      p.lastError ? `most recent error: ${p.lastError}` : null,
+    ].filter(Boolean).join("; ");
+    return `${head} ${bits}. ${p.restrictions}`;
   }
 
   private async leadsToFollowUpText(userId: string) {

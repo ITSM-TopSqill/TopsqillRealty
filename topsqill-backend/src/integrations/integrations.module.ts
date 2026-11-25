@@ -7,11 +7,12 @@ import { MediaModule } from "../media/media.module";
 import { MediaInboxService } from "./media-inbox.service";
 import { InstagramService } from "./instagram.service";
 import { FacebookService } from "./facebook.service";
+import { ProviderRegistryService } from "./provider-registry.service";
 
 @Module({
   imports: [LeadsModule, MediaModule],
-  providers: [WhatsAppService, SecretsService, MediaInboxService, InstagramService, FacebookService],
+  providers: [WhatsAppService, SecretsService, MediaInboxService, InstagramService, FacebookService, ProviderRegistryService],
   controllers: [IntegrationsController],
-  exports: [WhatsAppService, SecretsService],
+  exports: [WhatsAppService, SecretsService, ProviderRegistryService],
 })
 export class IntegrationsModule {}
