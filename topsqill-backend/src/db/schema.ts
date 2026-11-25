@@ -826,3 +826,50 @@ export const auditLog = pgTable("audit_log", {
   meta: jsonb("meta").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ recentIdx: index("audit_recent_idx").on(t.createdAt.desc()) }));
+
+/**
+ * Universal Multi-Industry Support: a non-real-estate business's own profile
+ * (Section 3, AI Business Discovery Engine). Entirely separate from the
+ * dealer/builder real-estate flow in listings/campaigns - a member can own
+ * both a real-estate presence and one or more of these business profiles.
+ */
+export const businesses = pgTable("businesses", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  industryId: varchar("industry_id", { length: 60 }).notNull(),
+  businessModel: varchar("business_model", { length: 120 }),
+  description: text("description"),
+  products: text("products"),
+  targetSegments: text("target_segments"),
+  geographicMarkets: text("geographic_markets"),
+  pricingNotes: text("pricing_notes"),
+  revenueModel: varchar("revenue_model", { length: 120 }),
+  acquisitionGoals: text("acquisition_goals"),
+  salesCycle: varchar("sales_cycle", { length: 60 }),
+  marketingBudgetInr: bigint("marketing_budget_inr", { mode: "number" }),
+  existingChannels: jsonb("existing_channels").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ ownerIdx: index("businesses_owner_idx").on(t.ownerId, t.createdAt.desc()) }));
+
+/**
+ * A draft marketing plan for a non-real-estate business (Universal Campaign
+ * Objectives/Conversion Engine, Sections 5-6). Deliberately not wired to
+ * Meta/Google launch yet - see MarketingAssistantService's sibling
+ * GenericCampaignsService for why. Kept separate from `campaigns` (the
+ * real-estate ad-launch table) so neither flow can affect the other.
+ */
+export const genericCampaigns = pgTable("generic_campaigns", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  businessId: varchar("business_id", { length: 36 }).notNull(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  objective: varchar("objective", { length: 60 }).notNull(),
+  conversionEvent: varchar("conversion_event", { length: 80 }).notNull(),
+  budgetInr: bigint("budget_inr", { mode: "number" }).notNull(),
+  days: smallint("days").notNull().default(15),
+  notes: text("notes"),
+  status: varchar("status", { length: 16 }).notNull().default("draft"),  // 'draft' only, for now - see known limitations
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ businessIdx: index("generic_campaigns_business_idx").on(t.businessId, t.createdAt.desc()) }));

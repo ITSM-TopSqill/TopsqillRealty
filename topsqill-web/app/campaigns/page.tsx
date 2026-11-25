@@ -28,6 +28,9 @@ export default async function CampaignsPage() {
           <Link href="/campaigns/new" className="btn btn-ai">+ New campaign</Link>
         </div>
       </div>
+      <p className="small muted" style={{ marginBottom: 16 }}>
+        Marketing for something other than real estate? <Link href="/business">Set up a business profile</Link> instead.
+      </p>
       {items.length ? (
         <div className="col">
           {items.map((c) => <CampaignCard key={c.id} c={c} />)}
