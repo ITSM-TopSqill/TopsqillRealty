@@ -5,6 +5,11 @@ import { DB_READ, type Database } from "../db/db.module";
 import { campaigns, campaignRecommendations, leads } from "../db/schema";
 import { ClaudeService, textOf } from "../ai/claude.service";
 import { CampaignsService } from "./campaigns.service";
+import { BusinessService } from "../business/business.service";
+import { GenericCampaignsService } from "../business/generic-campaigns.service";
+
+const CONNECTED_CHANNELS = ["Meta (Facebook/Instagram)", "Google Search"] as const;
+const UNCONNECTED_CHANNELS = ["WhatsApp Business ads", "YouTube", "LinkedIn", "X", "TikTok", "Pinterest", "Snapchat", "Microsoft Advertising"];
 
 export type Turn = { role: "user" | "assistant"; text: string };
 export type MarketingAssistantReply = { reply: string; source: "claude" | "rules" };
@@ -13,16 +18,21 @@ const MAX_TOOL_ROUNDS = 5;
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 
 /** Kept identical between requests, so the API can cache it. */
-const SYSTEM = `You are the AI Marketing Orchestrator inside Topsqill, talking to a real-estate advertiser about their own Meta/Google ad campaigns, leads and spend.
+const SYSTEM = `You are the AI Marketing Orchestrator inside Topsqill, talking to an advertiser about their own ad campaigns, leads and spend.
+
+Topsqill serves more than real estate. Most of your tools cover the real-estate campaign flow (listings, localities, BHK), but a member may also have one or more non-real-estate business profiles with their own industry, recommended objectives and conversion events - use the business tools for those, and never assume a member is a real-estate advertiser just because that flow exists.
+
+Connected advertising channels today: ${CONNECTED_CHANNELS.join(" and ")}. These other platforms are NOT connected or integrated yet: ${UNCONNECTED_CHANNELS.join(", ")}. If asked about performance on an unconnected platform, say plainly that Topsqill has no data for it - never estimate or compare a platform you have no integration for.
 
 How to answer:
-- Use the tools for any fact about spend, leads, campaigns, platforms, localities or pending AI recommendations. Never invent a number, a campaign name or a lead.
+- Use the tools for any fact about spend, leads, campaigns, platforms, localities, businesses or AI recommendations. Never invent a number, a campaign name, a business name or a lead.
 - Distinguish actual results from forecasts explicitly. A forecast or estimate must be labelled as one ("projected", "forecast", "estimate") - never stated as a fact.
 - If a tool returns "not enough data yet" for something, say that plainly instead of guessing a number.
-- You can explain what a pending AI recommendation means and what approving it would do, but you cannot approve, reject or apply it yourself - tell the member to use the Approve/Reject buttons on the Insights page.
-- Every recommendation has an observation, a likely cause (diagnosis), an expected impact, a confidence level, a risk if acted on, and what approval it needs - use all of these when explaining one, not just the headline.
-- Forecasts for a running campaign always come with a data-coverage note (how much live data backs them) - mention it. Forecast accuracy for past campaigns is a separate thing you can look up with the forecast_accuracy tool.
-- You cannot launch a campaign, change a budget, pause a campaign or send any message yourself. If asked to do one of these, say the member needs to do it from the Campaigns page, and explain what you found that's relevant.
+- You can explain what a recommendation means and what approving it would do, but you cannot approve, reject or apply it yourself, modify an audience, publish an ad or execute any recommendation - tell the member to use the Approve/Reject buttons on the Insights page.
+- Every recommendation has an observation, evidence (which records and period), a likely cause (diagnosis), an expected impact, a confidence level, a risk if acted on, and what approval it needs - use all of these when explaining why AI generated it, not just the headline. The recommendations tool already returns them sorted highest-priority first, so the top of the list IS the answer to "highest priority" or "biggest impact".
+- A "stale" recommendation means the situation that raised it no longer holds (it was recalculated and the condition stopped firing) - call the recommendations tool with status "stale" for those.
+- Forecasts for a running campaign always come with a data-coverage note (how much live data backs them) - mention it. Forecast accuracy for completed campaigns (forecast vs. what actually happened) is a separate thing - use the forecast_accuracy tool, and never recompute it yourself from raw numbers the tools return.
+- You cannot launch a campaign, change a budget, pause a campaign, modify targeting or send any message yourself. If asked to do one of these, say the member needs to do it from the Campaigns page, and explain what you found that's relevant.
 - Money in Indian style: ₹2.4 Cr, ₹85 L, ₹45,000. Keep answers under 120 words unless the member asks for a longer breakdown. Plain text, no markdown tables or headings.`;
 
 const TOOLS: Anthropic.Beta.BetaTool[] = [
@@ -42,9 +52,15 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
     input_schema: { type: "object", properties: { campaign_name: { type: "string", description: "The campaign's name, or part of it" } }, required: ["campaign_name"] },
   },
   {
-    name: "pending_recommendations",
-    description: "The AI alerts and suggestions currently awaiting the member's approval, across all campaigns (or one, if a name is given), with why each was raised, its expected impact and confidence.",
-    input_schema: { type: "object", properties: { campaign_name: { type: "string", description: "Optional: limit to one campaign" } } },
+    name: "recommendations",
+    description: "AI alerts and suggestions, across all real-estate campaigns (or one, if a name is given), each with its full observation/evidence/diagnosis/recommendation/impact/confidence/risk/approval and sorted highest-priority first. Use for 'what are my top recommendations', 'why did AI suggest this', 'what evidence supports this', 'which are stale' or 'which need my approval'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campaign_name: { type: "string", description: "Optional: limit to one campaign" },
+        status: { type: "string", enum: ["pending", "stale", "approved", "rejected", "dismissed"], description: "Defaults to 'pending'. Use 'stale' for recommendations whose underlying situation no longer holds." },
+      },
+    },
   },
   {
     name: "leads_to_follow_up",
@@ -53,8 +69,18 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   },
   {
     name: "forecast_accuracy",
-    description: "How accurate this member's past pre-launch campaign forecasts turned out to be, comparing the forecast made when each completed campaign was built against what actually happened. Use for 'how reliable are your forecasts' or 'how accurate was the plan for campaign X'.",
+    description: "How accurate this member's past pre-launch campaign forecasts turned out to be: qualified-lead count, cost per qualified lead and spend, forecast vs. actual, per completed campaign and on average. Use for 'how accurate have our forecasts been', 'which campaigns beat/missed forecast', 'how accurate were our qualified-lead predictions' or 'how much did spend differ from plan'.",
     input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "my_businesses",
+    description: "The member's non-real-estate business profiles (if any), each with its industry and the objectives/conversion events/dashboard KPIs recommended for that industry. Use when the member asks about a business that isn't real estate, or asks what industries Topsqill supports for them.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "business_marketing_plans",
+    description: "The draft marketing plans (objective, conversion event, budget) saved for one of the member's non-real-estate businesses. These are drafts only - Topsqill does not yet launch them to any ad channel.",
+    input_schema: { type: "object", properties: { business_name: { type: "string", description: "The business's name, or part of it" } }, required: ["business_name"] },
   },
 ];
 
@@ -75,6 +101,8 @@ export class MarketingAssistantService {
     @Inject(DB_READ) private readonly read: Database,
     private readonly claude: ClaudeService,
     private readonly campaigns: CampaignsService,
+    private readonly business: BusinessService,
+    private readonly genericCampaigns: GenericCampaignsService,
   ) {}
 
   async ask(userId: string, message: string, history: Turn[] = []): Promise<MarketingAssistantReply> {
@@ -131,14 +159,21 @@ export class MarketingAssistantService {
         if (!c) return `No campaign matches "${name}". Use list_campaigns to see real names.`;
         return this.campaignDetailText(userId, c.id);
       }
-      case "pending_recommendations": {
+      case "recommendations": {
         const name = str("campaign_name");
         const id = name ? (await this.findCampaignByName(userId, name))?.id : undefined;
         if (name && !id) return `No campaign matches "${name}".`;
-        return this.recommendationsText(userId, id);
+        const status = str("status") ?? "pending";
+        return this.recommendationsText(userId, id, status);
       }
       case "leads_to_follow_up": return this.leadsToFollowUpText(userId);
       case "forecast_accuracy": return this.forecastAccuracyText(userId);
+      case "my_businesses": return this.myBusinessesText(userId);
+      case "business_marketing_plans": {
+        const name = str("business_name");
+        if (!name) return "A business name is needed.";
+        return this.businessPlansText(userId, name);
+      }
       default: return "Unknown tool.";
     }
   }
@@ -203,15 +238,23 @@ export class MarketingAssistantService {
     return lines.join("\n");
   }
 
-  private async recommendationsText(userId: string, campaignId?: string) {
-    const where = campaignId
-      ? and(eq(campaignRecommendations.ownerId, userId), eq(campaignRecommendations.campaignId, campaignId), eq(campaignRecommendations.status, "pending"))
-      : and(eq(campaignRecommendations.ownerId, userId), eq(campaignRecommendations.status, "pending"));
-    const rows = await this.read.select().from(campaignRecommendations).where(where).orderBy(desc(campaignRecommendations.priority), desc(campaignRecommendations.createdAt)).limit(20);
-    if (!rows.length) return "No pending AI recommendations right now.";
+  /** Joins in the campaign name so "which campaigns have pending recommendations" is answerable from one call. */
+  private async recommendationsText(userId: string, campaignId?: string, status = "pending") {
+    const conditions = [eq(campaignRecommendations.ownerId, userId), eq(campaignRecommendations.status, status)];
+    if (campaignId) conditions.push(eq(campaignRecommendations.campaignId, campaignId));
+    const rows = await this.read.select({
+      kind: campaignRecommendations.kind, title: campaignRecommendations.title, why: campaignRecommendations.why,
+      evidence: campaignRecommendations.evidence, diagnosis: campaignRecommendations.diagnosis,
+      impact: campaignRecommendations.impact, confidence: campaignRecommendations.confidence,
+      action: campaignRecommendations.action, risk: campaignRecommendations.risk, approval: campaignRecommendations.approval,
+      priority: campaignRecommendations.priority, campaignName: campaigns.name,
+    }).from(campaignRecommendations).innerJoin(campaigns, eq(campaigns.id, campaignRecommendations.campaignId))
+      .where(and(...conditions)).orderBy(desc(campaignRecommendations.priority), desc(campaignRecommendations.createdAt)).limit(20);
+    if (!rows.length) return `No ${status} AI recommendations right now${campaignId ? " for this campaign" : ""}.`;
     return rows.map((r) => [
-      `- [${r.kind}] ${r.title}`,
+      `- [${r.kind}] ${r.campaignName}: ${r.title}`,
       `  Observation: ${r.why}`,
+      r.evidence ? `  Evidence: ${r.evidence}` : null,
       r.diagnosis ? `  Likely cause: ${r.diagnosis}` : null,
       `  Expected impact: ${r.impact} (${r.confidence} confidence)`,
       r.action ? `  Recommended: ${r.action}` : null,
@@ -225,9 +268,31 @@ export class MarketingAssistantService {
     if (!r.available) return r.reason;
     const lines = [
       `Across ${r.evaluableCount} completed campaign(s) with a usable forecast, average cost-per-qualified-lead error is ${r.averageCostErrorPct != null ? `${r.averageCostErrorPct}%` : "not computable yet"} (how far actual cost per qualified lead was from the forecast, ignoring direction).`,
-      ...r.records.map((rec) => `- ${rec.name}: forecast ${rec.forecastQualified} qualified at ${inr(rec.forecastCostPerQualifiedLeadInr)}/lead, actual ${rec.actualQualified} qualified${rec.actualCostPerQualifiedLeadInr != null ? ` at ${inr(rec.actualCostPerQualifiedLeadInr)}/lead` : ""} (${rec.qualifiedErrorPct >= 0 ? "+" : ""}${rec.qualifiedErrorPct}% on qualified count).`),
+      ...r.records.map((rec) => {
+        const direction = rec.costErrorPct == null ? "" : rec.costErrorPct <= 0 ? ", beat forecast on cost" : ", came in above forecast on cost";
+        return `- ${rec.name}: forecast ${rec.forecastQualified} qualified at ${inr(rec.forecastCostPerQualifiedLeadInr)}/lead, actual ${rec.actualQualified} qualified${rec.actualCostPerQualifiedLeadInr != null ? ` at ${inr(rec.actualCostPerQualifiedLeadInr)}/lead` : ""} (${rec.qualifiedErrorPct >= 0 ? "+" : ""}${rec.qualifiedErrorPct}% on qualified count${direction}).`;
+      }),
     ];
     return lines.join("\n");
+  }
+
+  private async myBusinessesText(userId: string) {
+    const { items } = await this.business.list(userId);
+    if (!items.length) return "The member has no non-real-estate business profiles yet. They can set one up from the 'Business' button on the Campaigns page.";
+    return items.map((b) => {
+      const r = b.recommendations;
+      return `- ${b.name} (${r.industry.label}): recommended objectives ${r.objectives.join(", ")}; tracks ${r.conversionEvents.join(", ")}; dashboard looks at ${r.dashboardKpis.join(", ")}${r.sensitive ? "; sensitive category, extra ad-policy restrictions apply" : ""}.`;
+    }).join("\n");
+  }
+
+  private async businessPlansText(userId: string, name: string) {
+    const { items: businesses } = await this.business.list(userId);
+    const term = name.toLowerCase();
+    const match = businesses.find((b) => b.name.toLowerCase() === term) ?? businesses.find((b) => b.name.toLowerCase().includes(term));
+    if (!match) return `No business matches "${name}". Use my_businesses to see real names.`;
+    const { items } = await this.genericCampaigns.list(userId, match.id);
+    if (!items.length) return `${match.name} has no draft marketing plans yet.`;
+    return items.map((c) => `- ${c.name} (${match.name}): ${c.objective}, tracking ${c.conversionEvent}, ₹${Number(c.budgetInr).toLocaleString("en-IN")} over ${c.days} days, status ${c.status} (draft only - not launched to any channel).`).join("\n");
   }
 
   private async leadsToFollowUpText(userId: string) {
