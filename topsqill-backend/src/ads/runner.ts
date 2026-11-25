@@ -196,7 +196,8 @@ export async function syncCampaign(pool: Pool, campaignId: string, notify?: Noti
   }
   const fee = Number(c.fee_pct ?? 0);
   const target = Math.round(spend * (1 + fee / 100));
-  const [{ n: leads }] = await q<{ n: number }>("select count(*)::int as n from leads where campaign_id = $1", [campaignId]);
+  const [{ n: leads, qualified }] = await q<{ n: number; qualified: number }>(
+    "select count(*)::int as n, count(*) filter (where qualified)::int as qualified from leads where campaign_id = $1", [campaignId]);
 
   await inTx(pool, async (tq) => {
     const [cur] = await tq<CampaignRow>("select charged_paise, hold_paise, owner_id from campaigns where id = $1 for update", [campaignId]);
@@ -206,8 +207,8 @@ export async function syncCampaign(pool: Pool, campaignId: string, notify?: Noti
       const holdLeft = c.status === "active" || c.status === "paused" ? Number(cur.hold_paise) - Number(cur.charged_paise) : 0;
       charged = await ledger.spend(tq, cur.owner_id, campaignId, delta, holdLeft, `spend:${campaignId}:${target}`, `Ad spend${fee ? ` + ${fee}% fee` : ""}`);
     }
-    await tq(`update campaigns set charged_paise = charged_paise + $2, spend_inr = $3, clicks_count = $4, impressions_count = $5, leads_count = $6, updated_at = now() where id = $1`,
-      [campaignId, charged, Math.round(spend / 100), clicks, impressions, leads]);
+    await tq(`update campaigns set charged_paise = charged_paise + $2, spend_inr = $3, clicks_count = $4, impressions_count = $5, leads_count = $6, qualified_count = $7, updated_at = now() where id = $1`,
+      [campaignId, charged, Math.round(spend / 100), clicks, impressions, leads, qualified]);
   });
 
   // Time or money up: stop it on the platforms and give back what's left.

@@ -182,7 +182,11 @@ export class AdsService {
       feePct: Number(c.status === "draft" ? ready.settings.feePct : c.fee_pct), minBudgetInr: ready.settings.minCampaignInr,
       wallet: w, holdPaise: Number(c.hold_paise), chargedPaise: Number(c.charged_paise),
       reviewNote: c.review_note, submittedAt: c.submitted_at, launchedAt: c.launched_at, endsAt: c.ends_at, endReason: c.end_reason,
-      results: { spendInr: Number(c.spend_inr), clicks: Number(c.clicks_count), impressions: Number(c.impressions_count), leads: Number(c.leads_count) },
+      results: {
+        spendInr: Number(c.spend_inr), clicks: Number(c.clicks_count), impressions: Number(c.impressions_count),
+        leads: Number(c.leads_count), qualifiedLeads: Number(c.qualified_count),
+        costPerQualifiedLeadInr: Number(c.qualified_count) ? Math.round(Number(c.spend_inr) / Number(c.qualified_count)) : null,
+      },
       deliveries: deliveries.map((d) => ({ ...d, spendPaise: Number(d.spendPaise) })),
       photos: photos.map((m) => {
         const v = m.variants?.thumb_jpeg ?? m.variants?.card_jpeg ?? m.variants?.thumb_webp ?? null;
@@ -422,7 +426,8 @@ export class AdsService {
             listingId: d.listing_id, city: l?.city, locality: l?.locality, timeline: timeline || undefined, externalId: lead.id,
           });
           await this.q("update leads set campaign_id = $2 where id = $1", [row.id, d.campaign_id]);
-          await this.q("update campaigns set leads_count = (select count(*) from leads where campaign_id = $1), updated_at = now() where id = $1", [d.campaign_id]);
+          await this.q(`update campaigns set leads_count = (select count(*) from leads where campaign_id = $1),
+                        qualified_count = (select count(*) filter (where qualified) from leads where campaign_id = $1), updated_at = now() where id = $1`, [d.campaign_id]);
         } catch (e) { this.log.warn(`meta lead ${v.leadgen_id}: ${(e as Error).message}`); }
       }
     }
@@ -434,6 +439,7 @@ export class AdsService {
     const [c] = await this.q("select id from campaigns where id = $1", [campaignId]);
     if (!c) return;
     await this.q("update leads set campaign_id = $2 where id = $1 and campaign_id is null", [leadId, campaignId]);
-    await this.q("update campaigns set leads_count = (select count(*) from leads where campaign_id = $1), updated_at = now() where id = $1", [campaignId]);
+    await this.q(`update campaigns set leads_count = (select count(*) from leads where campaign_id = $1),
+                  qualified_count = (select count(*) filter (where qualified) from leads where campaign_id = $1), updated_at = now() where id = $1`, [campaignId]);
   }
 }

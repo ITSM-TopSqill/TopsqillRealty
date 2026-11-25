@@ -46,11 +46,12 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 16 }}>
           {[
             ["People reached", compact(f.reach)], ["Leads", String(c.status === "draft" ? f.leads : c.leadsCount)],
-            ["Qualified", String(c.status === "draft" ? f.qualified : c.qualifiedCount)], ["Cost per lead", inr(f.costPerLead)],
-            ["Cost per qualified lead", inr(f.costPerQualifiedLead)],
+            ["Qualified", String(c.status === "draft" ? f.qualified : c.qualifiedCount)],
+            ["Cost per lead", inr(c.status === "draft" ? f.costPerLead : (c.leadsCount ? Math.round(c.spendInr / c.leadsCount) : 0))],
+            ["Cost per qualified lead", inr(c.status === "draft" ? f.costPerQualifiedLead : (c.qualifiedCount ? Math.round(c.spendInr / c.qualifiedCount) : 0))],
           ].map(([k, v], i) => (
             <div key={k} className="card pad" style={i === 1 ? { background: "var(--brand)", color: "#fff", border: 0 } : undefined}>
-              <div className="small" style={{ fontWeight: 700, opacity: .85 }}>{c.status === "draft" && i < 3 ? `Forecast: ${k.toLowerCase()}` : k}</div>
+              <div className="small" style={{ fontWeight: 700, opacity: .85 }}>{c.status === "draft" ? `Forecast: ${k.toLowerCase()}` : k}</div>
               <div style={{ font: '800 26px/1.1 "Bricolage Grotesque",system-ui,sans-serif', marginTop: 6 }}>{v}</div>
             </div>
           ))}

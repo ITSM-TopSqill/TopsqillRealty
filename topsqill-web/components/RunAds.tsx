@@ -11,7 +11,7 @@ type Info = {
   status: string; enabled: boolean; platforms: { meta: boolean; google: boolean }; chosen: string[]; mediaIds: string[];
   feePct: number; minBudgetInr: number; wallet: { balancePaise: number; heldPaise: number }; holdPaise: number; chargedPaise: number;
   reviewNote?: string | null; submittedAt?: string | null; launchedAt?: string | null; endsAt?: string | null; endReason?: string | null;
-  results: { spendInr: number; clicks: number; impressions: number; leads: number };
+  results: { spendInr: number; clicks: number; impressions: number; leads: number; qualifiedLeads: number; costPerQualifiedLeadInr: number | null };
   deliveries: { platform: string; status: string; error?: string | null; stats?: Record<string, number>; spendPaise: number; budgetInr: number; syncedAt?: string | null }[];
   photos: { id: string; kind: string; thumb: string | null }[]; hasMapPin: boolean; problems: string[]; errors?: string[];
 };
@@ -115,7 +115,9 @@ export function RunAds({ campaignId, budgetInr, days, listingId, listingMediaIds
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 10, marginTop: 12 }}>
-          {[["Leads", String(info.results.leads)], ["Spent", rs(info.chargedPaise)], ["Cost per lead", cpl ? rs(cpl) : "—"], ["Clicks", compact(info.results.clicks)], ["Seen", compact(info.results.impressions)]].map(([k, v], i) => (
+          {[["Leads", String(info.results.leads)], ["Qualified", String(info.results.qualifiedLeads)], ["Spent", rs(info.chargedPaise)], ["Cost per lead", cpl ? rs(cpl) : "—"],
+            ["Cost per qualified lead", info.results.costPerQualifiedLeadInr ? `₹${info.results.costPerQualifiedLeadInr.toLocaleString("en-IN")}` : "—"],
+            ["Clicks", compact(info.results.clicks)], ["Seen", compact(info.results.impressions)]].map(([k, v], i) => (
             <div key={k} style={{ background: i === 0 ? "var(--brand)" : "var(--soft)", color: i === 0 ? "#fff" : undefined, borderRadius: 12, padding: "10px 12px" }}>
               <div className="small" style={{ fontWeight: 700, opacity: .85 }}>{k}</div>
               <div style={{ font: '800 22px/1.1 "Bricolage Grotesque",system-ui,sans-serif', marginTop: 4 }}>{v}</div>
