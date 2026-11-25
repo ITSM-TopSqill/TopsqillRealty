@@ -878,3 +878,21 @@ export const genericCampaigns = pgTable("generic_campaigns", {
   status: varchar("status", { length: 16 }).notNull().default("draft"),  // 'draft' only, for now - see known limitations
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ businessIdx: index("generic_campaigns_business_idx").on(t.businessId, t.createdAt.desc()) }));
+
+/**
+ * Universal Customer Differentiator Engine, Workstream 2: a saved CRM
+ * segment (AND/OR/NOT conditions over real lead fields - see
+ * src/customer-intelligence/differentiators.ts). `definition` is a
+ * SegmentDefinition; evaluated against real leads at read time, not
+ * cached, so it's never stale. Never pushed to any ad platform - no
+ * Custom Audience integration exists yet.
+ */
+export const customerSegments = pgTable("customer_segments", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  definition: jsonb("definition").$type<Record<string, unknown>>().notNull(),
+  source: varchar("source", { length: 16 }).notNull().default("manual"),  // 'manual' | 'ai'
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ ownerIdx: index("customer_segments_owner_idx").on(t.ownerId, t.createdAt.desc()) }));

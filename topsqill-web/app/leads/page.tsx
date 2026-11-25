@@ -32,6 +32,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
         </div>
         <div className="row">
           <Link href="/leads/sources" className="btn btn-o">Connect sources</Link>
+          <Link href="/customer-intelligence" className="btn btn-o">🎯 Customer Intelligence</Link>
           <Link href="/campaigns" className="btn btn-ai">Campaigns</Link>
         </div>
       </div>

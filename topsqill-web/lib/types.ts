@@ -119,6 +119,15 @@ export type Campaign = {
   spendInr: number; leadsCount: number; qualifiedCount: number; launchedAt?: string | null; createdAt: string;
 };
 
+export type Differentiator = {
+  id: string; name: string; category: string; description: string;
+  reliability: "high" | "medium" | "low"; confidence: "high" | "medium" | "low";
+  source: string; restrictions: string;
+  valueType: "enum" | "boolean" | "number" | "string";
+  operators: ("eq" | "neq" | "gte" | "lte" | "in" | "not_in" | "contains")[];
+  enumValues?: string[];
+};
+
 export type Project = {
   id: string; ownerId: string; sourceUrl?: string | null; name: string; builder?: string | null;
   city: string; locality: string; reraNumber?: string | null; status: string; possession?: string | null;

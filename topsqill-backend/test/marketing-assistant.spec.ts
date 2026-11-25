@@ -28,6 +28,8 @@ function makeService(opts: {
   forecastAccuracy?: Record<string, unknown>;
   genericCampaignsList?: { items: Record<string, unknown>[] };
   providerRegistry?: Record<string, unknown>[];
+  segmentsList?: { items: Record<string, unknown>[] };
+  segmentsPreview?: Record<string, unknown>;
 }) {
   const read = { select: () => chainable(opts.selectRows ?? []) };
   const claude = { available: opts.claudeAvailable, chat: vi.fn() };
@@ -41,9 +43,13 @@ function makeService(opts: {
   const business = { list: vi.fn().mockResolvedValue(opts.businessList ?? { items: [] }) };
   const genericCampaigns = { list: vi.fn().mockResolvedValue(opts.genericCampaignsList ?? { items: [] }) };
   const providers = { registry: vi.fn().mockResolvedValue(opts.providerRegistry ?? []) };
+  const segments = {
+    list: vi.fn().mockResolvedValue(opts.segmentsList ?? { items: [] }),
+    preview: vi.fn().mockResolvedValue(opts.segmentsPreview ?? { totalLeadsConsidered: 0, matchedCount: 0, sample: [], truncated: false }),
+  };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const svc = new MarketingAssistantService(read as any, claude as any, campaigns as any, business as any, genericCampaigns as any, providers as any);
-  return { svc, claude, campaigns, business, genericCampaigns, providers };
+  const svc = new MarketingAssistantService(read as any, claude as any, campaigns as any, business as any, genericCampaigns as any, providers as any, segments as any);
+  return { svc, claude, campaigns, business, genericCampaigns, providers, segments };
 }
 
 const emptyDashboard = {

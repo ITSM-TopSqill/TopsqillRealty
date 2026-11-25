@@ -6,9 +6,10 @@ import { SearchModule } from "../search/search.module";
 import { GeoModule } from "../geo/geo.module";
 import { BusinessModule } from "../business/business.module";
 import { IntegrationsModule } from "../integrations/integrations.module";
+import { CustomerIntelligenceModule } from "../customer-intelligence/customer-intelligence.module";
 
 @Module({
-  imports: [SearchModule, GeoModule, BusinessModule, IntegrationsModule],
+  imports: [SearchModule, GeoModule, BusinessModule, IntegrationsModule, CustomerIntelligenceModule],
   providers: [CampaignsService, MarketingAssistantService],
   controllers: [CampaignsController],
   exports: [CampaignsService],

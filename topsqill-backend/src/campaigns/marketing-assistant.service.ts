@@ -8,6 +8,7 @@ import { CampaignsService } from "./campaigns.service";
 import { BusinessService } from "../business/business.service";
 import { GenericCampaignsService } from "../business/generic-campaigns.service";
 import { ProviderRegistryService, type ProviderStatus } from "../integrations/provider-registry.service";
+import { CustomerIntelligenceService } from "../customer-intelligence/customer-intelligence.service";
 
 const VERIFIED_STATUSES = new Set(["connected", "read_verified", "write_verified", "webhook_verified", "production_verified"]);
 
@@ -32,6 +33,7 @@ How to answer:
 - Every recommendation has an observation, evidence (which records and period), a likely cause (diagnosis), an expected impact, a confidence level, a risk if acted on, and what approval it needs - use all of these when explaining why AI generated it, not just the headline. The recommendations tool already returns them sorted highest-priority first, so the top of the list IS the answer to "highest priority" or "biggest impact".
 - A "stale" recommendation means the situation that raised it no longer holds (it was recalculated and the condition stopped firing) - call the recommendations tool with status "stale" for those.
 - Forecasts for a running campaign always come with a data-coverage note (how much live data backs them) - mention it. Forecast accuracy for completed campaigns (forecast vs. what actually happened) is a separate thing - use the forecast_accuracy tool, and never recompute it yourself from raw numbers the tools return.
+- Customer segments are built only from real CRM fields (stage, score, source, locality, budget, recency) - never from financial status, health, or any attribute Topsqill doesn't actually store. If asked to target something Topsqill has no data for, say so and suggest the closest real field instead.
 - You cannot launch a campaign, change a budget, pause a campaign, modify targeting or send any message yourself. If asked to do one of these, say the member needs to do it from the Campaigns page, and explain what you found that's relevant.
 - Money in Indian style: ₹2.4 Cr, ₹85 L, ₹45,000. Keep answers under 120 words unless the member asks for a longer breakdown. Plain text, no markdown tables or headings.`;
 
@@ -87,6 +89,11 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
     description: "The real, current status of every advertising, messaging, CRM, analytics and payment platform Topsqill can integrate with - what each one actually supports (objectives, placements, bidding, read/write/webhook support) and its verified connection status (not just 'the admin filled in a form'). Always call this before saying whether a platform is connected or comparing platforms.",
     input_schema: { type: "object", properties: {} },
   },
+  {
+    name: "customer_segments",
+    description: "The member's saved CRM customer segments (AND/OR/NOT conditions over real lead data - stage, score, source, locality, budget, recency), each with a live match count and a few sample leads. These are CRM-only - never pushed to any ad platform. Use for 'which customers should I target', 'how many qualified leads do we have in X', or to check an existing saved segment.",
+    input_schema: { type: "object", properties: {} },
+  },
 ];
 
 /**
@@ -109,6 +116,7 @@ export class MarketingAssistantService {
     private readonly business: BusinessService,
     private readonly genericCampaigns: GenericCampaignsService,
     private readonly providers: ProviderRegistryService,
+    private readonly segments: CustomerIntelligenceService,
   ) {}
 
   async ask(userId: string, message: string, history: Turn[] = []): Promise<MarketingAssistantReply> {
@@ -181,6 +189,7 @@ export class MarketingAssistantService {
         return this.businessPlansText(userId, name);
       }
       case "provider_capabilities": return this.providerCapabilitiesText();
+      case "customer_segments": return this.customerSegmentsText(userId);
       default: return "Unknown tool.";
     }
   }
@@ -321,6 +330,16 @@ export class MarketingAssistantService {
       p.lastError ? `most recent error: ${p.lastError}` : null,
     ].filter(Boolean).join("; ");
     return `${head} ${bits}. ${p.restrictions}`;
+  }
+
+  private async customerSegmentsText(userId: string) {
+    const { items } = await this.segments.list(userId);
+    if (!items.length) return "The member has no saved CRM segments yet. They can build one from the Customer Intelligence page.";
+    const withPreview = await Promise.all(items.slice(0, 10).map(async (s) => {
+      const preview = await this.segments.preview(userId, s.definition as never);
+      return `- ${s.name}: ${preview.matchedCount} of ${preview.totalLeadsConsidered} leads match${preview.sample.length ? ` (e.g. ${preview.sample.slice(0, 3).map((l) => l.name).join(", ")})` : ""}.`;
+    }));
+    return withPreview.join("\n");
   }
 
   private async leadsToFollowUpText(userId: string) {
