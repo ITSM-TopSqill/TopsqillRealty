@@ -138,4 +138,7 @@ export class CampaignsController {
 
   @Get(":id/evolution/:evoId/outcome") @ApiOperation({ summary: "Compares the original campaign against the applied variant, once both have run enough to say anything honestly" })
   evolutionOutcome(@CurrentUser() user: AuthUser, @Param("evoId") evoId: string) { return this.evolution.outcome(user.id, evoId); }
+
+  @Get(":id/evolution/:evoId/experiment") @ApiOperation({ summary: "The formal A/B experiment report: hypothesis, control/variant stats, and a real statistical significance test on qualified conversion rate" })
+  evolutionExperiment(@CurrentUser() user: AuthUser, @Param("evoId") evoId: string) { return this.evolution.experiment(user.id, evoId); }
 }

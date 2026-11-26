@@ -5,7 +5,7 @@ import { campaignEvolutions, campaignRecommendations } from "../db/schema";
 import { ClaudeService } from "../ai/claude.service";
 import { CampaignsService } from "./campaigns.service";
 import { newId } from "../common/ids";
-import { buildFallbackVersion, validateVersions, compareOutcome, type CampaignSnapshot, type EvolutionVersion, type Confidence } from "./evolution";
+import { buildFallbackVersion, validateVersions, compareOutcome, runExperiment, type CampaignSnapshot, type EvolutionVersion, type Confidence } from "./evolution";
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 
@@ -147,16 +147,15 @@ export class CampaignEvolutionService {
       await this.campaigns.updateCreatives(userId, draft.id, creativePatch);
     }
 
-    await this.db.update(campaignEvolutions).set({ status: "applied", appliedCampaignId: draft.id }).where(eq(campaignEvolutions.id, id));
+    await this.db.update(campaignEvolutions).set({ status: "applied", appliedCampaignId: draft.id, appliedVersionId: version.id }).where(eq(campaignEvolutions.id, id));
     return { draftCampaignId: draft.id };
   }
 
   /**
-   * Performance-Based Campaign Evolution (Section 9) + the Experiment
-   * Engine's honesty rules (Section 13): compares the original campaign
-   * against the variant draft this evolution produced, once both have
-   * run enough to say anything real. Reuses CampaignsService.get() for
-   * both - no separate metrics pipeline.
+   * Performance-Based Campaign Evolution (Section 9): a quick cost-per-
+   * qualified-lead signal, available as soon as both campaigns have a
+   * handful of qualified leads. Reuses CampaignsService.get() for both -
+   * no separate metrics pipeline.
    */
   async outcome(userId: string, id: string) {
     const row = await this.get(userId, id);
@@ -173,6 +172,38 @@ export class CampaignEvolutionService {
       variantSpendInr: Number(variant.spendInr), variantQualifiedCount: Number(variant.qualifiedCount),
       variantLeadsCount: Number(variant.leadsCount), variantStatus: variant.status,
     });
+  }
+
+  /**
+   * The Formal Experiment and Validation Engine (Section 13): the full
+   * hypothesis/control/variant/objective/success-metric/minimum-evidence
+   * report, with a real statistical significance test - a stricter,
+   * slower-to-trigger companion to outcome() above, not a replacement
+   * for it (outcome() is a quick signal; this one won't call a winner
+   * without real evidence).
+   */
+  async experiment(userId: string, id: string) {
+    const row = await this.get(userId, id);
+    if (row.status !== "applied" || !row.appliedCampaignId) {
+      return { available: false as const, reason: "No version has been applied yet - there's no variant campaign to run an experiment against." };
+    }
+    const versions = row.versions as unknown as EvolutionVersion[];
+    const version = versions.find((v) => v.id === row.appliedVersionId);
+    const hypothesis = version
+      ? `${version.label}: ${version.summary}`
+      : "Applying this evolution's approved changes improves qualified conversion rate.";
+
+    const [original, variant] = await Promise.all([
+      this.campaigns.get(userId, row.campaignId),
+      this.campaigns.get(userId, row.appliedCampaignId),
+    ]);
+    if (variant.status === "draft" || variant.status === "review") {
+      return { available: false as const, reason: "The variant campaign hasn't launched yet, so there's nothing to test." };
+    }
+    return runExperiment(hypothesis,
+      { leadsCount: Number(original.leadsCount), qualifiedCount: Number(original.qualifiedCount), spendInr: Number(original.spendInr), budgetInr: Number(original.budgetInr), days: Number(original.days) },
+      { leadsCount: Number(variant.leadsCount), qualifiedCount: Number(variant.qualifiedCount), spendInr: Number(variant.spendInr), budgetInr: Number(variant.budgetInr), days: Number(variant.days) },
+    );
   }
 }
 

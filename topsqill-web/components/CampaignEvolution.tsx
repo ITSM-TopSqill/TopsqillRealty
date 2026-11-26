@@ -16,6 +16,17 @@ type Evolution = {
 type Outcome =
   | { available: true; verdict: "variant_better" | "original_better" | "inconclusive"; originalCostPerQualifiedLeadInr: number; variantCostPerQualifiedLeadInr: number; percentDifference: number; confidence: "low" | "medium" | "high"; caveat: string }
   | { available: false; reason: string };
+type ArmReport = { leads: number; qualified: number; qualifiedRatePct: number; costPerQualifiedLeadInr: number | null; budgetInr: number; days: number };
+type Experiment =
+  | {
+      available: true; hypothesis: string; objective: string; successMetric: string;
+      minimumEvidencePerArm: number; meetsMinimumEvidence: boolean;
+      control: ArmReport; variant: ArmReport;
+      statisticalSignificance: { available: true; zScore: number; pValue: number; significantAt95: boolean } | { available: false; reason: string };
+      secondaryMetric: { name: string; controlCostPerQualifiedLeadInr: number | null; variantCostPerQualifiedLeadInr: number | null; percentDifference: number | null };
+      risk: string; conclusion: string;
+    }
+  | { available: false; reason: string };
 
 const CONFIDENCE_COLOR = { high: "#12B76A", medium: "#E08A00", low: "#8D8AA3" } as const;
 
@@ -33,6 +44,7 @@ export function CampaignEvolution({ campaignId }: { campaignId: string }) {
   const [applying, setApplying] = useState<string | null>(null);
   const [appliedLink, setAppliedLink] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [experiment, setExperiment] = useState<Experiment | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -44,8 +56,10 @@ export function CampaignEvolution({ campaignId }: { campaignId: string }) {
 
   useEffect(() => {
     setOutcome(null);
+    setExperiment(null);
     if (current?.status === "applied") {
       clientApi<Outcome>(`/v1/campaigns/${campaignId}/evolution/${current.id}/outcome`).then(setOutcome).catch(() => {});
+      clientApi<Experiment>(`/v1/campaigns/${campaignId}/evolution/${current.id}/experiment`).then(setExperiment).catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id, current?.status]);
@@ -122,6 +136,38 @@ export function CampaignEvolution({ campaignId }: { campaignId: string }) {
               ) : <p className="small muted" style={{ marginTop: 6 }}>Loading…</p>}
             </div>
           ) : null}
+
+          {current.status === "applied" && experiment ? (
+            <div className="card pad">
+              <b>🧪 Formal experiment report</b>
+              {experiment.available ? (
+                <>
+                  <p className="small" style={{ marginTop: 6 }}><b>Hypothesis:</b> {experiment.hypothesis}</p>
+                  <p className="small muted" style={{ marginTop: 2 }}>Objective: {experiment.objective} · Success metric: {experiment.successMetric}</p>
+                  <div className="row" style={{ gap: 16, marginTop: 8, flexWrap: "wrap" }}>
+                    <div style={{ flex: "1 1 200px" }}>
+                      <span className="small muted">Control (original)</span>
+                      <p className="small">{experiment.control.qualified}/{experiment.control.leads} qualified ({experiment.control.qualifiedRatePct}%)</p>
+                    </div>
+                    <div style={{ flex: "1 1 200px" }}>
+                      <span className="small muted">Variant</span>
+                      <p className="small">{experiment.variant.qualified}/{experiment.variant.leads} qualified ({experiment.variant.qualifiedRatePct}%)</p>
+                    </div>
+                  </div>
+                  <p className="small muted" style={{ marginTop: 6 }}>Minimum evidence needed: {experiment.minimumEvidencePerArm} leads per side - {experiment.meetsMinimumEvidence ? "met" : "not met yet"}.</p>
+                  {experiment.statisticalSignificance.available ? (
+                    <p className="small" style={{ marginTop: 4 }}>
+                      z = {experiment.statisticalSignificance.zScore}, p = {experiment.statisticalSignificance.pValue}
+                      {" "}- {experiment.statisticalSignificance.significantAt95 ? "statistically significant at 95% confidence" : "not statistically significant"}
+                    </p>
+                  ) : <p className="small muted" style={{ marginTop: 4 }}>{experiment.statisticalSignificance.reason}</p>}
+                  <p className="small" style={{ marginTop: 6, fontWeight: 700 }}>{experiment.conclusion}</p>
+                  <p className="small muted" style={{ marginTop: 4 }}>{experiment.risk}</p>
+                </>
+              ) : <p className="small muted" style={{ marginTop: 6 }}>{experiment.reason}</p>}
+            </div>
+          ) : null}
+
           {current.versions.map((v) => (
             <div key={v.id} className="card pad">
               <div className="spread" style={{ flexWrap: "wrap", gap: 8 }}>

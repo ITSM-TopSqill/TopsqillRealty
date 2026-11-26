@@ -131,3 +131,94 @@ export function compareOutcome(input: OutcomeInput): EvolutionOutcome {
     caveat: "This compares two different campaigns, not a controlled A/B test on the same audience at the same time - budget, dates and market conditions can differ too. Treat this as a signal, not proof the specific changes caused the difference.",
   };
 }
+
+/**
+ * Formal Experiment and Validation Engine (Section 13): adds a real
+ * two-proportion significance test (on qualified conversion rate) on top
+ * of compareOutcome's cost signal, with an explicit minimum-evidence gate
+ * and every field the spec asks an experiment to define - hypothesis,
+ * control, variant, objective, success metric, minimum evidence, risk,
+ * result, conclusion. Still never claims this isolates the specific
+ * changes made: two different campaigns differ in more than one variable.
+ */
+export type ArmStats = { leadsCount: number; qualifiedCount: number; spendInr: number; budgetInr: number; days: number };
+export type ArmReport = { leads: number; qualified: number; qualifiedRatePct: number; costPerQualifiedLeadInr: number | null; budgetInr: number; days: number };
+export type StatisticalSignificance =
+  | { available: true; zScore: number; pValue: number; significantAt95: boolean }
+  | { available: false; reason: string };
+
+export type ExperimentReport =
+  | {
+      available: true;
+      hypothesis: string;
+      objective: string;
+      successMetric: string;
+      minimumEvidencePerArm: number;
+      meetsMinimumEvidence: boolean;
+      control: ArmReport;
+      variant: ArmReport;
+      statisticalSignificance: StatisticalSignificance;
+      secondaryMetric: { name: string; controlCostPerQualifiedLeadInr: number | null; variantCostPerQualifiedLeadInr: number | null; percentDifference: number | null };
+      risk: string;
+      conclusion: string;
+    }
+  | { available: false; reason: string };
+
+/** Abramowitz & Stegun 7.1.26 - a standard, deterministic erf approximation (max error ~1.5e-7). No external stats library needed. */
+function erf(x: number): number {
+  const sign = x < 0 ? -1 : 1;
+  const ax = Math.abs(x);
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const t = 1 / (1 + p * ax);
+  const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-ax * ax);
+  return sign * y;
+}
+const normalCdf = (z: number) => 0.5 * (1 + erf(z / Math.SQRT2));
+
+/** Leads (not just qualified count) per arm, below which the normal approximation behind a two-proportion z-test isn't reliable - a real, commonly used floor, not an arbitrary one. */
+const MIN_EVIDENCE_PER_ARM = 30;
+
+export function runExperiment(hypothesis: string, control: ArmStats, variant: ArmStats): ExperimentReport {
+  if (control.leadsCount === 0 || variant.leadsCount === 0) {
+    return { available: false, reason: "Needs real lead volume on both the control and the variant before anything can be tested." };
+  }
+  const controlRate = control.qualifiedCount / control.leadsCount;
+  const variantRate = variant.qualifiedCount / variant.leadsCount;
+  const meetsMinimumEvidence = control.leadsCount >= MIN_EVIDENCE_PER_ARM && variant.leadsCount >= MIN_EVIDENCE_PER_ARM;
+
+  let statisticalSignificance: StatisticalSignificance;
+  if (!meetsMinimumEvidence) {
+    statisticalSignificance = { available: false, reason: `Needs at least ${MIN_EVIDENCE_PER_ARM} leads on both sides for a meaningful significance test (control: ${control.leadsCount}, variant: ${variant.leadsCount}).` };
+  } else {
+    const pooledRate = (control.qualifiedCount + variant.qualifiedCount) / (control.leadsCount + variant.leadsCount);
+    const se = Math.sqrt(pooledRate * (1 - pooledRate) * (1 / control.leadsCount + 1 / variant.leadsCount));
+    const z = se > 0 ? (variantRate - controlRate) / se : 0;
+    const pValue = Math.round((2 * (1 - normalCdf(Math.abs(z)))) * 1000) / 1000;
+    statisticalSignificance = { available: true, zScore: Math.round(z * 100) / 100, pValue, significantAt95: pValue < 0.05 };
+  }
+
+  const controlCost = control.qualifiedCount ? Math.round(control.spendInr / control.qualifiedCount) : null;
+  const variantCost = variant.qualifiedCount ? Math.round(variant.spendInr / variant.qualifiedCount) : null;
+  const percentDifference = controlCost != null && variantCost != null ? Math.round(((variantCost - controlCost) / controlCost) * 100) : null;
+
+  const conclusion = !meetsMinimumEvidence
+    ? "Not enough data yet to declare a winner - treat any difference so far as directional only."
+    : statisticalSignificance.available && statisticalSignificance.significantAt95
+      ? (variantRate > controlRate
+          ? "The variant's qualified conversion rate is statistically significantly higher - a real signal, though not proof the specific changes caused it, since the two campaigns differ in other ways too."
+          : "The control's qualified conversion rate is statistically significantly higher - the changes may have hurt lead quality, or something else about the variant underperformed.")
+      : "No statistically significant difference in qualified conversion rate - the two are performing about the same on this metric so far.";
+
+  return {
+    available: true, hypothesis,
+    objective: "Increase qualified leads without raising cost per qualified lead",
+    successMetric: "Qualified conversion rate (qualified leads ÷ total leads)",
+    minimumEvidencePerArm: MIN_EVIDENCE_PER_ARM, meetsMinimumEvidence,
+    control: { leads: control.leadsCount, qualified: control.qualifiedCount, qualifiedRatePct: Math.round(controlRate * 1000) / 10, costPerQualifiedLeadInr: controlCost, budgetInr: control.budgetInr, days: control.days },
+    variant: { leads: variant.leadsCount, qualified: variant.qualifiedCount, qualifiedRatePct: Math.round(variantRate * 1000) / 10, costPerQualifiedLeadInr: variantCost, budgetInr: variant.budgetInr, days: variant.days },
+    statisticalSignificance,
+    secondaryMetric: { name: "Cost per qualified lead", controlCostPerQualifiedLeadInr: controlCost, variantCostPerQualifiedLeadInr: variantCost, percentDifference },
+    risk: "The control and variant are different campaigns, not a randomised split of the same audience at the same time - budget, dates, market conditions and anything else that differs between them can confound the result.",
+    conclusion,
+  };
+}

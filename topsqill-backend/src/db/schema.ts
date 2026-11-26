@@ -904,6 +904,7 @@ export const campaignEvolutions = pgTable("campaign_evolutions", {
   decisions: jsonb("decisions").$type<Record<string, "approved" | "rejected">>().notNull().default(sql`'{}'::jsonb`),
   status: varchar("status", { length: 16 }).notNull().default("proposed"),  // 'proposed' | 'applied'
   appliedCampaignId: varchar("applied_campaign_id", { length: 36 }),
+  appliedVersionId: varchar("applied_version_id", { length: 36 }),  // which of `versions` was applied - the real hypothesis for Section 13's experiment report
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ campaignIdx: index("campaign_evolutions_campaign_idx").on(t.campaignId, t.createdAt.desc()) }));
 

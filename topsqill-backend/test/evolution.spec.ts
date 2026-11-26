@@ -5,7 +5,7 @@ vi.hoisted(() => {
   process.env.JWT_SECRET ??= "x".repeat(40);
 });
 
-import { buildFallbackVersion, validateVersions, compareOutcome, type CampaignSnapshot, type EvolutionVersion, type OutcomeInput } from "../src/campaigns/evolution";
+import { buildFallbackVersion, validateVersions, compareOutcome, runExperiment, type CampaignSnapshot, type EvolutionVersion, type OutcomeInput, type ArmStats } from "../src/campaigns/evolution";
 import { CampaignEvolutionService } from "../src/campaigns/evolution.service";
 
 const baseSnapshot: CampaignSnapshot = {
@@ -102,6 +102,59 @@ describe("compareOutcome", () => {
     if (!o.available) throw new Error("expected a result");
     expect(o.confidence).not.toBe("high");
     expect(o.caveat).toMatch(/not a controlled a\/b test/i);
+  });
+});
+
+describe("runExperiment (formal A/B engine)", () => {
+  it("refuses to test with zero leads on either side", () => {
+    const empty: ArmStats = { leadsCount: 0, qualifiedCount: 0, spendInr: 0, budgetInr: 10000, days: 15 };
+    const some: ArmStats = { leadsCount: 10, qualifiedCount: 2, spendInr: 5000, budgetInr: 10000, days: 15 };
+    expect(runExperiment("h", empty, some).available).toBe(false);
+    expect(runExperiment("h", some, empty).available).toBe(false);
+  });
+
+  it("says significance isn't available below the minimum-evidence floor, even with a huge apparent rate gap", () => {
+    const control: ArmStats = { leadsCount: 5, qualifiedCount: 0, spendInr: 2000, budgetInr: 10000, days: 15 };
+    const variant: ArmStats = { leadsCount: 5, qualifiedCount: 4, spendInr: 2000, budgetInr: 10000, days: 15 };
+    const r = runExperiment("h", control, variant);
+    if (!r.available) throw new Error("expected a report");
+    expect(r.meetsMinimumEvidence).toBe(false);
+    expect(r.statisticalSignificance.available).toBe(false);
+    expect(r.conclusion).toMatch(/not enough data/i);
+  });
+
+  it("finds a real, statistically significant difference with enough volume and a real rate gap", () => {
+    const control: ArmStats = { leadsCount: 100, qualifiedCount: 10, spendInr: 50000, budgetInr: 50000, days: 15 };   // 10% qualified
+    const variant: ArmStats = { leadsCount: 100, qualifiedCount: 30, spendInr: 50000, budgetInr: 50000, days: 15 };   // 30% qualified
+    const r = runExperiment("Better creative improves qualified rate", control, variant);
+    if (!r.available) throw new Error("expected a report");
+    expect(r.meetsMinimumEvidence).toBe(true);
+    expect(r.statisticalSignificance.available).toBe(true);
+    if (!r.statisticalSignificance.available) throw new Error("expected significance result");
+    expect(r.statisticalSignificance.significantAt95).toBe(true);
+    expect(r.statisticalSignificance.pValue).toBeLessThan(0.05);
+    expect(r.conclusion).toMatch(/variant.*statistically significantly higher/i);
+  });
+
+  it("never declares a winner when the rates are close, even with plenty of volume", () => {
+    const control: ArmStats = { leadsCount: 100, qualifiedCount: 20, spendInr: 50000, budgetInr: 50000, days: 15 };
+    const variant: ArmStats = { leadsCount: 100, qualifiedCount: 22, spendInr: 50000, budgetInr: 50000, days: 15 };
+    const r = runExperiment("h", control, variant);
+    if (!r.available) throw new Error("expected a report");
+    expect(r.statisticalSignificance.available).toBe(true);
+    if (!r.statisticalSignificance.available) throw new Error("expected significance result");
+    expect(r.statisticalSignificance.significantAt95).toBe(false);
+    expect(r.conclusion).toMatch(/about the same/i);
+  });
+
+  it("always includes the confound risk and the real cost-per-qualified-lead secondary metric", () => {
+    const control: ArmStats = { leadsCount: 50, qualifiedCount: 10, spendInr: 10000, budgetInr: 10000, days: 15 };
+    const variant: ArmStats = { leadsCount: 50, qualifiedCount: 10, spendInr: 8000, budgetInr: 10000, days: 15 };
+    const r = runExperiment("h", control, variant);
+    if (!r.available) throw new Error("expected a report");
+    expect(r.risk).toMatch(/different campaigns/i);
+    expect(r.secondaryMetric.controlCostPerQualifiedLeadInr).toBe(1000);
+    expect(r.secondaryMetric.variantCostPerQualifiedLeadInr).toBe(800);
   });
 });
 
@@ -207,5 +260,39 @@ describe("CampaignEvolutionService.outcome", () => {
     expect(campaigns.get).toHaveBeenCalledWith("u1", "draft1");
     if (!o.available) throw new Error("expected a result");
     expect(o.verdict).toBe("variant_better");
+  });
+});
+
+describe("CampaignEvolutionService.experiment", () => {
+  it("says plainly there's nothing to test until a version has been applied", async () => {
+    const { svc } = makeService({ claudeEnabled: false });
+    vi.spyOn(svc, "get").mockResolvedValue({ id: "evo1", campaignId: "c1", ownerId: "u1", status: "proposed", appliedCampaignId: null } as never);
+    const r = await svc.experiment("u1", "evo1");
+    expect(r.available).toBe(false);
+  });
+
+  it("refuses to test a variant that hasn't launched yet", async () => {
+    const { svc, campaigns } = makeService({ claudeEnabled: false });
+    vi.spyOn(svc, "get").mockResolvedValue({ id: "evo1", campaignId: "c1", ownerId: "u1", status: "applied", appliedCampaignId: "draft1", appliedVersionId: "v1", versions: [] } as never);
+    campaigns.get
+      .mockResolvedValueOnce({ leadsCount: 50, qualifiedCount: 10, spendInr: 10000, budgetInr: 10000, days: 15, status: "completed" })
+      .mockResolvedValueOnce({ leadsCount: 0, qualifiedCount: 0, spendInr: 0, budgetInr: 10000, days: 15, status: "draft" });
+    const r = await svc.experiment("u1", "evo1");
+    expect(r.available).toBe(false);
+  });
+
+  it("builds a real hypothesis from the applied version's own label/summary, and runs the real test", async () => {
+    const { svc, campaigns } = makeService({ claudeEnabled: false });
+    vi.spyOn(svc, "get").mockResolvedValue({
+      id: "evo1", campaignId: "c1", ownerId: "u1", status: "applied", appliedCampaignId: "draft1", appliedVersionId: "v1",
+      versions: [{ id: "v1", label: "Creative refresh", summary: "New headline and CTA", changes: [] }],
+    } as never);
+    campaigns.get
+      .mockResolvedValueOnce({ leadsCount: 100, qualifiedCount: 10, spendInr: 50000, budgetInr: 50000, days: 15, status: "completed" })
+      .mockResolvedValueOnce({ leadsCount: 100, qualifiedCount: 30, spendInr: 50000, budgetInr: 50000, days: 15, status: "completed" });
+    const r = await svc.experiment("u1", "evo1");
+    if (!r.available) throw new Error("expected a report");
+    expect(r.hypothesis).toContain("Creative refresh");
+    expect(r.statisticalSignificance.available).toBe(true);
   });
 });

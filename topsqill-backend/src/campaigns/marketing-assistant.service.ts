@@ -385,6 +385,12 @@ export class MarketingAssistantService {
       lines.push(outcome.available
         ? `Outcome so far: original ${inr(outcome.originalCostPerQualifiedLeadInr)}/qualified lead vs. variant ${inr(outcome.variantCostPerQualifiedLeadInr)}/qualified lead (${outcome.verdict.replace("_", " ")}, ${outcome.confidence} confidence). ${outcome.caveat}`
         : `Outcome: ${outcome.reason}`);
+      const experiment = await this.evolution.experiment(userId, latest.id);
+      if (experiment.available) {
+        lines.push(`Formal experiment: control ${experiment.control.qualifiedRatePct}% qualified vs. variant ${experiment.variant.qualifiedRatePct}% qualified. ${experiment.conclusion}`);
+      } else {
+        lines.push(`Formal experiment: ${experiment.reason}`);
+      }
     }
     return lines.join("\n");
   }

@@ -31,6 +31,7 @@ function makeService(opts: {
   segmentsList?: { items: Record<string, unknown>[] };
   segmentsPreview?: Record<string, unknown>;
   evolutionList?: { items: Record<string, unknown>[] };
+  evolutionExperiment?: Record<string, unknown>;
   competitorSearch?: Record<string, unknown>;
 }) {
   const read = { select: () => chainable(opts.selectRows ?? []) };
@@ -52,6 +53,7 @@ function makeService(opts: {
   const evolution = {
     list: vi.fn().mockResolvedValue(opts.evolutionList ?? { items: [] }),
     outcome: vi.fn().mockResolvedValue({ available: false, reason: "Needs at least 3 qualified leads on both the original and the variant to compare honestly - not there yet." }),
+    experiment: vi.fn().mockResolvedValue(opts.evolutionExperiment ?? { available: false, reason: "Needs at least 30 leads on both sides for a meaningful significance test." }),
   };
   const competitive = { searchAds: vi.fn().mockResolvedValue(opts.competitorSearch ?? { results: [], patterns: { available: false, reason: "No ads found to summarise." } }) };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -254,11 +256,21 @@ describe("MarketingAssistantService", () => {
       available: true, verdict: "variant_better", originalCostPerQualifiedLeadInr: 1000, variantCostPerQualifiedLeadInr: 700,
       percentDifference: -30, confidence: "medium", caveat: "This compares two different campaigns, not a controlled A/B test.",
     });
+    evolution.experiment.mockResolvedValue({
+      available: true, hypothesis: "h", objective: "o", successMetric: "s", minimumEvidencePerArm: 30, meetsMinimumEvidence: true,
+      control: { leads: 100, qualified: 10, qualifiedRatePct: 10, costPerQualifiedLeadInr: 1000, budgetInr: 10000, days: 15 },
+      variant: { leads: 100, qualified: 30, qualifiedRatePct: 30, costPerQualifiedLeadInr: 700, budgetInr: 10000, days: 15 },
+      statisticalSignificance: { available: true, zScore: 3.5, pValue: 0.001, significantAt95: true },
+      secondaryMetric: { name: "Cost per qualified lead", controlCostPerQualifiedLeadInr: 1000, variantCostPerQualifiedLeadInr: 700, percentDifference: -30 },
+      risk: "r", conclusion: "The variant's qualified conversion rate is statistically significantly higher.",
+    });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const text: string = await (svc as any).campaignEvolutionText("u1", "c1");
     expect(text).toContain("variant better");
     expect(text).toContain("₹700");
     expect(text).toContain("not a controlled A/B test");
+    expect(text).toContain("Formal experiment: control 10% qualified vs. variant 30% qualified");
+    expect(text).toContain("statistically significantly higher");
   });
 
   it("campaign_evolution_status tool says plainly when nothing has been analysed yet", async () => {
