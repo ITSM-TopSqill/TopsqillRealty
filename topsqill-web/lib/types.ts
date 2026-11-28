@@ -191,6 +191,18 @@ export type AudienceStrategyBatch = {
   segments: AudienceSegmentHypothesis[]; decisions: Record<string, "approved" | "rejected">; createdAt: string;
 };
 
+export type ModuleTally = { batches: number; total: number; approved: number; rejected: number; pending: number };
+
+export type CompetitiveDashboard = {
+  competitors: { total: number; accepted: number; suggested: number; rejected: number };
+  creativeAnalyses: { total: number; recent: CompetitorCreativeAnalysis[] };
+  marketGaps: ModuleTally;
+  strategies: ModuleTally;
+  concepts: ModuleTally;
+  audienceStrategies: ModuleTally;
+  campaigns: { total: number; fromConcepts: number } | { available: false; reason: string };
+};
+
 export type Project = {
   id: string; ownerId: string; sourceUrl?: string | null; name: string; builder?: string | null;
   city: string; locality: string; reraNumber?: string | null; status: string; possession?: string | null;

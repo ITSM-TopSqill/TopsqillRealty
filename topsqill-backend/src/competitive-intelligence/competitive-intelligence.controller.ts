@@ -103,6 +103,11 @@ export class CompetitiveIntelligenceController {
     private readonly audiences: AudienceStrategyService,
   ) {}
 
+  /* ------------------------------ dashboard ------------------------------ */
+
+  @Get("dashboard") @ApiOperation({ summary: "A single real-data view across every competitive-intelligence module - no new calculations, nothing invented" })
+  dashboard(@CurrentUser() user: AuthUser, @Query("businessId") businessId?: string) { return this.svc.dashboard(user.id, businessId); }
+
   /* ------------------------------ ad search ------------------------------ */
 
   @Get("ads") @ApiOperation({ summary: "Search Meta's public Ad Library for real, currently/recently running ads matching a term" })

@@ -6,6 +6,26 @@ import { env } from "../common/env";
 import { newId } from "../common/ids";
 import { ClaudeService } from "../ai/claude.service";
 import { searchAdLibrary, AdLibraryError, type AdLibraryResult } from "./ad-library";
+import { CompetitorDiscoveryService } from "./competitor-discovery.service";
+import { CompetitorCreativeAnalysisService } from "./competitor-creative-analysis.service";
+import { MarketGapAnalysisService } from "./market-gap.service";
+import { CompetitiveStrategyService } from "./competitive-strategy.service";
+import { CreativeOpportunityService } from "./creative-opportunity.service";
+import { AudienceStrategyService } from "./audience-strategy.service";
+import { GenericCampaignsService } from "../business/generic-campaigns.service";
+
+function tally(rows: { decisions: unknown }[], itemsOf: (row: { decisions: unknown }) => { id: string }[]) {
+  let total = 0, approved = 0, rejected = 0;
+  for (const row of rows) {
+    const decisions = row.decisions as Record<string, "approved" | "rejected">;
+    for (const item of itemsOf(row)) {
+      total++;
+      if (decisions[item.id] === "approved") approved++;
+      else if (decisions[item.id] === "rejected") rejected++;
+    }
+  }
+  return { batches: rows.length, total, approved, rejected, pending: total - approved - rejected };
+}
 
 export type PatternSummary = { available: true; text: string } | { available: false; reason: string };
 
@@ -30,7 +50,48 @@ export class CompetitiveIntelligenceService {
     @Inject(DB) private readonly db: Database,
     @Inject(DB_READ) private readonly read: Database,
     private readonly claude: ClaudeService,
+    private readonly discovery: CompetitorDiscoveryService,
+    private readonly analysis: CompetitorCreativeAnalysisService,
+    private readonly gaps: MarketGapAnalysisService,
+    private readonly strategies: CompetitiveStrategyService,
+    private readonly concepts: CreativeOpportunityService,
+    private readonly audiences: AudienceStrategyService,
+    private readonly genericCampaigns: GenericCampaignsService,
   ) {}
+
+  /**
+   * Competitive Intelligence Dashboard (Module 16, scoped to this feature
+   * only): a single real-data aggregation over every module already built
+   * here - no new calculations, no invented metrics. Every number is read
+   * straight from the service that already owns it, same discipline as
+   * CommandCentreService.
+   */
+  async dashboard(userId: string, businessId?: string) {
+    const [competitorRows, analyses, gapRows, strategyRows, conceptRows, audienceRows, campaigns] = await Promise.all([
+      this.discovery.list(userId),
+      this.analysis.list(userId, undefined, 50),
+      this.gaps.list(userId, businessId),
+      this.strategies.list(userId, businessId),
+      this.concepts.list(userId),
+      this.audiences.list(userId, businessId),
+      businessId ? this.genericCampaigns.list(userId, businessId) : Promise.resolve({ items: [] }),
+    ]);
+
+    const competitorsByStatus = { accepted: 0, suggested: 0, rejected: 0 };
+    for (const c of competitorRows.items as { status: "accepted" | "suggested" | "rejected" }[]) competitorsByStatus[c.status]++;
+
+    const fromConcepts = (campaigns.items as { sourceConceptId: string | null }[]).filter((c) => c.sourceConceptId).length;
+
+    return {
+      competitors: { total: competitorRows.items.length, ...competitorsByStatus },
+      creativeAnalyses: { total: analyses.items.length, recent: analyses.items.slice(0, 5) },
+      marketGaps: tally(gapRows.items as { decisions: unknown }[], (r) => (r as unknown as { opportunities: { id: string }[] }).opportunities),
+      strategies: tally(strategyRows.items as { decisions: unknown }[], (r) => (r as unknown as { strategies: { id: string }[] }).strategies),
+      concepts: tally(conceptRows.items as { decisions: unknown }[], (r) => (r as unknown as { concepts: { id: string }[] }).concepts),
+      audienceStrategies: tally(audienceRows.items as { decisions: unknown }[], (r) => (r as unknown as { segments: { id: string }[] }).segments),
+      campaigns: businessId ? { total: campaigns.items.length, fromConcepts } : { available: false as const, reason: "Pick a business profile to see its draft campaigns." },
+    };
+  }
 
   async searchAds(userId: string, searchTerms: string, limit = 20) {
     let results: AdLibraryResult[];

@@ -21,6 +21,7 @@ export default async function MarketStrategyPage() {
         strategy is reviewed and approved one at a time - nothing here launches a campaign on its own.
       </p>
       <MarketStrategyWorkspace />
+      <p style={{ marginTop: 16 }}><Link href="/competitive-dashboard">See everything together on the dashboard →</Link></p>
     </Shell>
   );
 }
