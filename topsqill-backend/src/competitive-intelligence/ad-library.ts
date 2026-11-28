@@ -66,14 +66,15 @@ const FIELDS = "page_name,ad_creative_link_titles,ad_creative_bodies,ad_creative
 
 /** One real HTTP call to Meta's public Ad Library. Never silently returns fabricated results on failure - throws instead. */
 export async function searchAdLibrary(opts: {
-  appId?: string; appSecret?: string; apiVersion: string;
+  appId?: string; appSecret?: string; accessToken?: string; apiVersion: string;
   searchTerms: string; countries: string[]; limit: number;
 }): Promise<AdLibraryResult[]> {
-  if (!opts.appId || !opts.appSecret) throw new AdLibraryNotConfiguredError("Meta Ad Library isn't configured (no META_APP_ID/META_APP_SECRET) - this search can't run.");
+  const token = opts.accessToken || (opts.appId && opts.appSecret ? `${opts.appId}|${opts.appSecret}` : null);
+  if (!token) throw new AdLibraryNotConfiguredError("Meta Ad Library isn't configured (no META_ACCESS_TOKEN, or META_APP_ID/META_APP_SECRET) - this search can't run.");
   if (!opts.searchTerms?.trim()) throw new AdLibraryError("A search term (advertiser name, product or keyword) is needed.");
 
   const url = new URL(`https://graph.facebook.com/${opts.apiVersion}/ads_archive`);
-  url.searchParams.set("access_token", `${opts.appId}|${opts.appSecret}`);
+  url.searchParams.set("access_token", token);
   url.searchParams.set("ad_type", "ALL");
   url.searchParams.set("ad_reached_countries", JSON.stringify(opts.countries));
   url.searchParams.set("fields", FIELDS);

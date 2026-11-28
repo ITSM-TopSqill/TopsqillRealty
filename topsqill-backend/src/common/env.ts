@@ -49,6 +49,12 @@ const schema = z.object({
   // Meta signs every lead-ads and WhatsApp webhook with the app secret. In
   // production, webhooks are refused outright until this is set.
   META_APP_SECRET: z.string().optional(),
+  // The Ad Library API (ads_archive) refuses a bare app token - it needs a
+  // User or System User access token from someone with a role on the app.
+  // Generate one in Business Settings > System Users and set it here; falls
+  // back to the app-id|app-secret token (which won't work for ads_archive,
+  // but still works for whatever else uses META_APP_ID/META_APP_SECRET).
+  META_ACCESS_TOKEN: z.string().optional(),
   // Instagram API with Instagram Login: members connect their own account and pick posts and reels.
   INSTAGRAM_APP_ID: z.string().optional(),
   INSTAGRAM_APP_SECRET: z.string().optional(),

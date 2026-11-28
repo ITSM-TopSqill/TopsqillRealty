@@ -36,7 +36,7 @@ export class CompetitiveIntelligenceService {
     let results: AdLibraryResult[];
     try {
       results = await searchAdLibrary({
-        appId: env.META_APP_ID, appSecret: env.META_APP_SECRET, apiVersion: "v21.0",
+        appId: env.META_APP_ID, appSecret: env.META_APP_SECRET, accessToken: env.META_ACCESS_TOKEN, apiVersion: "v21.0",
         searchTerms, countries: ["IN"], limit,
       });
     } catch (e) {

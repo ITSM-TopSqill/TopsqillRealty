@@ -51,7 +51,7 @@ export class CompetitorCreativeAnalysisService {
 
     let results: AdLibraryResult[];
     try {
-      results = await searchAdLibrary({ appId: env.META_APP_ID, appSecret: env.META_APP_SECRET, apiVersion: "v21.0", searchTerms: term, countries: ["IN"], limit: 25 });
+      results = await searchAdLibrary({ appId: env.META_APP_ID, appSecret: env.META_APP_SECRET, accessToken: env.META_ACCESS_TOKEN, apiVersion: "v21.0", searchTerms: term, countries: ["IN"], limit: 25 });
     } catch (e) {
       if (e instanceof AdLibraryError) throw new BadRequestException(e.message);
       throw e;
