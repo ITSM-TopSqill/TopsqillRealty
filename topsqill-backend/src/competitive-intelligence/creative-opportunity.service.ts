@@ -1,9 +1,11 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from "@nestjs/common";
 import { and, desc, eq } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
-import { creativeConcepts, marketGapAnalyses, competitiveStrategies, competitors } from "../db/schema";
+import { creativeConcepts, marketGapAnalyses, competitiveStrategies, competitors, businesses } from "../db/schema";
 import { newId } from "../common/ids";
 import { ClaudeService } from "../ai/claude.service";
+import { GenericCampaignsService } from "../business/generic-campaigns.service";
+import { industryById } from "../business/industries";
 import { CONCEPT_FORMATS, validateConcepts, type CreativeConcept } from "./creative-opportunity";
 import type { MarketGapOpportunity } from "./market-gap";
 import type { CompetitiveStrategyItem } from "./strategy";
@@ -31,6 +33,7 @@ export class CreativeOpportunityService {
     @Inject(DB) private readonly db: Database,
     @Inject(DB_READ) private readonly read: Database,
     private readonly claude: ClaudeService,
+    private readonly genericCampaigns: GenericCampaignsService,
   ) {}
 
   async generate(userId: string, input: GenerateInput) {
@@ -127,5 +130,42 @@ export class CreativeOpportunityService {
     const decisions = { ...(row.decisions ?? {}), [conceptId]: decision };
     const [updated] = await this.db.update(creativeConcepts).set({ decisions: decisions as never }).where(eq(creativeConcepts.id, id)).returning();
     return updated;
+  }
+
+  /**
+   * Module 10, "Create Campaign From Competitive Insights": turns one
+   * APPROVED concept into a real draft campaign via the existing
+   * GenericCampaignsService - the member still reviews and launches it
+   * themselves from there. Only wired for non-real-estate businesses
+   * (GenericCampaignsService's own scope); a listing-based real-estate
+   * campaign needs real uploaded media this concept doesn't have, so
+   * that path isn't attempted here.
+   */
+  async createCampaign(userId: string, id: string, conceptId: string, input: { businessId: string; budgetInr: number; days?: number; objective?: string; conversionEvent?: string }) {
+    const batch = await this.get(userId, id);
+    const concept = (batch.concepts as unknown as CreativeConcept[]).find((c) => c.id === conceptId);
+    if (!concept) throw new BadRequestException("That concept could not be found.");
+    if ((batch.decisions as Record<string, string>)[conceptId] !== "approved") {
+      throw new BadRequestException("Approve this concept first - a campaign is only created from a concept you've actually accepted.");
+    }
+
+    const [business] = await this.read.select().from(businesses).where(and(eq(businesses.id, input.businessId), eq(businesses.ownerId, userId))).limit(1);
+    if (!business) throw new BadRequestException("That business profile could not be found.");
+    const ind = industryById(business.industryId);
+    const objective = input.objective || ind?.objectives[0];
+    const conversionEvent = input.conversionEvent || ind?.conversionEvents[0];
+    if (!objective || !conversionEvent) throw new BadRequestException("Pick an objective and a conversion event - none could be defaulted for this industry.");
+
+    return this.genericCampaigns.create(userId, {
+      businessId: business.id, name: `${business.name} | ${concept.angle}`.slice(0, 160),
+      objective, conversionEvent, budgetInr: input.budgetInr, days: input.days,
+      notes: `From Creative Opportunity Generator: ${batch.label}`.slice(0, 400),
+      creative: {
+        angle: concept.angle, headlines: concept.headlines, primaryTexts: concept.primaryTexts,
+        ctaVariations: concept.ctaVariations, visualConcept: concept.visualConcept,
+        videoConcept: concept.videoConcept, carouselConcept: concept.carouselConcept, format: concept.format,
+      },
+      sourceConceptBatchId: batch.id, sourceConceptId: concept.id,
+    });
   }
 }

@@ -57,8 +57,9 @@ function makeService(opts: {
     enabledFor: vi.fn().mockResolvedValue(opts.claudeEnabled ?? true),
     json: vi.fn().mockResolvedValue(opts.jsonResult ?? { data: {}, source: "claude" }),
   };
+  const genericCampaigns = { create: vi.fn() };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new CreativeOpportunityService(db as any, read as any, claude as any);
+  return new CreativeOpportunityService(db as any, read as any, claude as any, genericCampaigns as any);
 }
 
 describe("CreativeOpportunityService.generate", () => {
@@ -121,5 +122,40 @@ describe("CreativeOpportunityService.resolveConcept", () => {
     const svc = makeService({ readQueue: [[{ id: "cc1", ownerId: "u1", decisions: {} }]] });
     const row = await svc.resolveConcept("u1", "cc1", "concept-1", "approved");
     expect(row).toBeTruthy();
+  });
+});
+
+const CONCEPT_BATCH_ROW = {
+  id: "cc1", ownerId: "u1", label: "Quality over price",
+  concepts: [SAMPLE_CONCEPT], decisions: { "concept-1": "approved" },
+};
+const BUSINESS_ROW = { id: "b1", ownerId: "u1", name: "Acme Realty", industryId: "ecommerce_general" };
+
+describe("CreativeOpportunityService.createCampaign", () => {
+  it("refuses a concept that hasn't been approved", async () => {
+    const svc = makeService({ readQueue: [[{ ...CONCEPT_BATCH_ROW, decisions: {} }], [BUSINESS_ROW]] });
+    await expect(svc.createCampaign("u1", "cc1", "concept-1", { businessId: "b1", budgetInr: 5000 }))
+      .rejects.toThrow(/approve this concept first/i);
+  });
+
+  it("refuses when the business profile can't be found", async () => {
+    const svc = makeService({ readQueue: [[CONCEPT_BATCH_ROW], []] });
+    await expect(svc.createCampaign("u1", "cc1", "concept-1", { businessId: "b1", budgetInr: 5000 }))
+      .rejects.toThrow(/business profile could not be found/i);
+  });
+
+  it("creates a draft campaign via GenericCampaignsService with the concept's creative snapshot", async () => {
+    const svc = makeService({ readQueue: [[CONCEPT_BATCH_ROW], [BUSINESS_ROW]] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const createSpy = (svc as any).genericCampaigns.create as ReturnType<typeof vi.fn>;
+    createSpy.mockResolvedValue({ id: "gc1", status: "draft" });
+
+    const result = await svc.createCampaign("u1", "cc1", "concept-1", { businessId: "b1", budgetInr: 5000 });
+    expect(result).toEqual({ id: "gc1", status: "draft" });
+    expect(createSpy).toHaveBeenCalledWith("u1", expect.objectContaining({
+      businessId: "b1", budgetInr: 5000,
+      creative: expect.objectContaining({ angle: "Quality over price", headlines: SAMPLE_CONCEPT.headlines }),
+      sourceConceptBatchId: "cc1", sourceConceptId: "concept-1",
+    }));
   });
 });

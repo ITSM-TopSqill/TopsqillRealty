@@ -191,7 +191,7 @@ export function MarketStrategyWorkspace() {
                       </button>
                     ) : null}
                   </div>
-                  {conceptBatches[o.id] ? <ConceptList batch={conceptBatches[o.id]} onResolve={(cid, status) => resolveConcept(o.id, conceptBatches[o.id].id, cid, status)} /> : null}
+                  {conceptBatches[o.id] ? <ConceptList batch={conceptBatches[o.id]} businessId={businessId} onResolve={(cid, status) => resolveConcept(o.id, conceptBatches[o.id].id, cid, status)} /> : null}
                 </div>
               );
             })}
@@ -228,7 +228,7 @@ export function MarketStrategyWorkspace() {
                       </button>
                     ) : null}
                   </div>
-                  {conceptBatches[s.id] ? <ConceptList batch={conceptBatches[s.id]} onResolve={(cid, status) => resolveConcept(s.id, conceptBatches[s.id].id, cid, status)} /> : null}
+                  {conceptBatches[s.id] ? <ConceptList batch={conceptBatches[s.id]} businessId={businessId} onResolve={(cid, status) => resolveConcept(s.id, conceptBatches[s.id].id, cid, status)} /> : null}
                 </div>
               );
             })}
@@ -240,32 +240,68 @@ export function MarketStrategyWorkspace() {
   );
 }
 
-function ConceptList({ batch, onResolve }: { batch: CreativeConceptBatch; onResolve: (conceptId: string, status: "approved" | "rejected") => void }) {
+function ConceptList({ batch, businessId, onResolve }: { batch: CreativeConceptBatch; businessId: string; onResolve: (conceptId: string, status: "approved" | "rejected") => void }) {
   return (
     <div className="col" style={{ gap: 8, marginTop: 10 }}>
-      {batch.concepts.map((c) => {
-        const decision = batch.decisions[c.id];
-        return (
-          <div key={c.id} className="card pad" style={{ background: "color-mix(in srgb,#6A3FE0 5%,transparent)" }}>
-            <div className="spread" style={{ flexWrap: "wrap", gap: 6 }}>
-              <b className="small">{c.angle}</b>
-              <span className="pill small" style={{ background: `color-mix(in srgb,${CONFIDENCE_COLOR[c.confidence]} 16%,transparent)`, color: CONFIDENCE_COLOR[c.confidence] }}>{c.format}</span>
-            </div>
-            <div className="col" style={{ gap: 4, marginTop: 6 }}>
-              <p className="small"><b>Headlines</b> — {c.headlines.join(" · ")}</p>
-              <p className="small"><b>Primary text</b> — {c.primaryTexts.join(" · ")}</p>
-              <p className="small"><b>CTA</b> — {c.ctaVariations.join(" · ")}</p>
-              <p className="small muted"><b>Visual idea</b> — {c.visualConcept}</p>
-              <p className="small muted"><b>Video idea</b> — {c.videoConcept}</p>
-              {c.carouselConcept ? <p className="small muted"><b>Carousel idea</b> — {c.carouselConcept}</p> : null}
-            </div>
-            <div className="row" style={{ gap: 6, marginTop: 8 }}>
-              <button type="button" className={`btn sm ${decision === "approved" ? "btn-ai" : "btn-g"}`} onClick={() => onResolve(c.id, "approved")}>{decision === "approved" ? "✓ Approved" : "Approve"}</button>
-              <button type="button" className={`btn sm ${decision === "rejected" ? "btn-ai" : "btn-g"}`} onClick={() => onResolve(c.id, "rejected")}>{decision === "rejected" ? "✓ Rejected" : "Reject"}</button>
-            </div>
-          </div>
-        );
-      })}
+      {batch.concepts.map((c) => (
+        <ConceptCard key={c.id} batchId={batch.id} concept={c} decision={batch.decisions[c.id]} businessId={businessId} onResolve={onResolve} />
+      ))}
+    </div>
+  );
+}
+
+function ConceptCard({ batchId, concept: c, decision, businessId, onResolve }: {
+  batchId: string; concept: CreativeConceptBatch["concepts"][number]; decision?: "approved" | "rejected"; businessId: string;
+  onResolve: (conceptId: string, status: "approved" | "rejected") => void;
+}) {
+  const [budgetInr, setBudgetInr] = useState("10000");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [created, setCreated] = useState<{ id: string } | null>(null);
+
+  async function createCampaign() {
+    const amount = Number(budgetInr);
+    if (!amount || amount <= 0) { setError("Enter a real budget."); return; }
+    setBusy(true); setError("");
+    try {
+      const row = await clientApi<{ id: string }>(`/v1/competitive-intelligence/concepts/${batchId}/items/${c.id}/create-campaign`, {
+        method: "POST", body: { businessId, budgetInr: amount },
+      });
+      setCreated(row);
+    } catch (e) { setError((e as Error).message || "Something went wrong."); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="card pad" style={{ background: "color-mix(in srgb,#6A3FE0 5%,transparent)" }}>
+      <div className="spread" style={{ flexWrap: "wrap", gap: 6 }}>
+        <b className="small">{c.angle}</b>
+        <span className="pill small" style={{ background: `color-mix(in srgb,${CONFIDENCE_COLOR[c.confidence]} 16%,transparent)`, color: CONFIDENCE_COLOR[c.confidence] }}>{c.format}</span>
+      </div>
+      <div className="col" style={{ gap: 4, marginTop: 6 }}>
+        <p className="small"><b>Headlines</b> — {c.headlines.join(" · ")}</p>
+        <p className="small"><b>Primary text</b> — {c.primaryTexts.join(" · ")}</p>
+        <p className="small"><b>CTA</b> — {c.ctaVariations.join(" · ")}</p>
+        <p className="small muted"><b>Visual idea</b> — {c.visualConcept}</p>
+        <p className="small muted"><b>Video idea</b> — {c.videoConcept}</p>
+        {c.carouselConcept ? <p className="small muted"><b>Carousel idea</b> — {c.carouselConcept}</p> : null}
+      </div>
+      <div className="row" style={{ gap: 6, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <button type="button" className={`btn sm ${decision === "approved" ? "btn-ai" : "btn-g"}`} onClick={() => onResolve(c.id, "approved")}>{decision === "approved" ? "✓ Approved" : "Approve"}</button>
+        <button type="button" className={`btn sm ${decision === "rejected" ? "btn-ai" : "btn-g"}`} onClick={() => onResolve(c.id, "rejected")}>{decision === "rejected" ? "✓ Rejected" : "Reject"}</button>
+        {decision === "approved" && !created ? (
+          <>
+            <input type="number" min={1} value={budgetInr} onChange={(e) => setBudgetInr(e.target.value)} style={{ width: 110 }} aria-label="Budget in rupees" />
+            <button type="button" className="btn btn-o sm" disabled={busy} onClick={createCampaign}>{busy ? "Creating…" : "📣 Create draft campaign"}</button>
+          </>
+        ) : null}
+      </div>
+      {created ? (
+        <p className="small" style={{ marginTop: 6, color: "#12B76A" }}>
+          Draft campaign created. Review and launch it from <a href={`/business/${businessId}`}>this business&apos;s plans</a>.
+        </p>
+      ) : null}
+      {error ? <p className="error small" style={{ marginTop: 6 }}>{error}</p> : null}
     </div>
   );
 }

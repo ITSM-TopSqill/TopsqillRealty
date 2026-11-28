@@ -876,6 +876,12 @@ export const genericCampaigns = pgTable("generic_campaigns", {
   days: smallint("days").notNull().default(15),
   notes: text("notes"),
   status: varchar("status", { length: 16 }).notNull().default("draft"),  // 'draft' only, for now - see known limitations
+  // Competitive Growth Intelligence, Module 10: when this draft was created from an
+  // approved creative concept, a snapshot of it (so it's still here even if the
+  // concept batch is later changed) plus where it came from, for traceability.
+  creative: jsonb("creative").$type<Record<string, unknown>>(),
+  sourceConceptBatchId: varchar("source_concept_batch_id", { length: 36 }),
+  sourceConceptId: varchar("source_concept_id", { length: 40 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ businessIdx: index("generic_campaigns_business_idx").on(t.businessId, t.createdAt.desc()) }));
 

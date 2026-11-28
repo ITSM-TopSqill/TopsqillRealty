@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { BusinessModule } from "../business/business.module";
 import { CompetitiveIntelligenceService } from "./competitive-intelligence.service";
 import { CompetitorDiscoveryService } from "./competitor-discovery.service";
 import { CompetitorCreativeAnalysisService } from "./competitor-creative-analysis.service";
@@ -13,6 +14,7 @@ const PROVIDERS = [
 ];
 
 @Module({
+  imports: [BusinessModule],
   providers: PROVIDERS,
   controllers: [CompetitiveIntelligenceController],
   exports: PROVIDERS,

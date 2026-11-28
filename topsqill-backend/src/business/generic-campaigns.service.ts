@@ -5,7 +5,10 @@ import { businesses, genericCampaigns } from "../db/schema";
 import { newId } from "../common/ids";
 import { industryById } from "./industries";
 
-type CreateInput = { businessId: string; name: string; objective: string; conversionEvent: string; budgetInr: number; days?: number; notes?: string };
+type CreateInput = {
+  businessId: string; name: string; objective: string; conversionEvent: string; budgetInr: number; days?: number; notes?: string;
+  creative?: Record<string, unknown>; sourceConceptBatchId?: string; sourceConceptId?: string;
+};
 
 /**
  * Universal Campaign Objectives & Conversion Engine (Sections 5-6) for
@@ -41,6 +44,9 @@ export class GenericCampaignsService {
       objective: input.objective.slice(0, 60), conversionEvent: input.conversionEvent.slice(0, 80),
       budgetInr: Math.round(input.budgetInr), days: input.days && input.days >= 3 ? Math.min(Math.round(input.days), 90) : 15,
       notes: input.notes?.slice(0, 400) || null,
+      creative: input.creative ?? null,
+      sourceConceptBatchId: input.sourceConceptBatchId ?? null,
+      sourceConceptId: input.sourceConceptId ?? null,
     }).returning();
     return row;
   }

@@ -68,6 +68,14 @@ class GenerateConceptsDto {
   @IsOptional() @IsString() strategyItemId?: string;
 }
 
+class CreateCampaignFromConceptDto {
+  @IsString() businessId: string;
+  @IsInt() @Min(1) budgetInr: number;
+  @IsOptional() @IsInt() @Min(3) @Max(90) days?: number;
+  @IsOptional() @IsString() objective?: string;
+  @IsOptional() @IsString() conversionEvent?: string;
+}
+
 /**
  * Competitive Intelligence: competitor discovery (Module 1), a real,
  * on-demand search of Meta's public Ad Library (Module 2, the one source
@@ -180,5 +188,10 @@ export class CompetitiveIntelligenceController {
   @Post("concepts/:id/items/:conceptId/resolve") @ApiOperation({ summary: "Approve or reject one concept" })
   resolveConcept(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("conceptId") conceptId: string, @Body() dto: ResolveItemDto) {
     return this.concepts.resolveConcept(user.id, id, conceptId, dto.status);
+  }
+
+  @Post("concepts/:id/items/:conceptId/create-campaign") @ApiOperation({ summary: "Turn an approved concept into a real draft campaign (review and launch it from there - this never launches on its own)" })
+  createCampaignFromConcept(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("conceptId") conceptId: string, @Body() dto: CreateCampaignFromConceptDto) {
+    return this.concepts.createCampaign(user.id, id, conceptId, dto);
   }
 }
