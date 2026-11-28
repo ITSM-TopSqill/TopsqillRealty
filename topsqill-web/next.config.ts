@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const config: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  experimental: { agentUpgrade: "security" },
   // Photos and videos come from the CDN, never from this server.
   images: {
     remotePatterns: [
