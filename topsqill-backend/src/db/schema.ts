@@ -1074,3 +1074,22 @@ export const creativeConcepts = pgTable("creative_concepts", {
   source: varchar("source", { length: 10 }).notNull().default("claude"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ ownerIdx: index("creative_concepts_owner_idx").on(t.ownerId, t.createdAt.desc()) }));
+
+/**
+ * Competitive Audience Strategy (Module 9): a batch of audience segment
+ * hypotheses grounded in a business profile, any saved first-party CRM
+ * segments, and optionally tracked competitors as context - never a
+ * competitor's actual customer list or private audience data (the spec's
+ * explicit ban), and never a fabricated numeric audience size. Same
+ * approve/reject-by-id discipline as the rest of this module.
+ */
+export const audienceStrategies = pgTable("audience_strategies", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  businessId: varchar("business_id", { length: 36 }).notNull(),
+  competitorIds: jsonb("competitor_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  segments: jsonb("segments").$type<Record<string, unknown>[]>().notNull(),
+  decisions: jsonb("decisions").$type<Record<string, "approved" | "rejected">>().notNull().default(sql`'{}'::jsonb`),
+  source: varchar("source", { length: 10 }).notNull().default("claude"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ ownerIdx: index("audience_strategies_owner_idx").on(t.ownerId, t.createdAt.desc()) }));

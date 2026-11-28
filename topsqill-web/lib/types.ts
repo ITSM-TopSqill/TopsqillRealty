@@ -181,6 +181,16 @@ export type CreativeConceptBatch = {
   concepts: CreativeConcept[]; decisions: Record<string, "approved" | "rejected">; createdAt: string;
 };
 
+export type AudienceSegmentHypothesis = {
+  id: string; name: string; whyValuable: string; availableSignals: string; dataSource: string;
+  providerCompatibility: string; audienceEstimate: string; confidence: "low" | "medium" | "high";
+  restrictions: string; creativeRecommendation: string; testPlan: string;
+};
+export type AudienceStrategyBatch = {
+  id: string; businessId: string; competitorIds: string[];
+  segments: AudienceSegmentHypothesis[]; decisions: Record<string, "approved" | "rejected">; createdAt: string;
+};
+
 export type Project = {
   id: string; ownerId: string; sourceUrl?: string | null; name: string; builder?: string | null;
   city: string; locality: string; reraNumber?: string | null; status: string; possession?: string | null;

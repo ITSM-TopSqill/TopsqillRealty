@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { clientApi } from "@/lib/api";
-import type { Competitor, MarketGapAnalysis, CompetitiveStrategyBatch, CreativeConceptBatch } from "@/lib/types";
+import type { Competitor, MarketGapAnalysis, CompetitiveStrategyBatch, CreativeConceptBatch, AudienceStrategyBatch } from "@/lib/types";
 
 type Business = { id: string; name: string };
 const CONFIDENCE_COLOR: Record<string, string> = { high: "#12B76A", medium: "#B9850A", low: "#8D8AA3" };
@@ -33,6 +33,10 @@ export function MarketStrategyWorkspace() {
   const [conceptBatches, setConceptBatches] = useState<Record<string, CreativeConceptBatch>>({});
   const [conceptBusyKey, setConceptBusyKey] = useState<string | null>(null);
   const [conceptError, setConceptError] = useState("");
+
+  const [audienceBusy, setAudienceBusy] = useState(false);
+  const [audienceError, setAudienceError] = useState("");
+  const [audienceBatch, setAudienceBatch] = useState<AudienceStrategyBatch | null>(null);
 
   useEffect(() => {
     clientApi<{ items: Business[] }>("/v1/business").then((r) => { setBusinesses(r.items); if (r.items[0]) setBusinessId(r.items[0].id); }).catch(() => {});
@@ -116,6 +120,26 @@ export function MarketStrategyWorkspace() {
     } catch (e) { setConceptError((e as Error).message || "Something went wrong."); }
   }
 
+  async function findAudienceSegments() {
+    if (!businessId) return;
+    setAudienceBusy(true); setAudienceError("");
+    try {
+      const row = await clientApi<AudienceStrategyBatch>("/v1/competitive-intelligence/audience-strategy", {
+        method: "POST", body: { businessId, competitorIds: [...selected] },
+      });
+      setAudienceBatch(row);
+    } catch (e) { setAudienceError((e as Error).message || "Something went wrong."); }
+    finally { setAudienceBusy(false); }
+  }
+
+  async function resolveAudienceSegment(segId: string, status: "approved" | "rejected") {
+    if (!audienceBatch) return;
+    try {
+      const row = await clientApi<AudienceStrategyBatch>(`/v1/competitive-intelligence/audience-strategy/${audienceBatch.id}/segments/${segId}/resolve`, { method: "POST", body: { status } });
+      setAudienceBatch(row);
+    } catch (e) { setAudienceError((e as Error).message || "Something went wrong."); }
+  }
+
   return (
     <div className="col" style={{ gap: 16 }}>
       <div className="card pad">
@@ -152,9 +176,13 @@ export function MarketStrategyWorkspace() {
           <button type="button" className="btn btn-o" disabled={stratBusy || !businessId} onClick={generateStrategies} title={gap ? "Builds on this analysis's approved opportunities" : "Generate strategies directly from business + competitors"}>
             {stratBusy ? "Generating…" : "🎯 Generate strategies"}
           </button>
+          <button type="button" className="btn btn-o" disabled={audienceBusy || !businessId} onClick={findAudienceSegments} title="Audience hypotheses from your business profile and saved CRM segments - competitors are optional context, not required">
+            {audienceBusy ? "Finding…" : "👥 Find audience segments"}
+          </button>
         </div>
         {gapError ? <p className="error small" style={{ marginTop: 8 }}>{gapError}</p> : null}
         {stratError ? <p className="error small" style={{ marginTop: 8 }}>{stratError}</p> : null}
+        {audienceError ? <p className="error small" style={{ marginTop: 8 }}>{audienceError}</p> : null}
       </div>
 
       {gap ? (
@@ -236,6 +264,40 @@ export function MarketStrategyWorkspace() {
         </div>
       ) : null}
       {conceptError ? <p className="error small">{conceptError}</p> : null}
+
+      {audienceBatch ? (
+        <div className="card pad">
+          <b>Audience segments</b>
+          <p className="small muted" style={{ marginTop: 2 }}>Never a competitor's actual customer list - grounded in your own business profile and saved CRM segments only. No fabricated audience sizes.</p>
+          <div className="col" style={{ gap: 10, marginTop: 8 }}>
+            {audienceBatch.segments.map((s) => {
+              const decision = audienceBatch.decisions[s.id];
+              return (
+                <div key={s.id} className="card pad" style={{ borderLeft: "4px solid #B9850A" }}>
+                  <div className="spread" style={{ flexWrap: "wrap", gap: 6 }}>
+                    <b className="small">{s.name}</b>
+                    <span className="pill small" style={{ background: `color-mix(in srgb,${CONFIDENCE_COLOR[s.confidence]} 16%,transparent)`, color: CONFIDENCE_COLOR[s.confidence] }}>{s.confidence} confidence</span>
+                  </div>
+                  <div className="col" style={{ gap: 4, marginTop: 6 }}>
+                    <p className="small"><b>Why valuable</b> — {s.whyValuable}</p>
+                    <p className="small"><b>Available signals</b> — {s.availableSignals}</p>
+                    <p className="small muted"><b>Data source</b> — {s.dataSource}</p>
+                    <p className="small"><b>How to target it</b> — {s.providerCompatibility}</p>
+                    <p className="small muted"><b>Audience size</b> — {s.audienceEstimate}</p>
+                    <p className="small muted"><b>Restrictions</b> — {s.restrictions}</p>
+                    <p className="small"><b>Creative angle</b> — {s.creativeRecommendation}</p>
+                    <p className="small muted"><b>How to test cheaply</b> — {s.testPlan}</p>
+                  </div>
+                  <div className="row" style={{ gap: 6, marginTop: 8 }}>
+                    <button type="button" className={`btn sm ${decision === "approved" ? "btn-ai" : "btn-g"}`} onClick={() => resolveAudienceSegment(s.id, "approved")}>{decision === "approved" ? "✓ Approved" : "Approve"}</button>
+                    <button type="button" className={`btn sm ${decision === "rejected" ? "btn-ai" : "btn-g"}`} onClick={() => resolveAudienceSegment(s.id, "rejected")}>{decision === "rejected" ? "✓ Rejected" : "Reject"}</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

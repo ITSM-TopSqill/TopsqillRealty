@@ -8,6 +8,7 @@ import { CompetitorCreativeAnalysisService } from "./competitor-creative-analysi
 import { MarketGapAnalysisService } from "./market-gap.service";
 import { CompetitiveStrategyService } from "./competitive-strategy.service";
 import { CreativeOpportunityService } from "./creative-opportunity.service";
+import { AudienceStrategyService } from "./audience-strategy.service";
 import { CurrentUser, AuthUser } from "../auth/public.decorator";
 
 class SearchQueryDto {
@@ -76,6 +77,11 @@ class CreateCampaignFromConceptDto {
   @IsOptional() @IsString() conversionEvent?: string;
 }
 
+class GenerateAudienceStrategyDto {
+  @IsString() businessId: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(5) @IsString({ each: true }) competitorIds?: string[];
+}
+
 /**
  * Competitive Intelligence: competitor discovery (Module 1), a real,
  * on-demand search of Meta's public Ad Library (Module 2, the one source
@@ -94,6 +100,7 @@ export class CompetitiveIntelligenceController {
     private readonly gaps: MarketGapAnalysisService,
     private readonly strategies: CompetitiveStrategyService,
     private readonly concepts: CreativeOpportunityService,
+    private readonly audiences: AudienceStrategyService,
   ) {}
 
   /* ------------------------------ ad search ------------------------------ */
@@ -193,5 +200,21 @@ export class CompetitiveIntelligenceController {
   @Post("concepts/:id/items/:conceptId/create-campaign") @ApiOperation({ summary: "Turn an approved concept into a real draft campaign (review and launch it from there - this never launches on its own)" })
   createCampaignFromConcept(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("conceptId") conceptId: string, @Body() dto: CreateCampaignFromConceptDto) {
     return this.concepts.createCampaign(user.id, id, conceptId, dto);
+  }
+
+  /* ------------------------------ audience strategy ------------------------------ */
+
+  @Post("audience-strategy") @ApiOperation({ summary: "Find audience segment hypotheses grounded in your business profile, saved CRM segments and (optionally) tracked competitors" })
+  generateAudienceStrategy(@CurrentUser() user: AuthUser, @Body() dto: GenerateAudienceStrategyDto) { return this.audiences.generate(user.id, dto); }
+
+  @Get("audience-strategy") @ApiOperation({ summary: "List past audience-strategy generations" })
+  listAudienceStrategies(@CurrentUser() user: AuthUser, @Query("businessId") businessId?: string) { return this.audiences.list(user.id, businessId); }
+
+  @Get("audience-strategy/:id")
+  getAudienceStrategy(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.audiences.get(user.id, id); }
+
+  @Post("audience-strategy/:id/segments/:segId/resolve") @ApiOperation({ summary: "Approve or reject one audience segment" })
+  resolveAudienceSegment(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("segId") segId: string, @Body() dto: ResolveItemDto) {
+    return this.audiences.resolveSegment(user.id, id, segId, dto.status);
   }
 }

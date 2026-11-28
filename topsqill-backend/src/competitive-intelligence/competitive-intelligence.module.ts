@@ -6,11 +6,12 @@ import { CompetitorCreativeAnalysisService } from "./competitor-creative-analysi
 import { MarketGapAnalysisService } from "./market-gap.service";
 import { CompetitiveStrategyService } from "./competitive-strategy.service";
 import { CreativeOpportunityService } from "./creative-opportunity.service";
+import { AudienceStrategyService } from "./audience-strategy.service";
 import { CompetitiveIntelligenceController } from "./competitive-intelligence.controller";
 
 const PROVIDERS = [
   CompetitiveIntelligenceService, CompetitorDiscoveryService, CompetitorCreativeAnalysisService,
-  MarketGapAnalysisService, CompetitiveStrategyService, CreativeOpportunityService,
+  MarketGapAnalysisService, CompetitiveStrategyService, CreativeOpportunityService, AudienceStrategyService,
 ];
 
 @Module({
