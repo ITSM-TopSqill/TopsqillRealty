@@ -7,11 +7,13 @@ import { MarketGapAnalysisService } from "./market-gap.service";
 import { CompetitiveStrategyService } from "./competitive-strategy.service";
 import { CreativeOpportunityService } from "./creative-opportunity.service";
 import { AudienceStrategyService } from "./audience-strategy.service";
+import { LandingPageIntelligenceService } from "./landing-page-intelligence.service";
 import { CompetitiveIntelligenceController } from "./competitive-intelligence.controller";
 
 const PROVIDERS = [
   CompetitiveIntelligenceService, CompetitorDiscoveryService, CompetitorCreativeAnalysisService,
   MarketGapAnalysisService, CompetitiveStrategyService, CreativeOpportunityService, AudienceStrategyService,
+  LandingPageIntelligenceService,
 ];
 
 @Module({

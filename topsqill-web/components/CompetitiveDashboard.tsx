@@ -64,6 +64,8 @@ export function CompetitiveDashboardView() {
             ]} />
           <StatCard title="Ad &amp; creative research" href="/competitive-intelligence"
             lines={[`${data.creativeAnalyses.total} analyses saved`]} />
+          <StatCard title="Landing page intelligence" href="/competitive-intelligence"
+            lines={[`${data.landingPageAnalyses.total} pages analysed`]} />
           <ModuleCard title="Market-gap opportunities" href="/market-strategy" tally={data.marketGaps} unit="opportunity" unitPlural="opportunities" />
           <ModuleCard title="Differentiation strategies" href="/market-strategy" tally={data.strategies} unit="strategy" unitPlural="strategies" />
           <ModuleCard title="Creative concepts" href="/market-strategy" tally={data.concepts} unit="concept" unitPlural="concepts" />

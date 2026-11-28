@@ -191,11 +191,19 @@ export type AudienceStrategyBatch = {
   segments: AudienceSegmentHypothesis[]; decisions: Record<string, "approved" | "rejected">; createdAt: string;
 };
 
+export type LandingPageAnalysis = {
+  id: string; competitorId: string | null; url: string | null; pageTitle: string | null;
+  headline: string; subheadline: string | null; keyMessages: string[]; offers: string[]; ctas: string[];
+  trustSignals: string[]; pricingMentioned: string | null; formFields: string[];
+  confidence: "low" | "medium" | "high"; inputSource: "fetched" | "manual"; createdAt: string;
+};
+
 export type ModuleTally = { batches: number; total: number; approved: number; rejected: number; pending: number };
 
 export type CompetitiveDashboard = {
   competitors: { total: number; accepted: number; suggested: number; rejected: number };
   creativeAnalyses: { total: number; recent: CompetitorCreativeAnalysis[] };
+  landingPageAnalyses: { total: number; recent: LandingPageAnalysis[] };
   marketGaps: ModuleTally;
   strategies: ModuleTally;
   concepts: ModuleTally;

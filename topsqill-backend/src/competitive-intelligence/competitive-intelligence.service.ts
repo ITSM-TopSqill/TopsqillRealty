@@ -12,6 +12,7 @@ import { MarketGapAnalysisService } from "./market-gap.service";
 import { CompetitiveStrategyService } from "./competitive-strategy.service";
 import { CreativeOpportunityService } from "./creative-opportunity.service";
 import { AudienceStrategyService } from "./audience-strategy.service";
+import { LandingPageIntelligenceService } from "./landing-page-intelligence.service";
 import { GenericCampaignsService } from "../business/generic-campaigns.service";
 
 function tally(rows: { decisions: unknown }[], itemsOf: (row: { decisions: unknown }) => { id: string }[]) {
@@ -56,6 +57,7 @@ export class CompetitiveIntelligenceService {
     private readonly strategies: CompetitiveStrategyService,
     private readonly concepts: CreativeOpportunityService,
     private readonly audiences: AudienceStrategyService,
+    private readonly landingPages: LandingPageIntelligenceService,
     private readonly genericCampaigns: GenericCampaignsService,
   ) {}
 
@@ -67,9 +69,10 @@ export class CompetitiveIntelligenceService {
    * CommandCentreService.
    */
   async dashboard(userId: string, businessId?: string) {
-    const [competitorRows, analyses, gapRows, strategyRows, conceptRows, audienceRows, campaigns] = await Promise.all([
+    const [competitorRows, analyses, landingPages, gapRows, strategyRows, conceptRows, audienceRows, campaigns] = await Promise.all([
       this.discovery.list(userId),
       this.analysis.list(userId, undefined, 50),
+      this.landingPages.list(userId, undefined, 50),
       this.gaps.list(userId, businessId),
       this.strategies.list(userId, businessId),
       this.concepts.list(userId),
@@ -85,6 +88,7 @@ export class CompetitiveIntelligenceService {
     return {
       competitors: { total: competitorRows.items.length, ...competitorsByStatus },
       creativeAnalyses: { total: analyses.items.length, recent: analyses.items.slice(0, 5) },
+      landingPageAnalyses: { total: landingPages.items.length, recent: landingPages.items.slice(0, 5) },
       marketGaps: tally(gapRows.items as { decisions: unknown }[], (r) => (r as unknown as { opportunities: { id: string }[] }).opportunities),
       strategies: tally(strategyRows.items as { decisions: unknown }[], (r) => (r as unknown as { strategies: { id: string }[] }).strategies),
       concepts: tally(conceptRows.items as { decisions: unknown }[], (r) => (r as unknown as { concepts: { id: string }[] }).concepts),

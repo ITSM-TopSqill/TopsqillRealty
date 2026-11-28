@@ -20,6 +20,7 @@ export default async function CompetitiveIntelligencePage() {
         the one source here with a genuine public API. Google Ads Transparency Center, TikTok Creative Center and LinkedIn&apos;s ad library
         aren&apos;t covered - no public API for them, and this build doesn&apos;t scrape.
         Shows real ad text, how long each has run, and an AI creative-strategy breakdown - never a competitor&apos;s CTR, ROAS, spend or sales, since that data isn&apos;t available from this source.
+        Below that, fetch a competitor&apos;s real landing page for a structured read of its messaging, offers, CTAs and trust signals.
       </p>
       <CompetitiveIntelligenceWorkspace />
       <p style={{ marginTop: 16 }}>

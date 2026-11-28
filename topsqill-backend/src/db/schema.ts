@@ -1012,6 +1012,39 @@ export const competitorCreativeAnalyses = pgTable("competitor_creative_analyses"
 }));
 
 /**
+ * Landing Page Intelligence (Module 4): a persisted, structured AI
+ * breakdown of a competitor's real landing page - messaging, offers, CTAs
+ * and trust signals, each kept separate from raw fact (the page text
+ * itself isn't stored here, only the structured read). `source` is
+ * 'claude' only when the model really ran; AI-off refuses rather than
+ * fabricating. `inputSource` is 'fetched' when our own server (or a paid
+ * unlocker) read the page live, or 'manual' when the member pasted the
+ * text by hand - for pages that block automated readers.
+ */
+export const competitorLandingPageAnalyses = pgTable("competitor_landing_page_analyses", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  competitorId: varchar("competitor_id", { length: 36 }),
+  url: varchar("url", { length: 500 }),
+  pageTitle: varchar("page_title", { length: 300 }),
+  headline: text("headline").notNull(),
+  subheadline: text("subheadline"),
+  keyMessages: jsonb("key_messages").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  offers: jsonb("offers").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  ctas: jsonb("ctas").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  trustSignals: jsonb("trust_signals").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  pricingMentioned: text("pricing_mentioned"),
+  formFields: jsonb("form_fields").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  confidence: varchar("confidence", { length: 10 }).notNull(),  // 'low' | 'medium' | 'high'
+  source: varchar("source", { length: 10 }).notNull().default("claude"),
+  inputSource: varchar("input_source", { length: 10 }).notNull().default("fetched"),  // 'fetched' | 'manual'
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  ownerIdx: index("competitor_landing_page_analyses_owner_idx").on(t.ownerId, t.createdAt.desc()),
+  competitorIdx: index("competitor_landing_page_analyses_competitor_idx").on(t.competitorId, t.createdAt.desc()),
+}));
+
+/**
  * Competitive Market Gap Engine (Module 5): one generated batch of
  * opportunities comparing the member's own business profile against their
  * tracked (accepted) competitors and any creative analyses already saved

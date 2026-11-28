@@ -1,7 +1,7 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from "@nestjs/common";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
-import { marketGapAnalyses, competitors, competitorCreativeAnalyses, businesses } from "../db/schema";
+import { marketGapAnalyses, competitors, competitorCreativeAnalyses, competitorLandingPageAnalyses, businesses } from "../db/schema";
 import { newId } from "../common/ids";
 import { ClaudeService } from "../ai/claude.service";
 import { validateOpportunities, type MarketGapOpportunity } from "./market-gap";
@@ -49,16 +49,26 @@ export class MarketGapAnalysisService {
     }
     if (!businessText.trim()) throw new BadRequestException("Add a business profile first, so opportunities are grounded in your own positioning, not guessed.");
 
-    const analyses = await this.read.select().from(competitorCreativeAnalyses)
-      .where(and(eq(competitorCreativeAnalyses.ownerId, userId), inArray(competitorCreativeAnalyses.competitorId, trackedCompetitors.map((c) => c.id))))
-      .orderBy(desc(competitorCreativeAnalyses.createdAt));
+    const competitorIds = trackedCompetitors.map((c) => c.id);
+    const [analyses, landingPages] = await Promise.all([
+      this.read.select().from(competitorCreativeAnalyses)
+        .where(and(eq(competitorCreativeAnalyses.ownerId, userId), inArray(competitorCreativeAnalyses.competitorId, competitorIds)))
+        .orderBy(desc(competitorCreativeAnalyses.createdAt)),
+      this.read.select().from(competitorLandingPageAnalyses)
+        .where(and(eq(competitorLandingPageAnalyses.ownerId, userId), inArray(competitorLandingPageAnalyses.competitorId, competitorIds)))
+        .orderBy(desc(competitorLandingPageAnalyses.createdAt)),
+    ]);
 
     const competitorText = trackedCompetitors.map((c) => {
       const own = analyses.filter((a) => a.competitorId === c.id).slice(0, 2);
       const analysisText = own.length
         ? own.map((a) => `  - Creative analysis (${a.confidence} confidence, ${a.inputSource === "manual" ? "entered by hand" : "Meta Ad Library"}): visual: ${a.visualStrategy} copy: ${a.copyStrategy} commercial: ${a.commercialStrategy} classification: ${a.classification.join(", ")}`).join("\n")
         : "  - No creative analysis saved for this competitor yet.";
-      return `${c.name} (${c.category}${c.website ? `, ${c.website}` : ""})${c.rationale ? ` - ${c.rationale}` : ""}\n${analysisText}`;
+      const ownPages = landingPages.filter((p) => p.competitorId === c.id).slice(0, 2);
+      const pageText = ownPages.length
+        ? ownPages.map((p) => `  - Landing page (${p.confidence} confidence${p.url ? `, ${p.url}` : ""}): headline: "${p.headline}" offers: ${p.offers.join("; ") || "none seen"} CTAs: ${p.ctas.join("; ") || "none seen"} trust signals: ${p.trustSignals.join("; ") || "none seen"} pricing: ${p.pricingMentioned ?? "not shown"}`).join("\n")
+        : "  - No landing-page analysis saved for this competitor yet.";
+      return `${c.name} (${c.category}${c.website ? `, ${c.website}` : ""})${c.rationale ? ` - ${c.rationale}` : ""}\n${analysisText}\n${pageText}`;
     }).join("\n\n");
 
     if (!(await this.claude.enabledFor("competitive-intelligence"))) {

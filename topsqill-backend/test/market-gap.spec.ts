@@ -91,6 +91,18 @@ describe("MarketGapAnalysisService.analyse", () => {
     expect(row.competitorIds).toEqual(["c1"]);
   });
 
+  it("feeds any saved landing-page analyses to the model as evidence too", async () => {
+    const LANDING_PAGE = { competitorId: "c1", confidence: "medium", url: "https://rival.example", headline: "Move in by Diwali", offers: ["10% early-bird discount"], ctas: ["Book a site visit"], trustSignals: ["RERA registered"], pricingMentioned: "Starts at 85L" };
+    const json = vi.fn().mockResolvedValue({ data: { opportunities: [SAMPLE_OPP] }, source: "claude" });
+    const svc = makeService({ claudeEnabled: true, readQueue: [[COMPETITOR], [BUSINESS], [], [LANDING_PAGE]] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (svc as any).claude.json = json;
+    await svc.analyse("u1", { competitorIds: ["c1"], businessId: "b1" });
+    const prompt = json.mock.calls[0][0] as string;
+    expect(prompt).toContain("Move in by Diwali");
+    expect(prompt).toContain("10% early-bird discount");
+  });
+
   it("rejects an opportunity with no evidence rather than silently accepting it", async () => {
     const bad = { ...SAMPLE_OPP, evidence: "" };
     const svc = makeService({ claudeEnabled: true, jsonResult: { data: { opportunities: [bad] }, source: "claude" } });
