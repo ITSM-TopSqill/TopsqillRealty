@@ -1,9 +1,16 @@
 /**
  * Meta Ad Library (the public, official "approved source" named in the
- * Competitive Intelligence spec). Uses an app access token
- * (`{app_id}|{app_secret}`, Meta's standard unauthenticated-server
- * credential - no per-user OAuth needed), which is enough for the
- * ads_archive endpoint's general (non-political/non-social-issue) search.
+ * Competitive Intelligence spec). Needs a User or System User access token
+ * from someone with a role on the app (a bare app_id|app_secret token is
+ * refused by `ads_archive` with an opaque "app role required" error).
+ *
+ * Confirmed the hard way (support ticket's worth of trial and error): Meta's
+ * ads_archive only ever returns (a) ads about social issues/elections/
+ * politics, worldwide, or (b) ads of any kind delivered to the UK or EU.
+ * Ordinary commercial ads anywhere else - India included - are simply not
+ * in this API's scope, no matter the credentials. `searchAdLibrary` checks
+ * the requested countries against that real list and refuses up front with
+ * an honest message, rather than making a call Meta will reject anyway.
  *
  * What this deliberately does NOT do:
  *  - Never returns a performance number (CTR, ROAS, spend, conversions) -
@@ -32,6 +39,13 @@ export type AdLibraryResult = {
 
 export class AdLibraryError extends Error {}
 export class AdLibraryNotConfiguredError extends AdLibraryError {}
+export class AdLibraryUnsupportedMarketError extends AdLibraryError {}
+
+/** The only countries ads_archive serves ordinary commercial ads for: the UK plus EU/EEA member states. */
+export const AD_LIBRARY_COMMERCIAL_COUNTRIES = new Set([
+  "GB", "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT",
+  "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "IS", "LI", "NO",
+]);
 
 type RawAd = {
   page_name?: string;
@@ -72,6 +86,11 @@ export async function searchAdLibrary(opts: {
   const token = opts.accessToken || (opts.appId && opts.appSecret ? `${opts.appId}|${opts.appSecret}` : null);
   if (!token) throw new AdLibraryNotConfiguredError("Meta Ad Library isn't configured (no META_ACCESS_TOKEN, or META_APP_ID/META_APP_SECRET) - this search can't run.");
   if (!opts.searchTerms?.trim()) throw new AdLibraryError("A search term (advertiser name, product or keyword) is needed.");
+  if (!opts.countries.some((c) => AD_LIBRARY_COMMERCIAL_COUNTRIES.has(c))) {
+    throw new AdLibraryUnsupportedMarketError(
+      "Meta's Ad Library API only covers ordinary commercial ads delivered to the UK or EU (plus ads about politics or social issues, worldwide) - it doesn't cover this market. Enter ads for this competitor by hand instead.",
+    );
+  }
 
   const url = new URL(`https://graph.facebook.com/${opts.apiVersion}/ads_archive`);
   url.searchParams.set("access_token", token);

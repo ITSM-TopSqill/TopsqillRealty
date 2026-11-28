@@ -146,7 +146,8 @@ export type Competitor = {
 export type CompetitorCreativeAnalysis = {
   id: string; competitorId: string | null; searchTerms: string; adCount: number;
   visualStrategy: string; copyStrategy: string; commercialStrategy: string;
-  classification: string[]; confidence: "low" | "medium" | "high"; createdAt: string;
+  classification: string[]; confidence: "low" | "medium" | "high";
+  inputSource: "meta_api" | "manual"; createdAt: string;
 };
 
 export type Project = {

@@ -994,6 +994,11 @@ export const competitorCreativeAnalyses = pgTable("competitor_creative_analyses"
   classification: jsonb("classification").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   confidence: varchar("confidence", { length: 10 }).notNull(),  // 'low' | 'medium' | 'high'
   source: varchar("source", { length: 10 }).notNull().default("claude"),
+  // Where the ad text analysed came from - 'meta_api' (a real Ad Library search,
+  // UK/EU only) or 'manual' (typed in by hand - the only option for markets like
+  // India that ads_archive simply doesn't serve). Never conflated: the UI and
+  // this column both say which one produced a given analysis.
+  inputSource: varchar("input_source", { length: 10 }).notNull().default("meta_api"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   ownerIdx: index("competitor_creative_analyses_owner_idx").on(t.ownerId, t.createdAt.desc()),

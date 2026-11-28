@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { mapAd, searchAdLibrary, AdLibraryNotConfiguredError, AdLibraryError } from "../src/competitive-intelligence/ad-library";
+import { mapAd, searchAdLibrary, AdLibraryNotConfiguredError, AdLibraryUnsupportedMarketError, AdLibraryError } from "../src/competitive-intelligence/ad-library";
 import { fingerprintAd } from "../src/competitive-intelligence/watch";
 
 describe("mapAd", () => {
@@ -46,9 +46,9 @@ describe("searchAdLibrary", () => {
   it("maps a successful real response into the honest result shape", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ data: [{ page_name: "Rival Realty", ad_creative_bodies: ["Luxury homes in Gurgaon"] }] }),
+      json: async () => ({ data: [{ page_name: "Rival Realty", ad_creative_bodies: ["Luxury homes in London"] }] }),
     }));
-    const results = await searchAdLibrary({ appId: "a", appSecret: "b", apiVersion: "v21.0", searchTerms: "realty gurgaon", countries: ["IN"], limit: 10 });
+    const results = await searchAdLibrary({ appId: "a", appSecret: "b", apiVersion: "v21.0", searchTerms: "realty london", countries: ["GB"], limit: 10 });
     expect(results).toHaveLength(1);
     expect(results[0].pageName).toBe("Rival Realty");
   });
@@ -58,8 +58,16 @@ describe("searchAdLibrary", () => {
       ok: false, status: 400,
       json: async () => ({ error: { message: "Invalid parameter", error_user_msg: "ad_reached_countries is required" } }),
     }));
-    await expect(searchAdLibrary({ appId: "a", appSecret: "b", apiVersion: "v21.0", searchTerms: "realty", countries: ["IN"], limit: 10 }))
+    await expect(searchAdLibrary({ appId: "a", appSecret: "b", apiVersion: "v21.0", searchTerms: "realty", countries: ["GB"], limit: 10 }))
       .rejects.toThrow(/ad_reached_countries is required/);
+  });
+
+  it("refuses a market ads_archive doesn't cover (e.g. India) up front, without calling Meta at all", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    await expect(searchAdLibrary({ appId: "a", appSecret: "b", apiVersion: "v21.0", searchTerms: "realty", countries: ["IN"], limit: 10 }))
+      .rejects.toThrow(AdLibraryUnsupportedMarketError);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 

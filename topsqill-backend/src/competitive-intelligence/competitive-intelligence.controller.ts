@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
-import { IsOptional, IsString, MaxLength, IsInt, Min, Max, IsIn } from "class-validator";
+import { IsOptional, IsString, MaxLength, IsInt, Min, Max, IsIn, IsArray, ArrayMinSize, ArrayMaxSize, ValidateNested } from "class-validator";
 import { Type } from "class-transformer";
 import { CompetitiveIntelligenceService } from "./competitive-intelligence.service";
 import { CompetitorDiscoveryService, CATEGORIES, type Category } from "./competitor-discovery.service";
@@ -19,6 +19,18 @@ class CreateWatchDto {
 
 class AnalyseDto {
   @IsString() @MaxLength(200) searchTerms: string;
+  @IsOptional() @IsString() competitorId?: string;
+}
+
+class ManualAdDto {
+  @IsString() @MaxLength(160) pageName: string;
+  @IsOptional() @IsString() @MaxLength(300) headline?: string;
+  @IsOptional() @IsString() @MaxLength(2000) body?: string;
+}
+
+class AnalyseManualDto {
+  @IsString() @MaxLength(200) label: string;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(10) @ValidateNested({ each: true }) @Type(() => ManualAdDto) ads: ManualAdDto[];
   @IsOptional() @IsString() competitorId?: string;
 }
 
@@ -66,8 +78,11 @@ export class CompetitiveIntelligenceController {
 
   /* ----------------------------- creative analysis ----------------------------- */
 
-  @Post("analyse") @ApiOperation({ summary: "Run and save a structured visual/copy/commercial creative-strategy analysis over real ads for a search" })
+  @Post("analyse") @ApiOperation({ summary: "Run and save a structured visual/copy/commercial creative-strategy analysis over real ads for a search (Meta Ad Library - UK/EU only)" })
   analyse(@CurrentUser() user: AuthUser, @Body() dto: AnalyseDto) { return this.analysis.analyse(user.id, dto.searchTerms, dto.competitorId); }
+
+  @Post("analyse-manual") @ApiOperation({ summary: "Run and save a structured creative-strategy analysis over ads typed in by hand - for markets Meta's Ad Library doesn't serve" })
+  analyseManual(@CurrentUser() user: AuthUser, @Body() dto: AnalyseManualDto) { return this.analysis.analyseManual(user.id, dto.label, dto.ads, dto.competitorId); }
 
   @Get("analyses") @ApiOperation({ summary: "List previously saved creative-strategy analyses" })
   listAnalyses(@CurrentUser() user: AuthUser, @Query("competitorId") competitorId?: string, @Query("limit") limit?: string) {

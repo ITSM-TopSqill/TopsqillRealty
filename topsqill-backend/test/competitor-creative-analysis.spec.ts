@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.hoisted(() => {
   process.env.DATABASE_URL ??= "postgres://x@localhost/x";
@@ -91,5 +91,36 @@ describe("CompetitorCreativeAnalysisService.analyse", () => {
     expect(row.classification).toEqual(["Price promotion"]);
     expect(row.confidence).toBe("high");
     expect(row.adCount).toBe(1);
+    expect(row.inputSource).toBe("meta_api");
+  });
+});
+
+describe("CompetitorCreativeAnalysisService.analyseManual", () => {
+  beforeEach(() => adLibraryMock.searchAdLibrary.mockClear());
+
+  it("rejects an empty ad list", async () => {
+    const svc = makeService({});
+    await expect(svc.analyseManual("u1", "Acme", [])).rejects.toThrow(/at least one ad/i);
+  });
+
+  it("drops an ad with no advertiser name or with neither headline nor body", async () => {
+    const svc = makeService({});
+    await expect(svc.analyseManual("u1", "Acme", [{ pageName: "", headline: "x" }, { pageName: "Acme" }])).rejects.toThrow(/at least one ad/i);
+  });
+
+  it("never calls Meta's Ad Library - manual ads are analysed as given", async () => {
+    const svc = makeService({
+      claudeEnabled: true,
+      jsonResult: { data: { visualStrategy: "A single static image.", copyStrategy: "Price-led headline.", commercialStrategy: "Value positioning.", classification: ["Price promotion"], confidence: "low" }, source: "claude" },
+    });
+    const row = await svc.analyseManual("u1", "Acme Realty", [{ pageName: "Acme Realty", headline: "3 BHK from 85L", body: "Book a visit" }]);
+    expect(adLibraryMock.searchAdLibrary).not.toHaveBeenCalled();
+    expect(row.inputSource).toBe("manual");
+    expect(row.adCount).toBe(1);
+  });
+
+  it("refuses a competitorId that doesn't belong to the owner", async () => {
+    const svc = makeService({ competitorRow: null });
+    await expect(svc.analyseManual("u1", "Acme", [{ pageName: "Acme", body: "x" }], "c-not-mine")).rejects.toThrow(/competitor could not be found/i);
   });
 });
