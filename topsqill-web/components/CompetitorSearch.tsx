@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { clientApi } from "@/lib/api";
-import type { AdLibraryResult, PatternSummary } from "@/lib/types";
+import type { AdLibraryResult, PatternSummary, CompetitorCreativeAnalysis } from "@/lib/types";
 
 type Watch = { id: string; searchTerms: string; lastCheckedAt: string | null };
+
+const CONFIDENCE_COLOR: Record<string, string> = { high: "#12B76A", medium: "#B9850A", low: "#8D8AA3" };
 
 /**
  * Competitive Intelligence: a real, on-demand search of Meta's public Ad
@@ -17,16 +19,36 @@ type Watch = { id: string; searchTerms: string; lastCheckedAt: string | null };
  * background worker re-checks it every few hours and notifies of
  * genuinely new ads only (never on the first check, which just baselines).
  */
-export function CompetitorSearch() {
-  const [q, setQ] = useState("");
+export function CompetitorSearch({ initialQuery, competitorId, competitorName }: { initialQuery?: string; competitorId?: string; competitorName?: string } = {}) {
+  const [q, setQ] = useState(initialQuery ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [results, setResults] = useState<AdLibraryResult[] | null>(null);
   const [patterns, setPatterns] = useState<PatternSummary | null>(null);
   const [watches, setWatches] = useState<Watch[]>([]);
   const [watching, setWatching] = useState(false);
+  const [analysing, setAnalysing] = useState(false);
+  const [analysis, setAnalysis] = useState<CompetitorCreativeAnalysis | null>(null);
+  const [history, setHistory] = useState<CompetitorCreativeAnalysis[]>([]);
 
-  useEffect(() => { refreshWatches(); }, []);
+  useEffect(() => { refreshWatches(); refreshHistory(); }, [competitorId]);
+  useEffect(() => { if (initialQuery) { setQ(initialQuery); setResults(null); setPatterns(null); setAnalysis(null); } }, [initialQuery]);
+
+  function refreshHistory() {
+    const qs = competitorId ? `?competitorId=${encodeURIComponent(competitorId)}` : "";
+    clientApi<{ items: CompetitorCreativeAnalysis[] }>(`/v1/competitive-intelligence/analyses${qs}`).then((r) => setHistory(r.items)).catch(() => {});
+  }
+
+  async function analyse() {
+    if (!q.trim()) return;
+    setAnalysing(true); setError(""); setAnalysis(null);
+    try {
+      const row = await clientApi<CompetitorCreativeAnalysis>("/v1/competitive-intelligence/analyse", { method: "POST", body: { searchTerms: q, competitorId } });
+      setAnalysis(row);
+      refreshHistory();
+    } catch (e) { setError((e as Error).message || "Something went wrong."); }
+    finally { setAnalysing(false); }
+  }
 
   async function refreshWatches() {
     clientApi<{ items: Watch[] }>("/v1/competitive-intelligence/watches").then((r) => setWatches(r.items)).catch(() => {});
@@ -47,7 +69,7 @@ export function CompetitorSearch() {
     if (!q.trim()) return;
     setWatching(true); setError("");
     try {
-      await clientApi("/v1/competitive-intelligence/watches", { method: "POST", body: { searchTerms: q } });
+      await clientApi("/v1/competitive-intelligence/watches", { method: "POST", body: { searchTerms: q, competitorId } });
       await refreshWatches();
     } catch (e) { setError((e as Error).message || "Something went wrong."); }
     finally { setWatching(false); }
@@ -63,6 +85,7 @@ export function CompetitorSearch() {
   return (
     <div className="col" style={{ gap: 16 }}>
       <div className="card pad">
+        {competitorName ? <p className="small muted" style={{ marginTop: 0 }}>Searching for <b>{competitorName}</b></p> : null}
         <div className="field">
           <label htmlFor="comp-search">Advertiser, product or keyword</label>
           <input id="comp-search" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && search()} placeholder="e.g. 3 BHK Gurgaon, or a builder's name" />
@@ -72,9 +95,23 @@ export function CompetitorSearch() {
           <button type="button" className="btn btn-o" disabled={watching || !q.trim() || alreadyWatching} onClick={watch} title="Re-checked every few hours; you're notified only of genuinely new ads">
             {alreadyWatching ? "Already watching" : watching ? "Saving…" : "👁 Watch this search"}
           </button>
+          <button type="button" className="btn btn-o" disabled={analysing || !q.trim()} onClick={analyse} title="A persisted, structured breakdown of visual/copy/commercial strategy across these ads">
+            {analysing ? "Analysing…" : "🔍 Analyse creative strategy"}
+          </button>
         </div>
         {error ? <p className="error small" style={{ marginTop: 8 }}>{error}</p> : null}
       </div>
+
+      {analysis ? <CreativeAnalysisCard a={analysis} /> : null}
+
+      {history.length ? (
+        <div className="card pad">
+          <b className="small">Past analyses{competitorName ? ` for ${competitorName}` : ""}</b>
+          <div className="col" style={{ gap: 10, marginTop: 8 }}>
+            {history.filter((h) => h.id !== analysis?.id).map((h) => <CreativeAnalysisCard key={h.id} a={h} collapsed />)}
+          </div>
+        </div>
+      ) : null}
 
       {watches.length ? (
         <div className="card pad">
@@ -120,6 +157,30 @@ export function CompetitorSearch() {
           </>
         ) : <p className="small muted">No currently or recently running ads found for that search.</p>
       ) : null}
+    </div>
+  );
+}
+
+function CreativeAnalysisCard({ a, collapsed }: { a: CompetitorCreativeAnalysis; collapsed?: boolean }) {
+  return (
+    <div className={collapsed ? "" : "card pad"} style={collapsed ? { borderTop: "1px solid var(--line)", paddingTop: 10 } : { borderLeft: "4px solid #6A3FE0" }}>
+      <div className="spread" style={{ flexWrap: "wrap", gap: 6 }}>
+        <b className="small">{a.searchTerms} · {a.adCount} ads analysed</b>
+        <span className="pill small" style={{ background: `color-mix(in srgb,${CONFIDENCE_COLOR[a.confidence]} 16%,transparent)`, color: CONFIDENCE_COLOR[a.confidence] }}>
+          {a.confidence} confidence
+        </span>
+      </div>
+      {a.classification.length ? (
+        <div className="row" style={{ gap: 4, marginTop: 6, flexWrap: "wrap" }}>
+          {a.classification.map((c) => <span key={c} className="pill small" style={{ background: "color-mix(in srgb,#8D8AA3 14%,transparent)" }}>{c}</span>)}
+        </div>
+      ) : null}
+      <div className="col" style={{ gap: 6, marginTop: 8 }}>
+        <p className="small"><b>Visual strategy</b> — {a.visualStrategy}</p>
+        <p className="small"><b>Copy strategy</b> — {a.copyStrategy}</p>
+        <p className="small"><b>Commercial strategy</b> — {a.commercialStrategy}</p>
+      </div>
+      <p className="small muted" style={{ marginTop: 6 }}>{new Date(a.createdAt).toLocaleString("en-IN")} · AI-inferred from ad text, not a performance claim</p>
     </div>
   );
 }

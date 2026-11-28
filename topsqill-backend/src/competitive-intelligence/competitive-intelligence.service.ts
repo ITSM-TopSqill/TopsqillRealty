@@ -1,7 +1,7 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from "@nestjs/common";
 import { and, desc, eq } from "drizzle-orm";
 import { DB, DB_READ, type Database } from "../db/db.module";
-import { competitorWatches } from "../db/schema";
+import { competitorWatches, competitors } from "../db/schema";
 import { env } from "../common/env";
 import { newId } from "../common/ids";
 import { ClaudeService } from "../ai/claude.service";
@@ -66,13 +66,17 @@ export class CompetitiveIntelligenceService {
 
   /* --------------------------- continuous monitoring --------------------------- */
 
-  async createWatch(userId: string, searchTerms: string) {
+  async createWatch(userId: string, searchTerms: string, competitorId?: string) {
     const term = searchTerms.trim();
     if (!term) throw new BadRequestException("A search term is needed.");
     const existing = await this.read.select().from(competitorWatches).where(eq(competitorWatches.ownerId, userId));
     if (existing.length >= MAX_WATCHES_PER_OWNER) throw new BadRequestException(`You can watch up to ${MAX_WATCHES_PER_OWNER} searches - remove one before adding another.`);
     if (existing.some((w) => w.searchTerms.toLowerCase() === term.toLowerCase())) throw new BadRequestException("You're already watching that search.");
-    const [row] = await this.db.insert(competitorWatches).values({ id: newId(), ownerId: userId, searchTerms: term.slice(0, 200) }).returning();
+    if (competitorId) {
+      const [owned] = await this.read.select({ id: competitors.id }).from(competitors).where(and(eq(competitors.id, competitorId), eq(competitors.ownerId, userId))).limit(1);
+      if (!owned) throw new NotFoundException("That competitor could not be found.");
+    }
+    const [row] = await this.db.insert(competitorWatches).values({ id: newId(), ownerId: userId, searchTerms: term.slice(0, 200), competitorId: competitorId ?? null }).returning();
     return row;
   }
 

@@ -929,6 +929,7 @@ export const competitorWatches = pgTable("competitor_watches", {
   id: varchar("id", { length: 36 }).primaryKey(),
   ownerId: varchar("owner_id", { length: 36 }).notNull(),
   searchTerms: varchar("search_terms", { length: 200 }).notNull(),
+  competitorId: varchar("competitor_id", { length: 36 }),  // optional link to a saved `competitors` row
   lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ ownerIdx: index("competitor_watches_owner_idx").on(t.ownerId, t.createdAt.desc()) }));
@@ -944,4 +945,57 @@ export const competitorWatchAds = pgTable("competitor_watch_ads", {
 }, (t) => ({
   uq: uniqueIndex("competitor_watch_ads_uq").on(t.watchId, t.fingerprint),
   watchIdx: index("competitor_watch_ads_watch_idx").on(t.watchId),
+}));
+
+/**
+ * Competitor Discovery (Competitive Growth Intelligence spec, Module 1): a
+ * named competitor the member is tracking, entered by hand or suggested by
+ * AI from their business profile. An AI suggestion is never auto-accepted -
+ * `status` starts "suggested" and only becomes "accepted" when the member
+ * says so, and `rationale` always records why the AI proposed it so that
+ * can be checked rather than taken on faith.
+ */
+export const competitors = pgTable("competitors", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  website: varchar("website", { length: 300 }),
+  category: varchar("category", { length: 20 }).notNull().default("direct"),
+  // 'direct' | 'indirect' | 'substitute' | 'emerging' | 'premium' | 'price_focused' | 'market_leader' | 'regional'
+  status: varchar("status", { length: 10 }).notNull().default("accepted"),  // 'suggested' | 'accepted' | 'rejected'
+  source: varchar("source", { length: 10 }).notNull().default("manual"),   // 'manual' | 'ai'
+  rationale: text("rationale"),     // why an AI suggestion was proposed - required evidence, never a bare name
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  ownerIdx: index("competitors_owner_idx").on(t.ownerId, t.createdAt.desc()),
+  ownerStatusIdx: index("competitors_owner_status_idx").on(t.ownerId, t.status),
+}));
+
+/**
+ * Competitor Creative Analyser (Module 3): a persisted, structured AI
+ * breakdown of a batch of real ads just fetched from the Ad Library -
+ * visual/copy/commercial strategy plus a classification, each kept
+ * separate from raw fact so inferred strategy is never confused with what
+ * the source actually returned. `source` is 'claude' only when the model
+ * really ran; a 'rules' fallback never happens here (if AI is off, no row
+ * is written - see CompetitorCreativeAnalysisService).
+ */
+export const competitorCreativeAnalyses = pgTable("competitor_creative_analyses", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  competitorId: varchar("competitor_id", { length: 36 }),
+  searchTerms: varchar("search_terms", { length: 200 }).notNull(),
+  adCount: integer("ad_count").notNull(),
+  visualStrategy: text("visual_strategy").notNull(),
+  copyStrategy: text("copy_strategy").notNull(),
+  commercialStrategy: text("commercial_strategy").notNull(),
+  classification: jsonb("classification").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  confidence: varchar("confidence", { length: 10 }).notNull(),  // 'low' | 'medium' | 'high'
+  source: varchar("source", { length: 10 }).notNull().default("claude"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  ownerIdx: index("competitor_creative_analyses_owner_idx").on(t.ownerId, t.createdAt.desc()),
+  competitorIdx: index("competitor_creative_analyses_competitor_idx").on(t.competitorId, t.createdAt.desc()),
 }));

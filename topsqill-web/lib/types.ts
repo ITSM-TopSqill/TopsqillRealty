@@ -135,6 +135,20 @@ export type AdLibraryResult = {
 };
 export type PatternSummary = { available: true; text: string } | { available: false; reason: string };
 
+export type CompetitorCategory = "direct" | "indirect" | "substitute" | "emerging" | "premium" | "price_focused" | "market_leader" | "regional";
+
+export type Competitor = {
+  id: string; name: string; website: string | null; category: CompetitorCategory;
+  status: "suggested" | "accepted" | "rejected"; source: "manual" | "ai";
+  rationale: string | null; notes: string | null; createdAt: string;
+};
+
+export type CompetitorCreativeAnalysis = {
+  id: string; competitorId: string | null; searchTerms: string; adCount: number;
+  visualStrategy: string; copyStrategy: string; commercialStrategy: string;
+  classification: string[]; confidence: "low" | "medium" | "high"; createdAt: string;
+};
+
 export type Project = {
   id: string; ownerId: string; sourceUrl?: string | null; name: string; builder?: string | null;
   city: string; locality: string; reraNumber?: string | null; status: string; possession?: string | null;
