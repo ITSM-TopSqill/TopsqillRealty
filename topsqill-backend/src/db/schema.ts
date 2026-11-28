@@ -1046,3 +1046,25 @@ export const competitiveStrategies = pgTable("competitive_strategies", {
   source: varchar("source", { length: 10 }).notNull().default("claude"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ ownerIdx: index("competitive_strategies_owner_idx").on(t.ownerId, t.createdAt.desc()) }));
+
+/**
+ * Creative Opportunity Generator (Module 7): a batch of original campaign
+ * concepts (angle, headlines, primary texts, CTA variations, visual/video/
+ * carousel ideas) grounded in exactly one APPROVED market-gap opportunity
+ * or competitive-strategy item - never a reproduction of a competitor's
+ * real ad text. Same approve/reject-by-id discipline as the two tables
+ * above; "add to campaign" wiring is a later phase, not this one.
+ */
+export const creativeConcepts = pgTable("creative_concepts", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  marketGapAnalysisId: varchar("market_gap_analysis_id", { length: 36 }),
+  opportunityId: varchar("opportunity_id", { length: 40 }),
+  competitiveStrategyId: varchar("competitive_strategy_id", { length: 36 }),
+  strategyItemId: varchar("strategy_item_id", { length: 40 }),
+  label: varchar("label", { length: 200 }).notNull(),
+  concepts: jsonb("concepts").$type<Record<string, unknown>[]>().notNull(),
+  decisions: jsonb("decisions").$type<Record<string, "approved" | "rejected">>().notNull().default(sql`'{}'::jsonb`),
+  source: varchar("source", { length: 10 }).notNull().default("claude"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ ownerIdx: index("creative_concepts_owner_idx").on(t.ownerId, t.createdAt.desc()) }));

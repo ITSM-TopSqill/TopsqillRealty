@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { clientApi } from "@/lib/api";
-import type { Competitor, MarketGapAnalysis, CompetitiveStrategyBatch } from "@/lib/types";
+import type { Competitor, MarketGapAnalysis, CompetitiveStrategyBatch, CreativeConceptBatch } from "@/lib/types";
 
 type Business = { id: string; name: string };
 const CONFIDENCE_COLOR: Record<string, string> = { high: "#12B76A", medium: "#B9850A", low: "#8D8AA3" };
@@ -29,6 +29,10 @@ export function MarketStrategyWorkspace() {
   const [stratBusy, setStratBusy] = useState(false);
   const [stratError, setStratError] = useState("");
   const [strategyBatch, setStrategyBatch] = useState<CompetitiveStrategyBatch | null>(null);
+
+  const [conceptBatches, setConceptBatches] = useState<Record<string, CreativeConceptBatch>>({});
+  const [conceptBusyKey, setConceptBusyKey] = useState<string | null>(null);
+  const [conceptError, setConceptError] = useState("");
 
   useEffect(() => {
     clientApi<{ items: Business[] }>("/v1/business").then((r) => { setBusinesses(r.items); if (r.items[0]) setBusinessId(r.items[0].id); }).catch(() => {});
@@ -80,6 +84,37 @@ export function MarketStrategyWorkspace() {
   }
 
   const approvedGapCount = gap ? Object.values(gap.decisions).filter((d) => d === "approved").length : 0;
+
+  async function generateConceptsFromGap(oppId: string) {
+    if (!gap) return;
+    setConceptBusyKey(oppId); setConceptError("");
+    try {
+      const row = await clientApi<CreativeConceptBatch>("/v1/competitive-intelligence/concepts", {
+        method: "POST", body: { marketGapAnalysisId: gap.id, opportunityId: oppId },
+      });
+      setConceptBatches((m) => ({ ...m, [oppId]: row }));
+    } catch (e) { setConceptError((e as Error).message || "Something went wrong."); }
+    finally { setConceptBusyKey(null); }
+  }
+
+  async function generateConceptsFromStrategy(stratId: string) {
+    if (!strategyBatch) return;
+    setConceptBusyKey(stratId); setConceptError("");
+    try {
+      const row = await clientApi<CreativeConceptBatch>("/v1/competitive-intelligence/concepts", {
+        method: "POST", body: { competitiveStrategyId: strategyBatch.id, strategyItemId: stratId },
+      });
+      setConceptBatches((m) => ({ ...m, [stratId]: row }));
+    } catch (e) { setConceptError((e as Error).message || "Something went wrong."); }
+    finally { setConceptBusyKey(null); }
+  }
+
+  async function resolveConcept(key: string, batchId: string, conceptId: string, status: "approved" | "rejected") {
+    try {
+      const row = await clientApi<CreativeConceptBatch>(`/v1/competitive-intelligence/concepts/${batchId}/items/${conceptId}/resolve`, { method: "POST", body: { status } });
+      setConceptBatches((m) => ({ ...m, [key]: row }));
+    } catch (e) { setConceptError((e as Error).message || "Something went wrong."); }
+  }
 
   return (
     <div className="col" style={{ gap: 16 }}>
@@ -150,7 +185,13 @@ export function MarketStrategyWorkspace() {
                   <div className="row" style={{ gap: 6, marginTop: 8 }}>
                     <button type="button" className={`btn sm ${decision === "approved" ? "btn-ai" : "btn-g"}`} onClick={() => resolveOpportunity(o.id, "approved")}>{decision === "approved" ? "✓ Approved" : "Approve"}</button>
                     <button type="button" className={`btn sm ${decision === "rejected" ? "btn-ai" : "btn-g"}`} onClick={() => resolveOpportunity(o.id, "rejected")}>{decision === "rejected" ? "✓ Rejected" : "Reject"}</button>
+                    {decision === "approved" ? (
+                      <button type="button" className="btn btn-o sm" disabled={conceptBusyKey === o.id} onClick={() => generateConceptsFromGap(o.id)}>
+                        {conceptBusyKey === o.id ? "Generating…" : "✨ Generate creative concepts"}
+                      </button>
+                    ) : null}
                   </div>
+                  {conceptBatches[o.id] ? <ConceptList batch={conceptBatches[o.id]} onResolve={(cid, status) => resolveConcept(o.id, conceptBatches[o.id].id, cid, status)} /> : null}
                 </div>
               );
             })}
@@ -181,13 +222,50 @@ export function MarketStrategyWorkspace() {
                   <div className="row" style={{ gap: 6, marginTop: 8 }}>
                     <button type="button" className={`btn sm ${decision === "approved" ? "btn-ai" : "btn-g"}`} onClick={() => resolveStrategy(s.id, "approved")}>{decision === "approved" ? "✓ Approved" : "Approve"}</button>
                     <button type="button" className={`btn sm ${decision === "rejected" ? "btn-ai" : "btn-g"}`} onClick={() => resolveStrategy(s.id, "rejected")}>{decision === "rejected" ? "✓ Rejected" : "Reject"}</button>
+                    {decision === "approved" ? (
+                      <button type="button" className="btn btn-o sm" disabled={conceptBusyKey === s.id} onClick={() => generateConceptsFromStrategy(s.id)}>
+                        {conceptBusyKey === s.id ? "Generating…" : "✨ Generate creative concepts"}
+                      </button>
+                    ) : null}
                   </div>
+                  {conceptBatches[s.id] ? <ConceptList batch={conceptBatches[s.id]} onResolve={(cid, status) => resolveConcept(s.id, conceptBatches[s.id].id, cid, status)} /> : null}
                 </div>
               );
             })}
           </div>
         </div>
       ) : null}
+      {conceptError ? <p className="error small">{conceptError}</p> : null}
+    </div>
+  );
+}
+
+function ConceptList({ batch, onResolve }: { batch: CreativeConceptBatch; onResolve: (conceptId: string, status: "approved" | "rejected") => void }) {
+  return (
+    <div className="col" style={{ gap: 8, marginTop: 10 }}>
+      {batch.concepts.map((c) => {
+        const decision = batch.decisions[c.id];
+        return (
+          <div key={c.id} className="card pad" style={{ background: "color-mix(in srgb,#6A3FE0 5%,transparent)" }}>
+            <div className="spread" style={{ flexWrap: "wrap", gap: 6 }}>
+              <b className="small">{c.angle}</b>
+              <span className="pill small" style={{ background: `color-mix(in srgb,${CONFIDENCE_COLOR[c.confidence]} 16%,transparent)`, color: CONFIDENCE_COLOR[c.confidence] }}>{c.format}</span>
+            </div>
+            <div className="col" style={{ gap: 4, marginTop: 6 }}>
+              <p className="small"><b>Headlines</b> — {c.headlines.join(" · ")}</p>
+              <p className="small"><b>Primary text</b> — {c.primaryTexts.join(" · ")}</p>
+              <p className="small"><b>CTA</b> — {c.ctaVariations.join(" · ")}</p>
+              <p className="small muted"><b>Visual idea</b> — {c.visualConcept}</p>
+              <p className="small muted"><b>Video idea</b> — {c.videoConcept}</p>
+              {c.carouselConcept ? <p className="small muted"><b>Carousel idea</b> — {c.carouselConcept}</p> : null}
+            </div>
+            <div className="row" style={{ gap: 6, marginTop: 8 }}>
+              <button type="button" className={`btn sm ${decision === "approved" ? "btn-ai" : "btn-g"}`} onClick={() => onResolve(c.id, "approved")}>{decision === "approved" ? "✓ Approved" : "Approve"}</button>
+              <button type="button" className={`btn sm ${decision === "rejected" ? "btn-ai" : "btn-g"}`} onClick={() => onResolve(c.id, "rejected")}>{decision === "rejected" ? "✓ Rejected" : "Reject"}</button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

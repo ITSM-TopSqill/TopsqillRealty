@@ -170,6 +170,17 @@ export type CompetitiveStrategyBatch = {
   strategies: CompetitiveStrategyItem[]; decisions: Record<string, "approved" | "rejected">; createdAt: string;
 };
 
+export type CreativeConcept = {
+  id: string; angle: string; headlines: string[]; primaryTexts: string[]; ctaVariations: string[];
+  visualConcept: string; videoConcept: string; carouselConcept: string; format: string;
+  confidence: "low" | "medium" | "high";
+};
+export type CreativeConceptBatch = {
+  id: string; label: string; marketGapAnalysisId: string | null; opportunityId: string | null;
+  competitiveStrategyId: string | null; strategyItemId: string | null;
+  concepts: CreativeConcept[]; decisions: Record<string, "approved" | "rejected">; createdAt: string;
+};
+
 export type Project = {
   id: string; ownerId: string; sourceUrl?: string | null; name: string; builder?: string | null;
   city: string; locality: string; reraNumber?: string | null; status: string; possession?: string | null;

@@ -7,6 +7,7 @@ import { CompetitorDiscoveryService, CATEGORIES, type Category } from "./competi
 import { CompetitorCreativeAnalysisService } from "./competitor-creative-analysis.service";
 import { MarketGapAnalysisService } from "./market-gap.service";
 import { CompetitiveStrategyService } from "./competitive-strategy.service";
+import { CreativeOpportunityService } from "./creative-opportunity.service";
 import { CurrentUser, AuthUser } from "../auth/public.decorator";
 
 class SearchQueryDto {
@@ -60,6 +61,13 @@ class GenerateStrategyDto {
 
 class ResolveItemDto { @IsIn(["approved", "rejected"]) status: "approved" | "rejected"; }
 
+class GenerateConceptsDto {
+  @IsOptional() @IsString() marketGapAnalysisId?: string;
+  @IsOptional() @IsString() opportunityId?: string;
+  @IsOptional() @IsString() competitiveStrategyId?: string;
+  @IsOptional() @IsString() strategyItemId?: string;
+}
+
 /**
  * Competitive Intelligence: competitor discovery (Module 1), a real,
  * on-demand search of Meta's public Ad Library (Module 2, the one source
@@ -77,6 +85,7 @@ export class CompetitiveIntelligenceController {
     private readonly analysis: CompetitorCreativeAnalysisService,
     private readonly gaps: MarketGapAnalysisService,
     private readonly strategies: CompetitiveStrategyService,
+    private readonly concepts: CreativeOpportunityService,
   ) {}
 
   /* ------------------------------ ad search ------------------------------ */
@@ -155,5 +164,21 @@ export class CompetitiveIntelligenceController {
   @Post("strategies/:id/items/:stratId/resolve") @ApiOperation({ summary: "Approve or reject one strategy" })
   resolveStrategy(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("stratId") stratId: string, @Body() dto: ResolveItemDto) {
     return this.strategies.resolveStrategy(user.id, id, stratId, dto.status);
+  }
+
+  /* ------------------------------ creative concepts ------------------------------ */
+
+  @Post("concepts") @ApiOperation({ summary: "Generate original campaign concepts grounded in exactly one approved market-gap opportunity or strategy" })
+  generateConcepts(@CurrentUser() user: AuthUser, @Body() dto: GenerateConceptsDto) { return this.concepts.generate(user.id, dto); }
+
+  @Get("concepts") @ApiOperation({ summary: "List past creative-concept generations" })
+  listConcepts(@CurrentUser() user: AuthUser) { return this.concepts.list(user.id); }
+
+  @Get("concepts/:id")
+  getConcepts(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.concepts.get(user.id, id); }
+
+  @Post("concepts/:id/items/:conceptId/resolve") @ApiOperation({ summary: "Approve or reject one concept" })
+  resolveConcept(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("conceptId") conceptId: string, @Body() dto: ResolveItemDto) {
+    return this.concepts.resolveConcept(user.id, id, conceptId, dto.status);
   }
 }
