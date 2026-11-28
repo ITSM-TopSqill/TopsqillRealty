@@ -150,6 +150,26 @@ export type CompetitorCreativeAnalysis = {
   inputSource: "meta_api" | "manual"; createdAt: string;
 };
 
+export type MarketGapOpportunity = {
+  id: string; observation: string; evidence: string; opportunity: string; businessRelevance: string;
+  suggestedCampaign: string; suggestedCreative: string; suggestedAudience: string;
+  confidence: "low" | "medium" | "high"; risk: string; validationExperiment: string;
+};
+export type MarketGapAnalysis = {
+  id: string; businessId: string | null; competitorIds: string[];
+  opportunities: MarketGapOpportunity[]; decisions: Record<string, "approved" | "rejected">; createdAt: string;
+};
+
+export type CompetitiveStrategyItem = {
+  id: string; template: string; label: string; rationale: string; positioning: string;
+  targetSegment: string; keyMessage: string; differentiation: string; risk: string;
+  confidence: "low" | "medium" | "high";
+};
+export type CompetitiveStrategyBatch = {
+  id: string; businessId: string | null; competitorIds: string[]; marketGapAnalysisId: string | null;
+  strategies: CompetitiveStrategyItem[]; decisions: Record<string, "approved" | "rejected">; createdAt: string;
+};
+
 export type Project = {
   id: string; ownerId: string; sourceUrl?: string | null; name: string; builder?: string | null;
   city: string; locality: string; reraNumber?: string | null; status: string; possession?: string | null;

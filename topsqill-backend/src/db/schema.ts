@@ -1004,3 +1004,45 @@ export const competitorCreativeAnalyses = pgTable("competitor_creative_analyses"
   ownerIdx: index("competitor_creative_analyses_owner_idx").on(t.ownerId, t.createdAt.desc()),
   competitorIdx: index("competitor_creative_analyses_competitor_idx").on(t.competitorId, t.createdAt.desc()),
 }));
+
+/**
+ * Competitive Market Gap Engine (Module 5): one generated batch of
+ * opportunities comparing the member's own business profile against their
+ * tracked (accepted) competitors and any creative analyses already saved
+ * for them. Each opportunity in `opportunities` carries its own evidence,
+ * confidence, risk and validation experiment - never a bare claim. Never
+ * says a segment is "underserved" from a mere absence of observed ads (the
+ * spec's explicit ban) - that discipline lives in the prompt, not here.
+ * `decisions` mirrors campaignEvolutions: the member approves/rejects each
+ * opportunity by id before anything downstream (the Strategy Generator)
+ * treats it as accepted.
+ */
+export const marketGapAnalyses = pgTable("market_gap_analyses", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  businessId: varchar("business_id", { length: 36 }),
+  competitorIds: jsonb("competitor_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  opportunities: jsonb("opportunities").$type<Record<string, unknown>[]>().notNull(),
+  decisions: jsonb("decisions").$type<Record<string, "approved" | "rejected">>().notNull().default(sql`'{}'::jsonb`),
+  source: varchar("source", { length: 10 }).notNull().default("claude"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ ownerIdx: index("market_gap_analyses_owner_idx").on(t.ownerId, t.createdAt.desc()) }));
+
+/**
+ * Competitive Strategy Generator (Module 6): 1-3 differentiation strategies
+ * picked from a fixed template list (never invented) and grounded in the
+ * business profile, tracked competitors, and optionally one market-gap
+ * analysis's approved opportunities. Same approve/reject-by-id discipline
+ * as the gap engine; nothing here launches a campaign on its own.
+ */
+export const competitiveStrategies = pgTable("competitive_strategies", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  ownerId: varchar("owner_id", { length: 36 }).notNull(),
+  businessId: varchar("business_id", { length: 36 }),
+  competitorIds: jsonb("competitor_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  marketGapAnalysisId: varchar("market_gap_analysis_id", { length: 36 }),
+  strategies: jsonb("strategies").$type<Record<string, unknown>[]>().notNull(),
+  decisions: jsonb("decisions").$type<Record<string, "approved" | "rejected">>().notNull().default(sql`'{}'::jsonb`),
+  source: varchar("source", { length: 10 }).notNull().default("claude"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ ownerIdx: index("competitive_strategies_owner_idx").on(t.ownerId, t.createdAt.desc()) }));

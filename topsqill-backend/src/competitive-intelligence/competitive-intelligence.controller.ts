@@ -5,6 +5,8 @@ import { Type } from "class-transformer";
 import { CompetitiveIntelligenceService } from "./competitive-intelligence.service";
 import { CompetitorDiscoveryService, CATEGORIES, type Category } from "./competitor-discovery.service";
 import { CompetitorCreativeAnalysisService } from "./competitor-creative-analysis.service";
+import { MarketGapAnalysisService } from "./market-gap.service";
+import { CompetitiveStrategyService } from "./competitive-strategy.service";
 import { CurrentUser, AuthUser } from "../auth/public.decorator";
 
 class SearchQueryDto {
@@ -45,6 +47,19 @@ class SuggestCompetitorsDto { @IsOptional() @IsString() businessId?: string; }
 
 class SetCompetitorStatusDto { @IsIn(["accepted", "rejected"]) status: "accepted" | "rejected"; }
 
+class AnalyseGapDto {
+  @IsOptional() @IsString() businessId?: string;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(5) @IsString({ each: true }) competitorIds: string[];
+}
+
+class GenerateStrategyDto {
+  @IsOptional() @IsString() businessId?: string;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(5) @IsString({ each: true }) competitorIds: string[];
+  @IsOptional() @IsString() marketGapAnalysisId?: string;
+}
+
+class ResolveItemDto { @IsIn(["approved", "rejected"]) status: "approved" | "rejected"; }
+
 /**
  * Competitive Intelligence: competitor discovery (Module 1), a real,
  * on-demand search of Meta's public Ad Library (Module 2, the one source
@@ -60,6 +75,8 @@ export class CompetitiveIntelligenceController {
     private readonly svc: CompetitiveIntelligenceService,
     private readonly discovery: CompetitorDiscoveryService,
     private readonly analysis: CompetitorCreativeAnalysisService,
+    private readonly gaps: MarketGapAnalysisService,
+    private readonly strategies: CompetitiveStrategyService,
   ) {}
 
   /* ------------------------------ ad search ------------------------------ */
@@ -107,4 +124,36 @@ export class CompetitiveIntelligenceController {
 
   @Delete("competitors/:id")
   removeCompetitor(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.discovery.remove(user.id, id); }
+
+  /* ------------------------------ market gaps ------------------------------ */
+
+  @Post("market-gaps") @ApiOperation({ summary: "Find evidence-grounded growth opportunities by comparing your business against tracked competitors" })
+  analyseGaps(@CurrentUser() user: AuthUser, @Body() dto: AnalyseGapDto) { return this.gaps.analyse(user.id, dto); }
+
+  @Get("market-gaps") @ApiOperation({ summary: "List past market-gap analyses" })
+  listGaps(@CurrentUser() user: AuthUser, @Query("businessId") businessId?: string) { return this.gaps.list(user.id, businessId); }
+
+  @Get("market-gaps/:id")
+  getGap(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.gaps.get(user.id, id); }
+
+  @Post("market-gaps/:id/opportunities/:oppId/resolve") @ApiOperation({ summary: "Approve or reject one opportunity" })
+  resolveOpportunity(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("oppId") oppId: string, @Body() dto: ResolveItemDto) {
+    return this.gaps.resolveOpportunity(user.id, id, oppId, dto.status);
+  }
+
+  /* ------------------------------ strategies ------------------------------ */
+
+  @Post("strategies") @ApiOperation({ summary: "Generate 1-3 differentiation strategies grounded in your business, competitors and (optionally) an approved market-gap analysis" })
+  generateStrategies(@CurrentUser() user: AuthUser, @Body() dto: GenerateStrategyDto) { return this.strategies.generate(user.id, dto); }
+
+  @Get("strategies") @ApiOperation({ summary: "List past strategy generations" })
+  listStrategies(@CurrentUser() user: AuthUser, @Query("businessId") businessId?: string) { return this.strategies.list(user.id, businessId); }
+
+  @Get("strategies/:id")
+  getStrategy(@CurrentUser() user: AuthUser, @Param("id") id: string) { return this.strategies.get(user.id, id); }
+
+  @Post("strategies/:id/items/:stratId/resolve") @ApiOperation({ summary: "Approve or reject one strategy" })
+  resolveStrategy(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("stratId") stratId: string, @Body() dto: ResolveItemDto) {
+    return this.strategies.resolveStrategy(user.id, id, stratId, dto.status);
+  }
 }

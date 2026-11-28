@@ -22,6 +22,7 @@ export default async function CompetitiveIntelligencePage() {
         Shows real ad text, how long each has run, and an AI creative-strategy breakdown - never a competitor&apos;s CTR, ROAS, spend or sales, since that data isn&apos;t available from this source.
       </p>
       <CompetitiveIntelligenceWorkspace />
+      <p style={{ marginTop: 16 }}><Link href="/market-strategy">Find market-gap opportunities &amp; strategies →</Link></p>
     </Shell>
   );
 }
